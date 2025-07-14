@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ehrax"
+version = "2025.0.0"
+authors = [
+    {name= "Asem Alaa", email = "asem.a.abdelaziz@proton.me"}
+]
+description = "EHRs io+processing for JAX+equinox compatible tasks, e.g. mainly ML."
+readme = "README.md"
+license-files = ["LICEN[CS]E"]
+keywords = ["electronic-health-records", "ehr", "coding-schemes", "ICD", "ICD9", "ICD10", "CCS", "MIMIC", "health-informatics",
+    "data-processing-pipelines", "dataset", "vectorization",
+    "serialization", "hdf5", "jax", "pytree", "equinox"
+]
+requires-python = ">= 3.12"
+dependencies = [
+    "equinox>=0.12.2",
+    "numpy==2.3.0",
+    "pandas==2.3.0",
+    "tables==3.10.2",
+    "dask[complete]==2025.5.1",
+    "scipy==1.15.3",
+    "tqdm==4.67.1",
+    "networkx==3.5",
+    "SQLAlchemy==2.0.41",
+    "psycopg==3.2.9"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Healthcare Industry",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Information Analysis"
+]
+urls = {repository = ""}

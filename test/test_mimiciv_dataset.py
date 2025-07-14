@@ -1,0 +1,97 @@
+import equinox as eqx
+import numpy as np
+import pandas as pd
+import pytest
+
+from ehrax.dataset import Report, Dataset
+from ehrax.transformations import ICUInputRateUnitConversion, FilterInvalidInputRatesSubjects
+from test.common_setup import DATASET_CONFIG, DATASET_SCHEME_MANAGER, MockMIMICIVDataset
+
+
+class TestUnitConversionAndFilterInvalidInputRates:
+
+    @pytest.fixture(scope='class')
+    def fixed_dataset(self, mimiciv_dataset_no_conv: MockMIMICIVDataset) -> Dataset:
+        return ICUInputRateUnitConversion.apply(mimiciv_dataset_no_conv, DATASET_SCHEME_MANAGER, Report())[0]
+
+    @pytest.fixture(scope='class')
+    def icu_inputs_unfixed(self, mimiciv_dataset_no_conv: MockMIMICIVDataset):
+        return mimiciv_dataset_no_conv.tables.icu_inputs
+
+    @pytest.fixture(scope='class')
+    def icu_inputs_fixed(self, fixed_dataset: Dataset):
+        return fixed_dataset.tables.icu_inputs
+
+    @pytest.fixture(scope='class')
+    def derived_icu_inputs_cols(self):
+        assert DATASET_CONFIG.tables.icu_inputs is not None, \
+            "Dataset configuration does not have icu_inputs table defined."
+        c = DATASET_CONFIG.tables.icu_inputs
+        return [c.derived_unit_normalization_factor, c.derived_universal_unit,
+                c.derived_normalized_amount, c.derived_normalized_amount_per_hour]
+
+    def test_icu_input_rate_unit_conversion(self,
+                                            icu_inputs_fixed: pd.DataFrame,
+                                            icu_inputs_unfixed: pd.DataFrame,
+                                            unit_converter_table: pd.DataFrame,
+                                            derived_icu_inputs_cols: list[str]):
+        assert all(c not in icu_inputs_unfixed.columns for c in derived_icu_inputs_cols)
+        assert all(c in icu_inputs_fixed.columns for c in derived_icu_inputs_cols)
+        assert DATASET_CONFIG.tables.icu_inputs is not None, \
+            "Dataset configuration does not have icu_inputs table defined."
+        c = DATASET_CONFIG.tables.icu_inputs
+
+        # For every (code, unit) pair, a unique normalization factor and universal unit is assigned.
+        for (code, unit), inputs_df in icu_inputs_fixed.groupby([c.code_alias, c.amount_unit_alias]):
+            ctable = unit_converter_table[(unit_converter_table[c.code_alias] == code)]
+            ctable = ctable[ctable[c.amount_unit_alias] == unit]
+            norm_factor = ctable[c.derived_unit_normalization_factor].iloc[0]
+            universal_unit = ctable[c.derived_universal_unit].iloc[0]
+
+            assert inputs_df[c.derived_universal_unit].unique() == universal_unit
+            assert inputs_df[c.derived_unit_normalization_factor].unique() == norm_factor
+            assert inputs_df[c.derived_normalized_amount].equals(
+                inputs_df[c.amount_alias] * norm_factor)
+
+    @pytest.fixture(scope='class')
+    def nan_inputs_dataset(self, fixed_dataset: pd.DataFrame):
+        icu_inputs = fixed_dataset.tables.icu_inputs.copy()
+        assert DATASET_CONFIG.tables.icu_inputs is not None, \
+            "Dataset configuration does not have icu_inputs table defined."
+        c = DATASET_CONFIG.tables.icu_inputs
+        admission_id = icu_inputs.iloc[0][c.admission_id_alias]
+        icu_inputs.loc[
+            icu_inputs[c.admission_id_alias] == admission_id, c.derived_normalized_amount_per_hour] = np.nan
+        return eqx.tree_at(lambda x: x.tables.icu_inputs, fixed_dataset, icu_inputs)
+
+    @pytest.fixture(scope='class')
+    def filtered_dataset(self, nan_inputs_dataset: Dataset):
+        return FilterInvalidInputRatesSubjects.apply(nan_inputs_dataset, DATASET_SCHEME_MANAGER, Report())[0]
+
+    def test_filter_invalid_input_rates_subjects(self, nan_inputs_dataset: Dataset,
+                                                 filtered_dataset: Dataset):
+        icu_inputs0 = nan_inputs_dataset.tables.icu_inputs
+        admissions0 = nan_inputs_dataset.tables.admissions
+        static0 = nan_inputs_dataset.tables.static
+
+        icu_inputs1 = filtered_dataset.tables.icu_inputs
+        admissions1 = filtered_dataset.tables.admissions
+        static1 = filtered_dataset.tables.static
+        assert DATASET_CONFIG.tables.icu_inputs is not None, \
+            "Dataset configuration does not have icu_inputs table defined."
+        assert DATASET_CONFIG.tables.admissions is not None, \
+            "Dataset configuration does not have admissions table defined."
+        assert icu_inputs0 is not None, "ICU inputs table is not present in the dataset."
+        assert icu_inputs1 is not None, "Filtered ICU inputs table is not present in the dataset."
+        cicu = DATASET_CONFIG.tables.icu_inputs
+        cadm = DATASET_CONFIG.tables.admissions
+
+        admission_id = icu_inputs0.iloc[0][cicu.admission_id_alias]
+        subject_id = static0[static0.index == admissions0.loc[admission_id, cadm.subject_id_alias]].index[0]
+        subject_admissions = admissions0[admissions0[cadm.subject_id_alias] == subject_id]
+
+        assert subject_id not in static1.index
+        assert not subject_admissions.index.isin(admissions1.index).all()
+        assert not subject_admissions.index.isin(icu_inputs1[cicu.admission_id_alias]).all()
+        assert icu_inputs0[cicu.derived_normalized_amount_per_hour].isna().any()
+        assert not icu_inputs1[cicu.derived_normalized_amount_per_hour].isna().any()
