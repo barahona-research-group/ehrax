@@ -1,3 +1,4 @@
+import ast
 import dataclasses
 import enum
 import json
@@ -12,7 +13,6 @@ import jax.tree_util as jtu
 import numpy as np
 import pandas as pd
 import tables as tb
-
 from ehrax.utils import tree_hasnan, NumpyEncoder, ArrayTypes, np_module, load_config, write_config, equal_arrays
 
 _factory_registry: dict[str, type[eqx.Module]] = {}
@@ -195,7 +195,7 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
         if 'dtype' in meta:
             dtype = meta.pop('dtype')
             name = meta.pop('name')
-            name = name if name == name else None # when None serialized it ended up as a nan
+            name = name if name == name else None  # when None serialized it ended up as a nan
             return pd.Series(dtype=dtype, name=name, index=index)
 
         cols = []
@@ -406,15 +406,15 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
     def object_type_enum_name(cls, obj: Any) -> str:
         if type(obj) in _TYPE_ENUM_DICT:
             return _TYPE_ENUM_DICT[type(obj)]
-        elif isinstance(obj, SERIALIZABLE_FIELD.hdf_serializable.value):  ## Potentially a subclass of AbstractHDFSerializable
+        elif isinstance(obj,
+                        SERIALIZABLE_FIELD.hdf_serializable.value):  ## Potentially a subclass of AbstractHDFSerializable
             return SERIALIZABLE_FIELD.hdf_serializable.name
         elif isinstance(obj, SERIALIZABLE_FIELD.config.value):
             return SERIALIZABLE_FIELD.config.name
-        elif isinstance(obj, SERIALIZABLE_FIELD.pandas_dataframe.value): ## This is for PipelineReportTable.
+        elif isinstance(obj, SERIALIZABLE_FIELD.pandas_dataframe.value):  ## This is for PipelineReportTable.
             return SERIALIZABLE_FIELD.pandas_dataframe.name
         else:
             raise ValueError(f"Unsupported type {type(obj)}.")
-
 
     def equals(self, other: Self) -> bool:
         # Need stricter than equinox's `equal_trees(... ,typematch=True)`; For example, ensures pandas.DataFrame
@@ -522,7 +522,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
             cls.serialize_object(group, pd.Series(collection), 'data')
         else:
             fields = list(map(str, range(len(collection))))
-            group._v_attrs.type_enum = pd.Series(dict(zip(fields, map(cls.object_type_enum_name, collection))))
+            group._v_attrs.type_enum = cls._dict_to_str(dict(zip(fields, map(cls.object_type_enum_name, collection))))
             for i, item in enumerate(collection):
                 cls.serialize_object(group, item, str(i))
 
@@ -532,7 +532,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
             return []
         if 'data' in group:
             return pd.read_hdf(group._v_file.filename, key=group.data._v_pathname).values.tolist()
-        metadata = group._v_attrs.type_enum.to_dict()
+        metadata = cls._str_to_dict(group._v_attrs.type_enum)
         return [cls.deserialize_object(group, str(k), element_type) for k, element_type in metadata.items()]
 
     @classmethod
@@ -543,7 +543,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
             cls.serialize_object(group, pd.Series(d), 'data')
         else:
             fields = list(d.keys())
-            group._v_attrs.type_enum = pd.Series(dict(zip(fields, map(cls.object_type_enum_name, d.values()))))
+            group._v_attrs.type_enum = cls._dict_to_str(dict(zip(fields, map(cls.object_type_enum_name, d.values()))))
             for k, v in d.items():
                 cls.serialize_object(group, v, str(k))
 
@@ -553,8 +553,24 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
             return {}
         elif 'data' in group:
             return pd.read_hdf(group._v_file.filename, key=group.data._v_pathname).to_dict()
-        type_enum = group._v_attrs.type_enum.to_dict()
+        type_enum = cls._str_to_dict(group._v_attrs.type_enum)
         return {k: cls.deserialize_object(group, str(k), value_type_enum) for k, value_type_enum in type_enum.items()}
+
+    @staticmethod
+    def _dict_to_str(x: dict) -> str:
+        # we could have used pd.Series to store the dict, but could invoke pickle library
+        # which is not safe.
+        # Also could have used json.dumps, but it restricts key types to str type.
+        # It is a fair restriction, but for the sake of completeness we can just stringigy
+        # the dict with str(dict). Then later to restore it with ast.literal_eval(string)
+        # which deemed relatively safe to unpickling (no code executions), but not immune
+        # from DOS attacks: https://stackoverflow.com/a/7689085
+        # TODO: add tests to ensure pickle function are never invoked by tables library.
+        return str(x)
+
+    @staticmethod
+    def _str_to_dict(x: np.str_) -> dict:
+        return ast.literal_eval(x.item())
 
     def to_hdf_group(self, group: tb.Group) -> None:
         h5file = group._v_file
@@ -562,13 +578,22 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
         # Store the types enum for each attribute as a pd.Series (directly equivalent to a dictionary).
         fields = self.fields
         values = [getattr(self, attribute) for attribute in fields]
-        group._v_attrs.type_enum = pd.Series(dict(zip(fields, map(self.object_type_enum_name, values))))
+        group._v_attrs.type_enum = self._dict_to_str(dict(zip(fields, map(self.object_type_enum_name, values))))
         for attribute, obj in zip(fields, values):
             self.serialize_object(group, obj, attribute)
 
     @classmethod
     def _from_hdf_group(cls, group: tb.Group) -> Self:
-        type_enum = group._v_attrs.type_enum.to_dict()
+        # TODO: lazy-loading of attributes if (cls) has metadata flags for that attribute.
+        # hint 1: retrieve from (cls) all fields that has that metadata flag.
+        # hint 2: return an object that stores (HDF parent group descriptors, attr name, attr_type_enum)
+        # hint 3: that object type has the __getitem__ disabled except for the three attribites mentioned,
+        # hint 4: calling __getitem__ on a disabled attribute should return a descriptive message showing
+        # the reason of error and the solution.
+        # hint 5: a lazy-loaded object can be concretized calling ehrax.hdf_fetch_at(lambda x: x.lazy_attr, parent_obj)
+        # which returns a parent object with that attribute loaded.
+        # hint 6: implement another ehrax.hdf_fetch_all(obj) to load all tree lazy-loaded nodes.
+        type_enum = cls._str_to_dict(group._v_attrs.type_enum)
         data = {attr: cls.deserialize_object(group, attr, attr_type_enum) for attr, attr_type_enum in type_enum.items()}
         return cls(**data)
 
