@@ -4,7 +4,7 @@ import enum
 import json
 from abc import abstractmethod
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, NoneType
 from typing import Any, Callable, Self, TYPE_CHECKING, Collection, Mapping, Literal
 
 import equinox as eqx
@@ -13,6 +13,7 @@ import jax.tree_util as jtu
 import numpy as np
 import pandas as pd
 import tables as tb
+
 from ehrax.utils import tree_hasnan, NumpyEncoder, ArrayTypes, np_module, load_config, write_config, equal_arrays
 
 _factory_registry: dict[str, type[eqx.Module]] = {}
@@ -349,6 +350,23 @@ SERIES_GROUPED_ELEMENT = (SERIALIZABLE_FIELD.float, SERIALIZABLE_FIELD.integer, 
 SERIES_GROUPED_ELEMENT_TYPES = sum((e.value for e in SERIES_GROUPED_ELEMENT), ())
 
 
+class AbstractHDFNode(AbstractHDFSerializable):
+    """
+    This class represents an unfetched node in a PyTree/AbstractHDFSerializable.
+    This is similar to the notion of lazy-loading, but the library explicitly requires calling `fetch_at(..,..)`
+    or `fetch_all()` on any of the node ancestors, a
+    """
+
+    def __getattribute__(self, attr: str) -> NoneType:
+        try:
+            return super().__getattribute__(attr)
+        except AttributeError:
+            raise AttributeError(
+                f"You are trying to access an attribute in a lazy-loaded node. Please call `fetch_at(..,..)` or "
+                f"`fetch_all()` on any of the node ancestors first."
+            )
+
+
 class AbstractVxData(AbstractHDFSerializable, eqx.Module):
     """
     AbstractVxData class represents vectorized data object, which inherits from eqx.AbstractVxData.
@@ -586,8 +604,8 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
     def _from_hdf_group(cls, group: tb.Group) -> Self:
         # TODO: lazy-loading of attributes if (cls) has metadata flags for that attribute.
         # hint 1: retrieve from (cls) all fields that has that metadata flag.
-        # hint 2: return an object that stores (HDF parent group descriptors, attr name, attr_type_enum)
-        # hint 3: that object type has the __getitem__ disabled except for the three attribites mentioned,
+        # hint 2: return an object that stores (name, attr_type_enum)
+        # hint 3: that object type has the __getitem__ disabled except for the two attributes mentioned,
         # hint 4: calling __getitem__ on a disabled attribute should return a descriptive message showing
         # the reason of error and the solution.
         # hint 5: a lazy-loaded object can be concretized calling ehrax.hdf_fetch_at(lambda x: x.lazy_attr, parent_obj)
