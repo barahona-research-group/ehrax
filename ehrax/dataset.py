@@ -13,6 +13,7 @@ import equinox as eqx
 import numpy as np
 import pandas as pd
 
+from coding_scheme import UOMNormalizationScheme
 from .base import AbstractConfig, AbstractVxData
 from .coding_scheme import (CodingScheme, NumericalTypeHint, CodingSchemesManager, NumericScheme)
 from .utils import tqdm_constructor
@@ -360,7 +361,8 @@ class DatasetSchemeConfig(AbstractConfig):
     def __init__(self, ethnicity: Optional[str] = None, gender: Optional[str] = None,
                  dx_discharge: Optional[str] = None, obs: Optional[str] = None,
                  icu_procedures: Optional[str] = None, hosp_procedures: Optional[str] = None,
-                 icu_inputs: Optional[str] = None):
+                 icu_inputs: Optional[str] = None,
+                 icu_inputs_uom_normalizer: Optional[str] = None):
         self.ethnicity = ethnicity
         self.gender = gender
         self.dx_discharge = dx_discharge
@@ -439,11 +441,19 @@ class DatasetSchemeProxy:
         return self._scheme(self.config.icu_inputs)
 
     @property
+    def icu_inputs_uom_normalizer(self) -> Optional[UOMNormalizationScheme]:
+        if self.config.icu_inputs in self.schemes_context.uom_normalizer:
+            return self.schemes_context.uom_normalizer[self.config.icu_inputs]
+        else:
+            return None
+
+    @property
     def scheme_dict(self):
+        uom = self.icu_inputs_uom_normalizer
+        d = {'icu_inputs_uom_normalizer': uom} if uom is not None else {}
         return {
             k: self._scheme(v)
-            for k, v in self.config.scheme_fields().items() if self._scheme(v) is not None
-        }
+            for k, v in self.config.scheme_fields().items() if self._scheme(v) is not None} | d
 
 
 class ReportAttributes(AbstractConfig):
@@ -540,81 +550,82 @@ class AbstractTransformation(eqx.Module):
         return dataset, report.add(transformation=cls, operation='skip')
 
 
-class TransformationSequenceException(TypeError):
-    pass
-
-
-class DuplicateTransformationException(TransformationSequenceException):
-    pass
-
-
-class MissingDependencyException(TransformationSequenceException):
-    pass
-
-
-class BlockedTransformationException(TransformationSequenceException):
-    pass
-
-
-class TransformationsDependency(AbstractConfig):
-    depends: dict[type[AbstractTransformation], set[type[AbstractTransformation]]]
-    blocked_by: dict[type[AbstractTransformation], set[type[AbstractTransformation]]]
-
-    def __init__(self, depends: dict[type[AbstractTransformation], set[type[AbstractTransformation]]],
-                 blocked_by: dict[type[AbstractTransformation], set[type[AbstractTransformation]]]):
-        self.depends = depends
-        self.blocked_by = blocked_by
-
-    @staticmethod
-    def empty():
-        return TransformationsDependency(depends={}, blocked_by={})
-
-    @staticmethod
-    def inherit_features(transformation_type: type[AbstractTransformation],
-                         inheritable_map: dict[type[AbstractTransformation], set[type[AbstractTransformation]]]) -> set[
-        type[AbstractTransformation]]:
-        inherited_features = inheritable_map.get(transformation_type, set())
-        for d in inheritable_map:
-            if issubclass(transformation_type, d):
-                inherited_features |= inheritable_map[d]
-        return inherited_features
-
-    def merge(self, other: 'TransformationsDependency') -> 'TransformationsDependency':
-        common_depend_keys = set(self.depends.keys()) & set(other.depends.keys())
-        common_blocked_keys = set(self.blocked_by.keys()) & set(other.blocked_by.keys())
-        common_depends = {k: self.depends[k] | other.depends[k] for k in common_depend_keys}
-        common_blocked = {k: self.blocked_by[k] | other.blocked_by[k] for k in common_blocked_keys}
-        return TransformationsDependency(depends={**self.depends, **other.depends, **common_depends},
-                                         blocked_by={**self.blocked_by, **other.blocked_by, **common_blocked})
-
-    def get_dependencies(self, transformation_type: type[AbstractTransformation]) -> set[
-        type[AbstractTransformation]]:
-        return self.inherit_features(transformation_type, self.depends)
-
-    def get_blocked_by(self, transformation_type: type[AbstractTransformation]) -> set[
-        type[AbstractTransformation]]:
-        return self.inherit_features(transformation_type, self.blocked_by)
-
-    def validate_sequence(self, transformations: list[AbstractTransformation]):
-        transformations_type: list[type[AbstractTransformation]] = list(map(type, transformations))
-        if len(set(transformations_type)) != len(transformations_type):
-            raise DuplicateTransformationException("Transformation sequence contains duplicate transformations. "
-                                                   "Each transformation must appear only once. "
-                                                   f"Got {transformations}.")
-        applied_set: set[type[AbstractTransformation]] = set()
-        for t in transformations_type:
-            applied_set.add(t)
-            dependency_gap = self.get_dependencies(t) - applied_set
-            block_incidents = self.get_blocked_by(t) & applied_set
-            if len(dependency_gap) > 0:
-                raise MissingDependencyException(f"Transformation {t} depends on "
-                                                 f"{dependency_gap} which "
-                                                 "was not applied before."
-                                                 f"Got {transformations_type}.")
-            if len(block_incidents) > 0:
-                raise BlockedTransformationException(f"Transformation {t} is blocked by "
-                                                     f"{block_incidents} "
-                                                     f"which was applied before. Got {transformations_type}.")
+#
+# class TransformationSequenceException(TypeError):
+#     pass
+#
+#
+# class DuplicateTransformationException(TransformationSequenceException):
+#     pass
+#
+#
+# class MissingDependencyException(TransformationSequenceException):
+#     pass
+#
+#
+# class BlockedTransformationException(TransformationSequenceException):
+#     pass
+#
+#
+# class TransformationsDependency(AbstractConfig):
+#     depends: dict[type[AbstractTransformation], set[type[AbstractTransformation]]]
+#     blocked_by: dict[type[AbstractTransformation], set[type[AbstractTransformation]]]
+#
+#     def __init__(self, depends: dict[type[AbstractTransformation], set[type[AbstractTransformation]]],
+#                  blocked_by: dict[type[AbstractTransformation], set[type[AbstractTransformation]]]):
+#         self.depends = depends
+#         self.blocked_by = blocked_by
+#
+#     @staticmethod
+#     def empty():
+#         return TransformationsDependency(depends={}, blocked_by={})
+#
+#     @staticmethod
+#     def inherit_features(transformation_type: type[AbstractTransformation],
+#                          inheritable_map: dict[type[AbstractTransformation], set[type[AbstractTransformation]]]) -> set[
+#         type[AbstractTransformation]]:
+#         inherited_features = inheritable_map.get(transformation_type, set())
+#         for d in inheritable_map:
+#             if issubclass(transformation_type, d):
+#                 inherited_features |= inheritable_map[d]
+#         return inherited_features
+#
+#     def merge(self, other: 'TransformationsDependency') -> 'TransformationsDependency':
+#         common_depend_keys = set(self.depends.keys()) & set(other.depends.keys())
+#         common_blocked_keys = set(self.blocked_by.keys()) & set(other.blocked_by.keys())
+#         common_depends = {k: self.depends[k] | other.depends[k] for k in common_depend_keys}
+#         common_blocked = {k: self.blocked_by[k] | other.blocked_by[k] for k in common_blocked_keys}
+#         return TransformationsDependency(depends={**self.depends, **other.depends, **common_depends},
+#                                          blocked_by={**self.blocked_by, **other.blocked_by, **common_blocked})
+#
+#     def get_dependencies(self, transformation_type: type[AbstractTransformation]) -> set[
+#         type[AbstractTransformation]]:
+#         return self.inherit_features(transformation_type, self.depends)
+#
+#     def get_blocked_by(self, transformation_type: type[AbstractTransformation]) -> set[
+#         type[AbstractTransformation]]:
+#         return self.inherit_features(transformation_type, self.blocked_by)
+#
+#     def validate_sequence(self, transformations: list[AbstractTransformation]):
+#         transformations_type: list[type[AbstractTransformation]] = list(map(type, transformations))
+#         if len(set(transformations_type)) != len(transformations_type):
+#             raise DuplicateTransformationException("Transformation sequence contains duplicate transformations. "
+#                                                    "Each transformation must appear only once. "
+#                                                    f"Got {transformations}.")
+#         applied_set: set[type[AbstractTransformation]] = set()
+#         for t in transformations_type:
+#             applied_set.add(t)
+#             dependency_gap = self.get_dependencies(t) - applied_set
+#             block_incidents = self.get_blocked_by(t) & applied_set
+#             if len(dependency_gap) > 0:
+#                 raise MissingDependencyException(f"Transformation {t} depends on "
+#                                                  f"{dependency_gap} which "
+#                                                  "was not applied before."
+#                                                  f"Got {transformations_type}.")
+#             if len(block_incidents) > 0:
+#                 raise BlockedTransformationException(f"Transformation {t} is blocked by "
+#                                                      f"{block_incidents} "
+#                                                      f"which was applied before. Got {transformations_type}.")
 
 
 class AbstractDatasetPipelineConfig(AbstractConfig):
@@ -624,7 +635,7 @@ class AbstractDatasetPipelineConfig(AbstractConfig):
 class AbstractDatasetPipeline(AbstractVxData, metaclass=ABCMeta):
     config: AbstractDatasetPipelineConfig
     transformations: list[AbstractTransformation]
-    validator: ClassVar[TransformationsDependency] = TransformationsDependency.empty()
+    # validator: ClassVar[TransformationsDependency] = TransformationsDependency.empty()
     report_class: ClassVar[type[Report]] = Report
 
     def __init__(self, config: AbstractDatasetPipelineConfig = AbstractDatasetPipelineConfig(), *,
@@ -632,8 +643,8 @@ class AbstractDatasetPipeline(AbstractVxData, metaclass=ABCMeta):
         self.config = config
         self.transformations = transformations
 
-    def __check_init__(self):
-        self.validator.validate_sequence(self.transformations)
+    # def __check_init__(self):
+    # self.validator.validate_sequence(self.transformations)
 
 
 class AbstractProcessedDataset(AbstractDataset):

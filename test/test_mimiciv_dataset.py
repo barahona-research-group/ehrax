@@ -4,7 +4,8 @@ import pandas as pd
 import pytest
 
 from ehrax.dataset import Report, Dataset
-from ehrax.transformations import ICUInputRateUnitConversion, FilterInvalidInputRatesSubjects
+from ehrax.example_datasets.mimiciv_transformations import ICUInputRateUnitConversion
+from ehrax.transformations import FilterInvalidInputRatesSubjects
 from test.common_setup import DATASET_CONFIG, DATASET_SCHEME_MANAGER, MockMIMICIVDataset
 
 

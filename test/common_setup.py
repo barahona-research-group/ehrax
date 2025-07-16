@@ -8,14 +8,11 @@ from ehrax.coding_scheme import FrozenDict11, ReducedCodeMapN1, NumericScheme, C
     FrozenDict1N, OutcomeExtractor, ExcludingOutcomeExtractor, CodesVector, CodeMap
 from ehrax.dataset import DatasetTablesConfig, RatedInputTableConfig, AdmissionTimestampedCodedValueTableConfig, \
     AdmissionLinkedCodedValueTableConfig, AdmissionIntervalBasedCodedTableConfig, StaticTableConfig, \
-    AdmissionTableConfig, DatasetTables, DatasetConfig, Dataset, AbstractDatasetPipeline, DatasetSchemeProxy, \
-    DatasetSchemeConfig
-from ehrax.transformations import ValidatedDatasetPipeline, SetIndex, CastTimestamps, ICUInputRateUnitConversion, \
-    SetAdmissionRelativeTimes, SynchronizeSubjects
+    AdmissionTableConfig, DatasetTables, DatasetConfig, DatasetSchemeConfig
 from ehrax.tvx_concepts import AdmissionDates, InpatientInterventions, LeadingObservableExtractorConfig, \
     LeadingObservableExtractor, Admission, SegmentedInpatientInterventions, InpatientObservables, InpatientInput, \
     DemographicVectorConfig, StaticInfo
-from ehrax.tvx_ehr import AbstractTVxPipeline, TVxEHR, TVxEHRConfig, TVxEHRSchemeConfig
+from ehrax.tvx_ehr import TVxEHRConfig, TVxEHRSchemeConfig
 
 MAX_STAY_DAYS = 356
 LENGTH_OF_STAY = 5.0
@@ -506,44 +503,3 @@ def _admissions(n_admissions, dx_scheme: CodingScheme,
                                                                             icu_inputs=icu_inputs),
                                      leading_observable=lead))
     return admissions
-
-
-class NaiveDataset(Dataset):
-
-    @classmethod
-    def make_default_pipeline(cls) -> AbstractDatasetPipeline:
-        return AbstractDatasetPipeline(transformations=[SetIndex(), SynchronizeSubjects()])
-
-    @classmethod
-    def load_tables(cls, config: DatasetConfig, scheme: DatasetSchemeProxy) -> DatasetTables:
-        return None
-
-
-class MockMIMICIVDatasetSchemeConfig(DatasetSchemeConfig):
-
-    @property
-    def icu_inputs_uom_normalization_table(self):
-        return 0
-
-
-class MockMIMICIVDataset(NaiveDataset):
-
-    @staticmethod
-    def icu_inputs_uom_normalization(icu_inputs_config: RatedInputTableConfig,
-                                     icu_inputs_uom_normalization_table: pd.DataFrame) -> pd.DataFrame:
-        return icu_inputs_uom_normalization_table
-
-    @classmethod
-    def make_default_pipeline(cls, config: DatasetConfig) -> AbstractDatasetPipeline:
-        return ValidatedDatasetPipeline(
-            transformations=[SetIndex(), SynchronizeSubjects(), CastTimestamps(), ICUInputRateUnitConversion(),
-                             SetAdmissionRelativeTimes()])
-
-
-class NaiveEHR(TVxEHR):
-    @classmethod
-    def make_default_pipeline(cls, config: DatasetConfig) -> AbstractDatasetPipeline:
-        return AbstractTVxPipeline(transformations=[])
-
-    def __repr__(self):
-        return 'NaiveEHR'

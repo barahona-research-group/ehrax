@@ -22,7 +22,8 @@ from ..dataset import (StaticTableConfig,
                        DatasetTables, DatasetConfig, DatasetSchemeConfig, Dataset, AbstractDatasetPipelineConfig,
                        DatasetSchemeProxy)
 from ..example_schemes.icd import setup_standard_icd_ccs, CCSICDSchemeSelection, CCSICDOutcomeSelection
-from ..example_schemes.mimic import MixedICDScheme, AggregatedICUInputsScheme, ObservableMIMICScheme
+from ..example_schemes.mimic import MixedICDScheme, AggregatedICUInputsScheme, ObservableMIMICScheme, \
+    ICUInputsUOMNormalizer
 from ..utils import tqdm_constructor
 
 warnings.filterwarnings('error', category=RuntimeWarning, message=r'overflow encountered in cast')
@@ -999,6 +1000,13 @@ class MIMICIVSQLTablesInterface(AbstractVxData):
                 target_aggregation_column=c_aggregation,
                 mapping_table=mapping
             )
+
+        manager = ICUInputsUOMNormalizer.register_uom_normalizer(manager, config.icu_inputs, config.icu_inputs,
+                                                                 self.config.icu_inputs.derived_universal_unit,
+                                                                 self.config.icu_inputs.code_alias,
+                                                                 self.config.icu_inputs.amount_unit_alias,
+                                                                 self.config.icu_inputs.derived_unit_normalization_factor,
+                                                                 config.icu_inputs_uom_normalization_table)
         return manager
 
     def register_icu_procedures_scheme(self, manager: CodingSchemesManager,
@@ -1201,27 +1209,6 @@ class MIMICIVDataset(Dataset):
     config: MIMICIVDatasetConfig
 
     @staticmethod
-    def icu_inputs_uom_normalization(icu_inputs_config: RatedInputTableConfig,
-                                     icu_inputs_uom_normalization_table: pd.DataFrame) -> pd.DataFrame:
-        c_universal_uom = icu_inputs_config.derived_universal_unit
-        c_code = icu_inputs_config.code_alias
-        c_unit = icu_inputs_config.amount_unit_alias
-        c_normalization = icu_inputs_config.derived_unit_normalization_factor
-        df = icu_inputs_uom_normalization_table.astype({c_normalization: float})
-
-        columns = [c_code, c_unit, c_normalization]
-        assert all(c in df.columns for c in columns), \
-            f"Columns {columns} not found in the normalization table."
-
-        if c_universal_uom not in df.columns:
-            df[c_universal_uom] = ''
-            for code, code_df in df.groupby(c_code):
-                # Select the first unit associated with 1.0 as a normalization factor.
-                index = code_df[code_df[c_normalization] == 1.0].first_valid_index()
-                if index is not None:
-                    df.loc[code_df.index, c_universal_uom] = code_df.loc[index, c_unit]
-        return df
-
     @classmethod
     def load_scheme_manager(cls, config: MIMICIVDatasetConfig) -> CodingSchemesManager:
         sql = MIMICIVSQLTablesInterface(config.tables)

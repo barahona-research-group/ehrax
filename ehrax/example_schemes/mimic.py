@@ -4,6 +4,8 @@ from typing import Self
 
 import pandas as pd
 
+from ehrax.coding_scheme import UOMNormalizationScheme
+from ehrax.freezer import FrozenDict1NM
 from ..coding_scheme import FrozenDict11, FrozenDict1N, CodingScheme, CodingSchemesManager, \
     CodeMap, NumericScheme, ReducedCodeMapN1
 from ..example_schemes.icd import ICDScheme
@@ -218,3 +220,43 @@ class AggregatedICUInputsScheme(CodingScheme):
                                                           target_name=target_scheme.name,
                                                           map_data=mapping,
                                                           set_aggregation=target_agg))
+
+
+class ICUInputsUOMNormalizer(UOMNormalizationScheme):
+
+    @staticmethod
+    def register_uom_normalizer(manager: CodingSchemesManager,
+                                base_scheme_name: str,
+                                scheme_name: str,
+                                derived_universal_unit_column: str,
+                                code_column: str,
+                                amount_unit_column: str,
+                                derived_unit_normalization_factor_column: float,
+                                icu_inputs_uom_normalization_table: pd.DataFrame) -> CodingSchemesManager:
+
+        df = icu_inputs_uom_normalization_table.astype({derived_unit_normalization_factor_column: float})
+        validate_columns = [code_column, amount_unit_column, derived_unit_normalization_factor_column]
+        assert all(c in df.columns for c in validate_columns), (
+            f"Some columns in {validate_columns} not found in the normalization table.")
+
+
+        uom_universal = {}
+        if derived_universal_unit_column in df.columns:
+            uom_universal = df.set_index(code_column)[derived_universal_unit_column].to_dict()
+
+        uom_data = {}
+        for code, code_df in df.groupby(code_column):
+            if code not in uom_universal:
+                # Select the first unit associated with 1.0 as a normalization factor.
+                index = code_df[code_df[derived_unit_normalization_factor_column] == 1.0].first_valid_index()
+                if index is not None:
+                    uom_universal[code] = code_df.loc[index, amount_unit_column]
+
+            if code in uom_universal:
+                uom_data[code] = {u: unit_df.iloc[0].item() for u, unit_df in
+                                  code_df.groupby(amount_unit_column)[derived_unit_normalization_factor_column]}
+
+        uom_scheme = UOMNormalizationScheme(name=scheme_name, base_name=base_scheme_name,
+                                            uom_normalization_factor=FrozenDict1NM(uom_data),
+                                            universal_unit=FrozenDict11(uom_universal))
+        return manager.add_uom_normalizer(uom_scheme)

@@ -8,16 +8,15 @@ import re
 from abc import abstractmethod, ABCMeta
 from collections import defaultdict, OrderedDict
 from functools import cached_property
-from pathlib import Path
 from types import MappingProxyType
-from typing import Optional, ClassVar, Literal, ItemsView, Iterator, Iterable, Mapping, Callable, Self, TypeVar, Generic
+from typing import Optional, ClassVar, Literal, Iterable, Mapping, Callable, Self
 
 import numpy as np
 import pandas as pd
 import tables as tbl  # type: ignore
 
-from ehrax.freezer import FrozenDict11, FrozenDict1N
 from ehrax.base import AbstractVxData
+from ehrax.freezer import FrozenDict11, FrozenDict1N, FrozenDict1NM
 from ehrax.utils import load_config, tqdm_constructor, Array
 
 NumericalTypeHint = Literal['B', 'N', 'O', 'C']  # Binary, Numerical, Ordinal, Categorical
@@ -25,6 +24,7 @@ NumericalTypeHint = Literal['B', 'N', 'O', 'C']  # Binary, Numerical, Ordinal, C
 
 def resources_dir(*subdir: str) -> str:
     return os.path.join(os.path.dirname(__file__), "resources", *subdir)
+
 
 class CodesVector(AbstractVxData):
     vec: Array
@@ -820,6 +820,24 @@ class ReducedCodeMapN1(CodeMap):
                             aggregation=self.groups_aggregation)
 
 
+class UOMNormalizationScheme(AbstractVxData):
+    name: str
+    base_name: str
+    uom_normalization_factor: FrozenDict1NM  # dict[code, dict[unit, conversion_factor]]
+    universal_unit: FrozenDict11
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.name})"
+
+    def __init__(self, name: str, base_name: str,
+                 uom_normalization_factor: FrozenDict1NM,
+                 universal_unit: FrozenDict11):
+        self.name = name
+        self.base_name = base_name
+        self.uom_normalization_factor = uom_normalization_factor
+        self.universal_unit = universal_unit
+
+
 class OutcomeExtractor(AbstractVxData, metaclass=ABCMeta):
     name: str
     base_name: str
@@ -911,15 +929,17 @@ class CodingSchemesManager(AbstractVxData):
     schemes: tuple[CodingScheme, ...]
     maps: tuple[CodeMap, ...]
     outcomes: tuple[OutcomeExtractor, ...]
+    uom_normalizers: tuple[UOMNormalizationScheme, ...]
 
     def __init__(self, schemes: tuple[CodingScheme, ...] = (), maps: tuple[CodeMap, ...] = (),
-                 outcomes: tuple[OutcomeExtractor, ...] = ()):
+                 outcomes: tuple[OutcomeExtractor, ...] = (), uom_normalizers: tuple[UOMNormalizationScheme, ...] = ()):
         self.schemes = schemes
         self.maps = maps
         self.outcomes = outcomes
+        self.uom_normalizers = uom_normalizers
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({self.schemes}, {self.maps}, {self.outcomes})"
+        return f"{self.__class__.__name__}({self.schemes}, {self.maps}, {self.outcomes}, {self.uom_normalizers})"
 
     def __len__(self):
         return len(self.schemes) + len(self.maps) + len(self.outcomes)
@@ -929,21 +949,32 @@ class CodingSchemesManager(AbstractVxData):
         if scheme.name in self.scheme:
             logging.warning(f'Scheme {scheme.name} already exists')
             return self
-        return type(self)(schemes=self.schemes + (scheme,), maps=self.maps, outcomes=self.outcomes)
+        return type(self)(schemes=self.schemes + (scheme,), maps=self.maps, outcomes=self.outcomes,
+                          uom_normalizers=self.uom_normalizers)
 
     def add_map(self, map: CodeMap) -> Self:
         assert isinstance(map, CodeMap), f"{map} is not a CodeMap."
         if (map.source_name, map.target_name) in self.map:
             logging.warning(f'Map {map.source_name}->{map.target_name} already exists')
             return self
-        return type(self)(schemes=self.schemes, maps=self.maps + (map,), outcomes=self.outcomes)
+        return type(self)(schemes=self.schemes, maps=self.maps + (map,), outcomes=self.outcomes,
+                          uom_normalizers=self.uom_normalizers)
 
     def add_outcome(self, outcome: OutcomeExtractor) -> Self:
         assert isinstance(outcome, OutcomeExtractor), f"{outcome} is not an OutcomeExtractor."
         if outcome.name in self.outcome:
             logging.warning(f'Outcome {outcome.name} already exists')
             return self
-        return type(self)(schemes=self.schemes, maps=self.maps, outcomes=self.outcomes + (outcome,))
+        return type(self)(schemes=self.schemes, maps=self.maps, outcomes=self.outcomes + (outcome,),
+                          uom_normalizers=self.uom_normalizers)
+
+    def add_uom_normalizer(self, uom_normalizer: UOMNormalizationScheme) -> Self:
+        assert isinstance(uom_normalizer, UOMNormalizationScheme), f"{uom_normalizer} is not an UOMNormalization."
+        if uom_normalizer.name in self.uom_normalizers:
+            logging.warning(f'UOMNormalizer {uom_normalizer.name} already exists')
+            return self
+        return type(self)(schemes=self.schemes, maps=self.maps, outcomes=self.outcomes,
+                          uom_normalizers=self.uom_normalizers + (uom_normalizer,))
 
     def supported_outcome(self, outcome_name: str, supporting_scheme: str) -> bool:
         return outcome_name in self.outcome and (supporting_scheme, self.outcome[outcome_name].base_name) in self.map
@@ -959,11 +990,13 @@ class CodingSchemesManager(AbstractVxData):
             updated = updated.add_map(m)
         for o in (o for o in other.outcomes if o.name not in updated.outcome):
             updated = updated.add_outcome(o)
+        for u in (u for u in other.uom_normalizers if u.name not in updated.uom_normalizers):
+            updated = updated.add_uom_normalizer(u)
         return updated
 
     @cached_property
-    def scheme(self) -> dict[str, CodingScheme]:
-        return {s.name: s for s in self.schemes}
+    def scheme(self) -> Mapping[str, CodingScheme]:
+        return MappingProxyType({s.name: s for s in self.schemes})
 
     @cached_property
     def identity_maps(self) -> dict[tuple[str, str], CodeMap]:
@@ -976,12 +1009,16 @@ class CodingSchemesManager(AbstractVxData):
         raise NotImplementedError
 
     @cached_property
-    def map(self) -> dict[tuple[str, str], CodeMap]:
-        return {(m.source_name, m.target_name): m for m in self.maps} | self.identity_maps
+    def map(self) -> Mapping[tuple[str, str], CodeMap]:
+        return MappingProxyType({(m.source_name, m.target_name): m for m in self.maps} | self.identity_maps)
 
     @cached_property
-    def outcome(self) -> dict[str, OutcomeExtractor]:
-        return {o.name: o for o in self.outcomes}
+    def outcome(self) -> Mapping[str, OutcomeExtractor]:
+        return MappingProxyType({o.name: o for o in self.outcomes})
+
+    @cached_property
+    def uom_normalizer(self) -> Mapping[str, UOMNormalizationScheme]:
+        return MappingProxyType({u.name: u for u in self.uom_normalizers})
 
     def register_chained_map(self, s_scheme: str, inter_scheme: str, t_scheme: str) -> Self:
         """
@@ -1050,19 +1087,3 @@ class CodingSchemesManager(AbstractVxData):
 
     def scheme_supported_targets(self, scheme) -> tuple[str, ...]:
         return tuple(t for s, t in self.map.keys() if s == scheme.name)
-
-    def save(self, store: str | Path | tbl.Group, overwrite: bool = False,
-             complib: Literal['blosc', 'zlib', 'lzo', 'bzip2'] = 'blosc', complevel: int = 9):
-        if not isinstance(store, tbl.Group):
-            filters = tbl.Filters(complib=complib, complevel=complevel)
-            with tbl.open_file(str(Path(store).with_suffix('.h5')), mode='w', filters=filters,
-                               max_numexpr_threads=None, max_blosc_threads=None) as store:
-                return self.save(store.root, overwrite=overwrite)
-        return self.to_hdf_group(store)
-
-    @classmethod
-    def load(cls, store: str | Path | tbl.Group):
-        if not isinstance(store, tbl.Group):
-            with tbl.open_file(str(Path(store).with_suffix('.h5')), 'r') as store:
-                return cls.load(store.root)
-        return CodingSchemesManager.from_hdf_group(store)
