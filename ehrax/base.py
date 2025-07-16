@@ -715,24 +715,41 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
     #     return self.equals(other)
 
 
-def fetch_at(where: Callable[[AbstractVxData], HDFVirtualNode], tree: AbstractVxData) -> AbstractVxData:
-    if not isinstance(where(tree), HDFVirtualNode):
+HDFVirtualNodeGet = Callable[[AbstractHDFSerializable], HDFVirtualNode]
+
+
+def _match_child_parent_paths(ch: list[str], pt: list[str]):
+    # E.g., if we hold a node representing the *patients*, and we want to fetch
+    # a v_node at the observables of the third admission of the patient at key/index 6, considering the nesting
+    # a.b.....y.z.patients[key].admissions[index].observables, then:
+    # child = ["6", "admissions", "2", "observables"]
+    # parent = ["a", "b", ..., "x", "y", "z", "patients", "6", "admissions", "2"]
+    return ch[:-1] == pt[-(len(ch) - 1):]
+
+
+def fetch_at(where: HDFVirtualNodeGet | tuple[HDFVirtualNodeGet, ...], tree: AbstractVxData) -> AbstractVxData:
+    # deal with a collection to avoid opening a file for each v_node fetch.
+    if callable(where):
+        where = (where,)
+
+    if any(not isinstance(w(tree), HDFVirtualNode) for w in where):
         logging.warning(f"You are trying to fetch a non-virtual node, which might be already fetched.")
 
-    vnode = where(tree)
-    node_path = path_from_getter(where)
-    parent_path = vnode.parent.split('/')
-    n = len(node_path)
-    assert node_path[:-1] == parent_path[-(n - 1):], (
-        f"Incompatible parent path and vnode path: {node_path} vnode: {parent_path}.")
-    with tb.open_file(vnode.filename, 'r') as hf5_file:
-        parent_group = hf5_file.get_node(parent_path)
-        assert isinstance(parent_group, tb.Group)
-        return eqx.tree_at(where, tree,
-                           AbstractVxData.deserialize_object(parent_group,
-                                                             attribute=node_path[-1],
-                                                             attr_type_enum_name=vnode.type_enum,
-                                                             defer=()))
+    v_nodes = [w(tree) for w in where]
+    v_nodes_paths = [path_from_getter(w) for w in where]
+    parent_paths = [v_node.parent_path.split('/') for v_node in v_nodes]
+
+    assert all(map(_match_child_parent_paths, v_nodes_paths, parent_paths)), (
+        f"Incompatible parent path and v_node path and parent path.")
+    assert all(v_node.filename == v_nodes[0].filename for v_node in v_nodes), "Unexpected Filename mismatch!"
+    with tb.open_file(v_nodes[0].filename, 'r') as hf5_file:
+        for w, v_node, attr in zip(where, v_nodes, map(lambda p: p[-1], v_nodes_paths)):
+            parent_group = hf5_file.get_node(v_node.parent_path)
+            assert isinstance(parent_group, tb.Group)
+            fetched = AbstractVxData.deserialize_object(parent_group, attribute=attr,
+                                                        attr_type_enum_name=v_node.type_enum, defer=())
+            tree = eqx.tree_at(w, tree, fetched)
+        return tree
     assert 0, "Unreachable."
 
 
@@ -747,22 +764,22 @@ def fetch_all(tree: AbstractVxData) -> AbstractVxData:
     assert all(isinstance(vn, HDFVirtualNode) for (_, vn) in leaves_with_path)
 
     filename = leaves_with_path[0][1].filename
-
     assert all(vn.filename == filename for (_, vn) in leaves_with_path), (
         f"Filenames of virtual nodes {tuple(vn.filename for (_, vn) in leaves_with_path)} do not match.")
-
+    v_nodes_paths = [path_from_jax_keypath(p) for (p, _) in leaves_with_path]
+    parents_paths = [vn.parent_path.split('/') for (_, vn) in leaves_with_path]
+    attrs = [p[-1] for p in v_nodes_paths]
+    assert all(map(_match_child_parent_paths, v_nodes_paths, parents_paths)), (
+        f"Incompatible parent path and v_node path and parent path.")
     with tb.open_file(filename, mode='r') as hf5_file:
         fetched_nodes = []
-        for path, v_node in leaves_with_path:
-            node_path = path_from_jax_keypath(path)
-            parent_path = v_node.parent.split('/')
-            n = len(node_path)
-            assert node_path[:-1] == parent_path[-(n - 1):], (
-                f"Incompatible parent path and v_node path: {node_path} v_node: {parent_path}.")
-            parent_group = hf5_file.get_node(parent_path)
+        for (_, v_node), attr in zip(leaves_with_path, attrs):
+            parent_group = hf5_file.get_node(v_node.parent_path)
             assert isinstance(parent_group, tb.Group)
-            fetched_nodes.append(AbstractVxData.deserialize_object(parent_group, attribute=node_path[-1],
-                                                                   attr_type_enum_name=v_node.type_enum, defer=()))
+            fetched = AbstractVxData.deserialize_object(parent_group, attribute=attr,
+                                                        attr_type_enum_name=v_node.type_enum, defer=())
+            fetched_nodes.append(fetched)
 
-    with_v_nodes = jtu.tree_unflatten(struct, fetched_nodes)
-    return eqx.combine(with_v_nodes, without_v_nodes)
+        with_v_nodes = jtu.tree_unflatten(struct, fetched_nodes)
+        return eqx.combine(with_v_nodes, without_v_nodes)
+    assert 0, "Unreachable."

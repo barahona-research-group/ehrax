@@ -319,3 +319,6 @@ class TestVxDataWithNesting(TestVxData):
     ])
     def vxdata_pair(self, request) -> tuple[VxData, VxData]:
         return VxData(*request.param[0]), VxData(*request.param[1])
+
+
+# Test lazy-loading...
