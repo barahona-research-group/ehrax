@@ -9,9 +9,9 @@ import tables as tb
 
 from ehrax.coding_scheme import NumericalTypeHint, CodingScheme
 from ehrax.tvx_concepts import (InpatientObservables, LeadingObservableExtractor,
-                                  InpatientInput, InpatientInterventions, SegmentedInpatientInterventions, Admission,
-                                  SegmentedAdmission, StaticInfo, Patient, SegmentedPatient,
-                                  SegmentedInpatientObservables)
+                                InpatientInput, InpatientInterventions, SegmentedInpatientInterventions, Admission,
+                                SegmentedAdmission, StaticInfo, Patient, SegmentedPatient,
+                                SegmentedInpatientObservables)
 from test.common_setup import BINARY_OBSERVATION_CODE_INDEX, CATEGORICAL_OBSERVATION_CODE_INDEX, \
     NUMERIC_OBSERVATION_CODE_INDEX, ORDINAL_OBSERVATION_CODE_INDEX, \
     inpatient_binary_input, LENGTH_OF_STAY, leading_observables_extractor, SCHEMES

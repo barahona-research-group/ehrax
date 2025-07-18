@@ -301,6 +301,7 @@ def path_from_jax_keypath(path: tuple[KeyEntry, ...]) -> list[str]:
                 return str(key)
             case _:
                 raise ValueError(f"Unexpected key {entry}")
+
     return list(map(_extract, path))
 
 

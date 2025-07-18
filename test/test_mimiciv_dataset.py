@@ -6,7 +6,7 @@ import pytest
 from ehrax.coding_scheme import CodingSchemeWithUOM
 from ehrax.dataset import Report, DatasetTables, DatasetSchemeConfig
 from ehrax.transformations import FilterInvalidInputRatesSubjects, ICUInputRateUnitConversion, SynchronizeSubjects, \
-    SetIndex, SetAdmissionRelativeTimes, CastTimestamps
+    SetIndex, CastTimestamps
 from test.common_setup import DATASET_CONFIG, DATASET_SCHEME_MANAGER, SCHEMES
 from .conftest import Dataset
 

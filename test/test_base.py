@@ -2,7 +2,6 @@ from types import MappingProxyType
 from typing import Any, Callable
 
 import equinox as eqx
-import jax.tree_util as jtu
 import numpy as np
 import pandas as pd
 import pytest

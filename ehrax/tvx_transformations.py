@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import random
 from abc import ABCMeta
-from typing import Final, Hashable, Optional, Callable, Any
+from typing import Hashable, Optional, Callable, Any
 
 import dask.dataframe as dd
 import equinox as eqx
@@ -13,7 +13,7 @@ import pandas as pd
 from .coding_scheme import CodeMap, CodingSchemesManager
 from .dataset import Dataset, AbstractTransformation, AdmissionIntervalBasedCodedTableConfig, \
     Report, SplitLiteral
-from .transformations import CastTimestamps, SetIndex, DatasetTransformation
+from .transformations import DatasetTransformation
 from .tvx_concepts import StaticInfo, CodesVector, InpatientInput, InpatientInterventions, InpatientObservables, \
     LeadingObservableExtractor, Admission, Patient
 from .tvx_ehr import TVxReportAttributes, TVxReport, CodedValueScaler, CodedValueProcessor, IQROutlierRemoverConfig, \
@@ -441,6 +441,8 @@ class InputScaler(TrainableTransformation):
                             operation=f'scaled_and_maybe_cast_{scaler.config.use_float16}',
                             before=dtype1, after=dtype2)
         return tvx_ehr, report
+
+
 #
 #
 # # TODO: add to the relations an explanation to be shown in the error messages.

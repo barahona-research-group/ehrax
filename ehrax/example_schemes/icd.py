@@ -11,8 +11,8 @@ import pandas as pd
 
 from ..base import AbstractConfig
 from ..coding_scheme import (CodingScheme, HierarchicalScheme,
-                                   CodeMap, resources_dir, CodingSchemesManager,
-                                   FrozenDict11, FrozenDict1N, ExcludingOutcomeExtractor)
+                             CodeMap, resources_dir, CodingSchemesManager,
+                             FrozenDict11, FrozenDict1N, ExcludingOutcomeExtractor)
 
 
 class ICDOps:

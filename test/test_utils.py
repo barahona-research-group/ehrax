@@ -1,6 +1,6 @@
 import pytest
-
 from jax._src.tree_util import SequenceKey, DictKey, GetAttrKey
+
 from ehrax.utils import path_from_jax_keypath, path_from_getter
 
 

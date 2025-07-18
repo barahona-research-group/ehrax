@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 import tables as tb
 
-from ehrax.base import fetch_all
 from ehrax.base import HDFVirtualNode
+from ehrax.base import fetch_all
 from ehrax.coding_scheme import CodesVector
 from ehrax.dataset import DatasetTables
 from ehrax.tvx_concepts import SegmentedPatient, Patient, SegmentedAdmission, Admission, InpatientInput, \
