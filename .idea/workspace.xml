@@ -5,20 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="4b6ad7af-6bd8-41b2-bef0-3f9591fb89b0" name="Changes" comment="fix import">
-      <change afterPath="$PROJECT_DIR$/test/requirements.txt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ehrax/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/ehrax/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ehrax/base.py" beforeDir="false" afterPath="$PROJECT_DIR$/ehrax/base.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/common_setup.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/common_setup.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/conftest.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/conftest.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_base.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_base.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_coding_scheme.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_coding_scheme.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_concepts.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_concepts.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_dataset.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_dataset.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_mimiciv_dataset.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_mimiciv_dataset.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/test/test_transformations.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_transformations.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_tvx_transformations.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_tvx_transformations.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_utils.py" afterDir="false" />
     </list>
     <list id="46eb6b4c-a64c-43c8-886f-9a2d2fc917fe" name="Changes by asem" comment="Changes by asem" />
     <option name="SHOW_DIALOG" value="false" />
@@ -61,6 +49,7 @@
     &quot;Python tests.Python tests for test_transformations.TestCastTimestamps.executor&quot;: &quot;Run&quot;,
     &quot;Python tests.Python tests for test_transformations.TestClampTimestamps.executor&quot;: &quot;Run&quot;,
     &quot;Python tests.Python tests for test_transformations.TestDatasetTransformation.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests for test_transformations.TestDatasetTransformation.test_generated_report1.executor&quot;: &quot;Run&quot;,
     &quot;Python tests.Python tests for test_transformations.TestFilterSubjectsWithNegativeAdmissionInterval.executor&quot;: &quot;Run&quot;,
     &quot;Python tests.Python tests for test_transformations.TestFilterSubjectsWithNegativeAdmissionInterval.test_filter_subjects_negative_admission_length.executor&quot;: &quot;Run&quot;,
     &quot;Python tests.Python tests for test_transformations.TestFilterUnsupportedCodes.executor&quot;: &quot;Run&quot;,
@@ -108,6 +97,22 @@
   }
 }</component>
   <component name="RunManager" selected="Python tests.Python tests in test">
+    <configuration name="Python tests for test_transformations.TestDatasetTransformation.test_generated_report1" type="tests" factoryName="Autodetect" temporary="true" nameIsGenerated="true">
+      <module name="ehrax" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/test" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="_new_additionalArguments" value="&quot;&quot;" />
+      <option name="_new_target" value="&quot;test_transformations.TestDatasetTransformation.test_generated_report1&quot;" />
+      <option name="_new_targetType" value="&quot;PYTHON&quot;" />
+      <method v="2" />
+    </configuration>
     <configuration name="Python tests for test_tvx_transformations.TestExcludeShortAdmissions" type="tests" factoryName="Autodetect" temporary="true" nameIsGenerated="true">
       <module name="ehrax" />
       <option name="ENV_FILES" value="" />
@@ -174,48 +179,22 @@
       <option name="_new_targetType" value="&quot;PYTHON&quot;" />
       <method v="2" />
     </configuration>
-    <configuration name="pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects" type="tests" factoryName="py.test" temporary="true" nameIsGenerated="true">
-      <module name="ehrax" />
-      <option name="ENV_FILES" value="" />
-      <option name="INTERPRETER_OPTIONS" value="" />
-      <option name="PARENT_ENVS" value="true" />
-      <option name="SDK_HOME" value="$USER_HOME$/anaconda3/envs/ICE-NODE/bin/python" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/test" />
-      <option name="IS_MODULE_SDK" value="true" />
-      <option name="ADD_CONTENT_ROOTS" value="true" />
-      <option name="ADD_SOURCE_ROOTS" value="true" />
-      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
-      <option name="_new_keywords" value="&quot;&quot;" />
-      <option name="_new_parameters" value="&quot;_1_subjects_2_admissions_20_records&quot;" />
-      <option name="_new_additionalArguments" value="&quot;&quot;" />
-      <option name="_new_target" value="&quot;test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects&quot;" />
-      <option name="_new_targetType" value="&quot;PYTHON&quot;" />
-      <method v="2" />
-    </configuration>
     <list>
-      <item itemvalue="Python tests.Python tests for test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects" />
-      <item itemvalue="Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects" />
-      <item itemvalue="Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects (1)" />
+      <item itemvalue="Python tests.Python tests for test_transformations.TestDatasetTransformation.test_generated_report1" />
       <item itemvalue="Python tests.Python tests for test_tvx_transformations.TestExcludeShortAdmissions" />
+      <item itemvalue="Python tests.Python tests for test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects" />
       <item itemvalue="Python tests.Python tests in test" />
+      <item itemvalue="Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects (1)" />
     </list>
     <recent_temporary>
       <list>
         <item itemvalue="Python tests.Python tests in test" />
+        <item itemvalue="Python tests.Python tests for test_transformations.TestDatasetTransformation.test_generated_report1" />
         <item itemvalue="Python tests.Python tests for test_tvx_transformations.TestExcludeShortAdmissions" />
         <item itemvalue="Python tests.Python tests for test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects" />
         <item itemvalue="Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects (1)" />
-        <item itemvalue="Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects" />
       </list>
     </recent_temporary>
-  </component>
-  <component name="SharedIndexes">
-    <attachedChunks>
-      <set>
-        <option value="bundled-js-predefined-d6986cc7102b-09060db00ec0-JavaScript-PY-251.26927.90" />
-        <option value="bundled-python-sdk-41e8cd69c857-64d779b69b7a-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-251.26927.90" />
-      </set>
-    </attachedChunks>
   </component>
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
@@ -233,6 +212,9 @@
       <workItem from="1752849864163" duration="260000" />
       <workItem from="1752854384289" duration="1762000" />
       <workItem from="1752865797578" duration="1350000" />
+      <workItem from="1752867462782" duration="157000" />
+      <workItem from="1752867690477" duration="60000" />
+      <workItem from="1752867887269" duration="749000" />
     </task>
     <task id="LOCAL-00001" summary="add setup for lazy loading featuers. TODO tests.">
       <option name="closed" value="true" />
@@ -403,7 +385,7 @@
     <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_dataset_TestDatasetWithRecords_test_execute_pipeline.coverage" NAME="pytest for test.test_dataset.TestDatasetWithRecords.test_execute_pipeline Coverage Results" MODIFIED="1752687172158" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
     <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_transformations_TestDatasetTransformation_test_synchronize_index_admissions.coverage" NAME="pytest for test.test_transformations.TestDatasetTransformation.test_synchronize_index_admissions Coverage Results" MODIFIED="1752773427644" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
     <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_base_TestLazyLoading_test_fetch_all.coverage" NAME="pytest for test.test_base.TestLazyLoading.test_fetch_all Coverage Results" MODIFIED="1752664557913" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
-    <SUITE FILE_PATH="coverage/ehrax$.coverage" NAME=" Coverage Results" MODIFIED="1752867279571" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
+    <SUITE FILE_PATH="coverage/ehrax$.coverage" NAME=" Coverage Results" MODIFIED="1752868713748" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
     <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_mimiciv_dataset_TestUnitConversionAndFilterInvalidInputRates_test_filter_invalid_input_rates_subjects.coverage" NAME="pytest for test.test_mimiciv_dataset.TestUnitConversionAndFilterInvalidInputRates.test_filter_invalid_input_rates_subjects Coverage Results" MODIFIED="1752768661411" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
     <SUITE FILE_PATH="coverage/ehrax$base.coverage" NAME="base Coverage Results" MODIFIED="1752780152614" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/ehrax" />
     <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_tvx_transformations_TestLeadExtraction_test_ehr_lazy_loading.coverage" NAME="pytest for test.test_tvx_transformations.TestLeadExtraction.test_ehr_lazy_loading Coverage Results" MODIFIED="1752800993793" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
