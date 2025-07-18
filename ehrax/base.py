@@ -421,7 +421,9 @@ class _MyCustomList(list):
     # (i.e. map back to a set) by identifying this type in the pytree. See `fetch_all` for more details.
 
     pass
-jtu.register_pytree_node(_MyCustomList, lambda x: (list(x),None)  , lambda _, x: _MyCustomList(x))
+
+
+jtu.register_pytree_node(_MyCustomList, lambda x: (list(x), None), lambda _, x: _MyCustomList(x))
 
 
 class AbstractVxData(AbstractHDFSerializable, eqx.Module):
@@ -765,6 +767,9 @@ def fetch_at(where: HDFVirtualNodeGet | tuple[HDFVirtualNodeGet, ...], tree: Abs
         where = (where,)
     if not isinstance(levels, (tuple, list)):
         levels = (levels,) * len(where)
+
+    if len(where) == 0:
+        return tree
 
     assert len(where) == len(levels), (
         f"Passed a tuple of getters and a tuple of levels of different sizes: {len(where)} and {len(levels)}.")

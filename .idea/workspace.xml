@@ -7,19 +7,7 @@
     <list default="true" id="4b6ad7af-6bd8-41b2-bef0-3f9591fb89b0" name="Changes" comment="Refactoring ehr mess.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ehrax/base.py" beforeDir="false" afterPath="$PROJECT_DIR$/ehrax/base.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ehrax/coding_scheme.py" beforeDir="false" afterPath="$PROJECT_DIR$/ehrax/coding_scheme.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ehrax/dataset.py" beforeDir="false" afterPath="$PROJECT_DIR$/ehrax/dataset.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ehrax/example_datasets/mimiciv.py" beforeDir="false" afterPath="$PROJECT_DIR$/ehrax/example_datasets/mimiciv.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ehrax/example_schemes/mimic.py" beforeDir="false" afterPath="$PROJECT_DIR$/ehrax/example_schemes/mimiciv_icd.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ehrax/transformations.py" beforeDir="false" afterPath="$PROJECT_DIR$/ehrax/transformations.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ehrax/tvx_transformations.py" beforeDir="false" afterPath="$PROJECT_DIR$/ehrax/tvx_transformations.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ehrax/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/ehrax/utils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/common_setup.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/common_setup.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/conftest.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/conftest.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_base.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_base.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_dataset.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_dataset.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_mimiciv_dataset.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_mimiciv_dataset.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_transformations.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_transformations.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ehrax/tvx_ehr.py" beforeDir="false" afterPath="$PROJECT_DIR$/ehrax/tvx_ehr.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/test/test_tvx_transformations.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_tvx_transformations.py" afterDir="false" />
     </list>
     <list id="46eb6b4c-a64c-43c8-886f-9a2d2fc917fe" name="Changes by asem" comment="">
@@ -45,19 +33,6 @@
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
-  </component>
-  <component name="LineStatusTrackerManager">
-    <file path="$PROJECT_DIR$/ehrax/dataset.py">
-      <ranges>
-        <range start1="15" end1="16" start2="15" end2="15" changelist="4b6ad7af-6bd8-41b2-bef0-3f9591fb89b0" />
-        <range start1="17" end1="18" start2="16" end2="17" changelist="4b6ad7af-6bd8-41b2-bef0-3f9591fb89b0" />
-        <range start1="439" end1="440" start2="438" end2="439" changelist="4b6ad7af-6bd8-41b2-bef0-3f9591fb89b0" />
-        <range start1="442" end1="449" start2="441" end2="441" changelist="4b6ad7af-6bd8-41b2-bef0-3f9591fb89b0" />
-        <range start1="451" end1="453" start2="443" end2="443" changelist="4b6ad7af-6bd8-41b2-bef0-3f9591fb89b0" />
-        <range start1="455" end1="456" start2="445" end2="446" changelist="4b6ad7af-6bd8-41b2-bef0-3f9591fb89b0" />
-        <range start1="521" end1="522" start2="511" end2="513" changelist="46eb6b4c-a64c-43c8-886f-9a2d2fc917fe" />
-      </ranges>
-    </file>
   </component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 2
@@ -89,6 +64,7 @@
     "Python tests.Python tests for test_tvx_transformations.TestLeadExtraction.test_ehr_lazy_leading.executor": "Run",
     "Python tests.Python tests for test_tvx_transformations.TestLeadExtraction.test_ehr_lazy_loading.executor": "Run",
     "Python tests.Python tests for test_tvx_transformations.TestLeadExtraction.test_ehr_serialization.executor": "Run",
+    "Python tests.Python tests for test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects.executor": "Run",
     "Python tests.Python tests in test.executor": "Run",
     "Python tests.Python tests in test_base.py.executor": "Debug",
     "Python tests.Python tests in test_coding_scheme.py.executor": "Run",
@@ -107,6 +83,8 @@
     "Python tests.pytest for test.test_transformations.TestDatasetTransformation.test_synchronize_index_admissions.executor": "Run",
     "Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_ehr_lazy_leading.executor": "Debug",
     "Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_ehr_lazy_loading.executor": "Debug",
+    "Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects (1).executor": "Run",
+    "Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects.executor": "Run",
     "Python.base.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
@@ -121,7 +99,7 @@
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
-  <component name="RunManager" selected="Python tests.Python tests in test">
+  <component name="RunManager" selected="Python tests.Python tests for test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects">
     <configuration name="Python tests for test_tvx_transformations.TestExcludeShortAdmissions" type="tests" factoryName="Autodetect" temporary="true" nameIsGenerated="true">
       <module name="ehrax" />
       <option name="ENV_FILES" value="" />
@@ -138,7 +116,7 @@
       <option name="_new_targetType" value="&quot;PYTHON&quot;" />
       <method v="2" />
     </configuration>
-    <configuration name="Python tests for test_tvx_transformations.TestExcludeShortAdmissions.test_filter" type="tests" factoryName="Autodetect" temporary="true" nameIsGenerated="true">
+    <configuration name="Python tests for test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects" type="tests" factoryName="Autodetect" temporary="true" nameIsGenerated="true">
       <module name="ehrax" />
       <option name="ENV_FILES" value="" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -150,7 +128,7 @@
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="_new_additionalArguments" value="&quot;&quot;" />
-      <option name="_new_target" value="&quot;test_tvx_transformations.TestExcludeShortAdmissions.test_filter&quot;" />
+      <option name="_new_target" value="&quot;test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects&quot;" />
       <option name="_new_targetType" value="&quot;PYTHON&quot;" />
       <method v="2" />
     </configuration>
@@ -170,23 +148,7 @@
       <option name="_new_targetType" value="&quot;PATH&quot;" />
       <method v="2" />
     </configuration>
-    <configuration name="Python tests in test_tvx_transformations.py" type="tests" factoryName="Autodetect" temporary="true" nameIsGenerated="true">
-      <module name="ehrax" />
-      <option name="ENV_FILES" value="" />
-      <option name="INTERPRETER_OPTIONS" value="" />
-      <option name="PARENT_ENVS" value="true" />
-      <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/test" />
-      <option name="IS_MODULE_SDK" value="true" />
-      <option name="ADD_CONTENT_ROOTS" value="true" />
-      <option name="ADD_SOURCE_ROOTS" value="true" />
-      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
-      <option name="_new_additionalArguments" value="&quot;&quot;" />
-      <option name="_new_target" value="&quot;$PROJECT_DIR$/test/test_tvx_transformations.py&quot;" />
-      <option name="_new_targetType" value="&quot;PATH&quot;" />
-      <method v="2" />
-    </configuration>
-    <configuration name="pytest for test.test_tvx_transformations.TestLeadExtraction.test_ehr_lazy_loading" type="tests" factoryName="py.test" temporary="true" nameIsGenerated="true">
+    <configuration name="pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects (1)" type="tests" factoryName="py.test" temporary="true" nameIsGenerated="true">
       <module name="ehrax" />
       <option name="ENV_FILES" value="" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -198,26 +160,44 @@
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="_new_keywords" value="&quot;&quot;" />
-      <option name="_new_parameters" value="&quot;_1_subjects_2_admissions_20_records-tvx_ehr_defer_getters0&quot;" />
+      <option name="_new_parameters" value="&quot;_300_subjects_900_admissions_22500_records&quot;" />
       <option name="_new_additionalArguments" value="&quot;&quot;" />
-      <option name="_new_target" value="&quot;test.test_tvx_transformations.TestLeadExtraction.test_ehr_lazy_loading&quot;" />
+      <option name="_new_target" value="&quot;test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects&quot;" />
+      <option name="_new_targetType" value="&quot;PYTHON&quot;" />
+      <method v="2" />
+    </configuration>
+    <configuration name="pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects" type="tests" factoryName="py.test" temporary="true" nameIsGenerated="true">
+      <module name="ehrax" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <option name="SDK_HOME" value="$USER_HOME$/anaconda3/envs/ICE-NODE/bin/python" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/test" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="_new_keywords" value="&quot;&quot;" />
+      <option name="_new_parameters" value="&quot;_1_subjects_2_admissions_20_records&quot;" />
+      <option name="_new_additionalArguments" value="&quot;&quot;" />
+      <option name="_new_target" value="&quot;test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects&quot;" />
       <option name="_new_targetType" value="&quot;PYTHON&quot;" />
       <method v="2" />
     </configuration>
     <list>
+      <item itemvalue="Python tests.Python tests for test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects" />
+      <item itemvalue="Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects" />
+      <item itemvalue="Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects (1)" />
       <item itemvalue="Python tests.Python tests for test_tvx_transformations.TestExcludeShortAdmissions" />
-      <item itemvalue="Python tests.Python tests for test_tvx_transformations.TestExcludeShortAdmissions.test_filter" />
       <item itemvalue="Python tests.Python tests in test" />
-      <item itemvalue="Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_ehr_lazy_loading" />
-      <item itemvalue="Python tests.Python tests in test_tvx_transformations.py" />
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="Python tests.Python tests for test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects" />
+        <item itemvalue="Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects (1)" />
+        <item itemvalue="Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects" />
         <item itemvalue="Python tests.Python tests in test" />
         <item itemvalue="Python tests.Python tests for test_tvx_transformations.TestExcludeShortAdmissions" />
-        <item itemvalue="Python tests.Python tests for test_tvx_transformations.TestExcludeShortAdmissions.test_filter" />
-        <item itemvalue="Python tests.Python tests in test_tvx_transformations.py" />
-        <item itemvalue="Python tests.pytest for test.test_tvx_transformations.TestLeadExtraction.test_ehr_lazy_loading" />
       </list>
     </recent_temporary>
   </component>
@@ -239,7 +219,8 @@
       <workItem from="1752565663500" duration="2189000" />
       <workItem from="1752589367387" duration="37194000" />
       <workItem from="1752687620489" duration="32000" />
-      <workItem from="1752687662073" duration="44474000" />
+      <workItem from="1752687662073" duration="44707000" />
+      <workItem from="1752832132915" duration="2367000" />
     </task>
     <task id="LOCAL-00001" summary="add setup for lazy loading featuers. TODO tests.">
       <option name="closed" value="true" />
@@ -257,7 +238,15 @@
       <option name="project" value="LOCAL" />
       <updated>1752697656386</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="Refactoring ehr mess.">
+      <option name="closed" value="true" />
+      <created>1752801616791</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1752801616791</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -272,11 +261,6 @@
     <breakpoint-manager>
       <breakpoints>
         <line-breakpoint suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/test/test_tvx_transformations.py</url>
-          <line>625</line>
-          <option name="timeStamp" value="34" />
-        </line-breakpoint>
-        <line-breakpoint suspend="THREAD" type="python-line">
           <condition expression="complete_vx_data.equals(loaded) == False" />
           <url>file://$PROJECT_DIR$/test/test_base.py</url>
           <line>408</line>
@@ -288,69 +272,83 @@
           <option name="timeStamp" value="49" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
-          <condition expression="loaded.equals(tvx_ehr_lead) == False" />
-          <url>file://$PROJECT_DIR$/test/test_tvx_transformations.py</url>
-          <line>629</line>
-          <option name="timeStamp" value="69" />
-        </line-breakpoint>
-        <line-breakpoint suspend="THREAD" type="python-line">
           <condition expression="(type(self) == type(other) and self.fields == other.fields and self.equal_attributes(self, other)) == False" />
           <url>file://$PROJECT_DIR$/ehrax/base.py</url>
-          <line>498</line>
+          <line>500</line>
           <option name="timeStamp" value="73" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <condition expression="_equal_attributes(self_value, other_value) == False" />
           <url>file://$PROJECT_DIR$/ehrax/base.py</url>
-          <line>538</line>
+          <line>540</line>
           <option name="timeStamp" value="74" />
-        </line-breakpoint>
-        <line-breakpoint type="python-line">
-          <url>file://$PROJECT_DIR$/test/test_tvx_transformations.py</url>
-          <line>628</line>
-          <option name="timeStamp" value="75" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <condition expression="type(a) != type(b)" />
           <url>file://$PROJECT_DIR$/ehrax/base.py</url>
-          <line>503</line>
+          <line>505</line>
           <option name="timeStamp" value="76" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <condition expression="a != b" />
           <url>file://$PROJECT_DIR$/ehrax/base.py</url>
-          <line>508</line>
+          <line>510</line>
           <option name="timeStamp" value="77" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <condition expression="equal_arrays(a, b) == False" />
           <url>file://$PROJECT_DIR$/ehrax/base.py</url>
-          <line>510</line>
+          <line>512</line>
           <option name="timeStamp" value="78" />
         </line-breakpoint>
         <line-breakpoint type="python-line">
           <condition expression="a.equals(b) == False" />
           <url>file://$PROJECT_DIR$/ehrax/base.py</url>
-          <line>512</line>
+          <line>514</line>
           <option name="timeStamp" value="79" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <condition expression="a.equals(b) == False" />
           <url>file://$PROJECT_DIR$/ehrax/base.py</url>
-          <line>516</line>
+          <line>518</line>
           <option name="timeStamp" value="80" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <condition expression="a != b" />
           <url>file://$PROJECT_DIR$/ehrax/base.py</url>
-          <line>519</line>
+          <line>521</line>
           <option name="timeStamp" value="81" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <condition expression="a != b" />
           <url>file://$PROJECT_DIR$/ehrax/base.py</url>
-          <line>525</line>
+          <line>527</line>
           <option name="timeStamp" value="82" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/ehrax/tvx_ehr.py</url>
+          <line>456</line>
+          <option name="timeStamp" value="83" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/test/test_tvx_transformations.py</url>
+          <line>642</line>
+          <option name="timeStamp" value="84" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/ehrax/base.py</url>
+          <line>770</line>
+          <option name="timeStamp" value="85" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/test/test_tvx_transformations.py</url>
+          <line>641</line>
+          <option name="timeStamp" value="88" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/ehrax/base.py</url>
+          <line>793</line>
+          <option name="timeStamp" value="89" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
@@ -358,14 +356,16 @@
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_tvx_transformations_TestLeadExtraction_test_ehr_lazy_leading.coverage" NAME="pytest for test.test_tvx_transformations.TestLeadExtraction.test_ehr_lazy_leading Coverage Results" MODIFIED="1752775342738" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
     <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_base_TestLazyLoading_test_fetch_all_after_fetch_one_level_at.coverage" NAME="pytest for test.test_base.TestLazyLoading.test_fetch_all_after_fetch_one_level_at Coverage Results" MODIFIED="1752786534517" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
-    <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_base_TestLazyLoading_test_fetch_one_level_at.coverage" NAME="pytest for test.test_base.TestLazyLoading.test_fetch_one_level_at Coverage Results" MODIFIED="1752779428386" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
+    <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_tvx_transformations_TestLeadExtraction_test_lazy_loading_subjects.coverage" NAME="pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects Coverage Results" MODIFIED="1752833525126" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
     <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_dataset_TestDatasetWithRecords_test_execute_pipeline.coverage" NAME="pytest for test.test_dataset.TestDatasetWithRecords.test_execute_pipeline Coverage Results" MODIFIED="1752687172158" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
     <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_transformations_TestDatasetTransformation_test_synchronize_index_admissions.coverage" NAME="pytest for test.test_transformations.TestDatasetTransformation.test_synchronize_index_admissions Coverage Results" MODIFIED="1752773427644" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
     <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_base_TestLazyLoading_test_fetch_all.coverage" NAME="pytest for test.test_base.TestLazyLoading.test_fetch_all Coverage Results" MODIFIED="1752664557913" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
-    <SUITE FILE_PATH="coverage/ehrax$.coverage" NAME=" Coverage Results" MODIFIED="1752801525117" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
+    <SUITE FILE_PATH="coverage/ehrax$.coverage" NAME=" Coverage Results" MODIFIED="1752834415032" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
     <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_mimiciv_dataset_TestUnitConversionAndFilterInvalidInputRates_test_filter_invalid_input_rates_subjects.coverage" NAME="pytest for test.test_mimiciv_dataset.TestUnitConversionAndFilterInvalidInputRates.test_filter_invalid_input_rates_subjects Coverage Results" MODIFIED="1752768661411" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
     <SUITE FILE_PATH="coverage/ehrax$base.coverage" NAME="base Coverage Results" MODIFIED="1752780152614" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/ehrax" />
-    <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_base_TestLazyLoading_test_invalid_equality.coverage" NAME="pytest for test.test_base.TestLazyLoading.test_invalid_equality Coverage Results" MODIFIED="1752664984631" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
     <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_tvx_transformations_TestLeadExtraction_test_ehr_lazy_loading.coverage" NAME="pytest for test.test_tvx_transformations.TestLeadExtraction.test_ehr_lazy_loading Coverage Results" MODIFIED="1752800993793" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
+    <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_base_TestLazyLoading_test_fetch_one_level_at.coverage" NAME="pytest for test.test_base.TestLazyLoading.test_fetch_one_level_at Coverage Results" MODIFIED="1752779428386" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
+    <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_tvx_transformations_TestLeadExtraction_test_lazy_loading_subjects__1_.coverage" NAME="pytest for test.test_tvx_transformations.TestLeadExtraction.test_lazy_loading_subjects (1) Coverage Results" MODIFIED="1752834399011" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
+    <SUITE FILE_PATH="coverage/ehrax$pytest_for_test_test_base_TestLazyLoading_test_invalid_equality.coverage" NAME="pytest for test.test_base.TestLazyLoading.test_invalid_equality Coverage Results" MODIFIED="1752664984631" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/test" />
   </component>
 </project>

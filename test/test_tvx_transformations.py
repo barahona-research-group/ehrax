@@ -620,7 +620,7 @@ class TestLeadExtraction:
         return tvx_ehr_lead.load(f'{tmpdir}/tvx_ehr_lead.h5', defer=(getter,),
                                  levels=(1,))
 
-    def test_ehr_lazy_loading(self, tvx_ehr_lead: TVxEHR, tvx_ehr_lazy_loaded: TVxEHR,
+    def test_lazy_loading(self, tvx_ehr_lead: TVxEHR, tvx_ehr_lazy_loaded: TVxEHR,
                               tvx_ehr_defer_getters: tuple[Callable[[TVxEHR], Any], type]):
         getter, node_type = tvx_ehr_defer_getters
         assert isinstance(getter(tvx_ehr_lazy_loaded), node_type)
@@ -628,6 +628,21 @@ class TestLeadExtraction:
             isinstance(child, HDFVirtualNode) for child in eqx.tree_flatten_one_level(getter(tvx_ehr_lazy_loaded))[0])
         loaded = fetch_all(tvx_ehr_lazy_loaded)
         assert loaded.equals(tvx_ehr_lead)
+
+    def test_lazy_loading_subjects(self, tvx_ehr_lead, tmpdir: str):
+
+        tvx_ehr_lead.save(f'{tmpdir}/tvx_ehr_lead.h5', complevel=0)
+        lazy_loaded = tvx_ehr_lead.load(f'{tmpdir}/tvx_ehr_lead.h5', defer=(lambda x: x.subjects,),
+                                 levels=(1,))
+
+        n = len(tvx_ehr_lead.subject_ids)
+        splits = tvx_ehr_lead.subject_ids[:n//2], tvx_ehr_lead.subject_ids[n//2:]
+        for split in splits:
+            lazy_loaded = lazy_loaded.fetch_subjects(split)
+            for subject_id in split:
+                assert lazy_loaded.subjects[subject_id].equals(tvx_ehr_lead.subjects[subject_id])
+
+
 
 
 class TestExcludeShortAdmissions:
