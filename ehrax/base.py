@@ -6,7 +6,7 @@ import logging
 from abc import abstractmethod
 from pathlib import Path
 from types import MappingProxyType, NoneType
-from typing import Any, Callable, Self, TYPE_CHECKING, Collection, Mapping, Literal, Optional, TypeVar
+from typing import Any, Callable, Self, TYPE_CHECKING, Collection, Mapping, Literal, Optional
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import tables as tb
 
-from .utils import NumpyEncoder, ArrayTypes, load_config, write_config, equal_arrays, \
+from ehrax.utils import tree_hasnan, NumpyEncoder, ArrayTypes, np_module, load_config, write_config, equal_arrays, \
     path_from_getter, path_from_jax_keypath
 
 _factory_registry: dict[str, type[eqx.Module]] = {}
@@ -29,7 +29,7 @@ class _ModuleMeta(type(eqx.Module)):
             bases,
             dict_,
             /,
-            strict: bool = False,
+            strict: bool | eqx.StrictConfig = False,
             **kwargs,
     ):
         cls = super().__new__(mcs, name, bases, dict_, strict=strict, **kwargs)
@@ -484,15 +484,13 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
             return _TYPE_ENUM_DICT[type(obj)]
         if type(obj) is _MyCustomList:
             return _TYPE_ENUM_DICT[type(list())]
-        elif isinstance(obj, SERIALIZABLE_FIELD.config.value):
-            return SERIALIZABLE_FIELD.config.name
         elif isinstance(obj,
                         SERIALIZABLE_FIELD.hdf_serializable.value):  ## Potentially a subclass of AbstractHDFSerializable
             return SERIALIZABLE_FIELD.hdf_serializable.name
+        elif isinstance(obj, SERIALIZABLE_FIELD.config.value):
+            return SERIALIZABLE_FIELD.config.name
         elif isinstance(obj, SERIALIZABLE_FIELD.pandas_dataframe.value):  ## This is for PipelineReportTable.
             return SERIALIZABLE_FIELD.pandas_dataframe.name
-        elif isinstance(obj, SERIALIZABLE_FIELD.numpy_array.value): ## This is for jax Array subclasses (e.g. jax.ArrayImpl)
-            return SERIALIZABLE_FIELD.numpy_array.name
         else:
             raise ValueError(f"Unsupported type {type(obj)}.")
 
@@ -616,7 +614,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
             fields = list(map(str, range(len(collection))))
             group._v_attrs.type_enum = cls._dict_to_str(dict(zip(fields, map(cls.object_type_enum_name, collection))))
             for i, item in enumerate(collection):
-                cls.serialize_object(group, item, f'i{i}')
+                cls.serialize_object(group, item, str(i))
 
     @classmethod
     def deserialize_collection(cls, group: tb.Group, defer: tuple[tuple[str, ...], ...], levels: Optional[int]) -> list[
@@ -626,7 +624,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
         if 'data' in group:
             return pd.read_hdf(group._v_file.filename, key=group.data._v_pathname).values.tolist()
         metadata = cls._str_to_dict(group._v_attrs.type_enum)
-        return [cls.deserialize_object(group, f'i{k}', element_type, defer, levels) for k, element_type in
+        return [cls.deserialize_object(group, str(k), element_type, defer, levels) for k, element_type in
                 metadata.items()]
 
     @classmethod
@@ -666,7 +664,6 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
 
     @staticmethod
     def _str_to_dict(x: np.str_) -> dict:
-        # see comment in _dict_to_str.
         return ast.literal_eval(x.item())
 
     def to_hdf_group(self, group: tb.Group) -> None:
@@ -735,6 +732,21 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
         arrs = jtu.tree_map(lambda a: jnp.array(a), arrs)
         return eqx.combine(arrs, others)
 
+    def replace_nans(self):
+        arrs, others = eqx.partition(self, eqx.is_array)
+        arrs = jtu.tree_map(lambda a: np_module(a).nan_to_num(a), arrs)
+        return eqx.combine(arrs, others)
+
+    def has_nans(self):
+        return tree_hasnan(self)
+
+    #
+    # def __eq__(self, other: Self) -> bool:
+    #     return self.equals(other)
+
+
+HDFVirtualNodeGet = Callable[[AbstractHDFSerializable], HDFVirtualNode]
+
 
 def _match_child_parent_paths(ch: list[str], pt: list[str]):
     # E.g., if we hold a node representing the *patients*, and we want to fetch
@@ -747,12 +759,8 @@ def _match_child_parent_paths(ch: list[str], pt: list[str]):
     return ch[:-1] == pt[-(len(ch) - 1):]
 
 
-T = TypeVar('T')
-HDFVirtualNodeGet = Callable[[T], HDFVirtualNode]
-
-
-def fetch_at(where: HDFVirtualNodeGet[T] | tuple[HDFVirtualNodeGet[T], ...], tree: T,
-             levels: Optional[int] | tuple[int, ...] = None) -> T:
+def fetch_at(where: HDFVirtualNodeGet | tuple[HDFVirtualNodeGet, ...], tree: AbstractVxData,
+             levels: Optional[int] | tuple[int, ...] = None) -> AbstractVxData:
     # deal with a collection to avoid opening a file for each v_node fetch.
     if callable(where):
         where = (where,)
@@ -786,14 +794,14 @@ def fetch_at(where: HDFVirtualNodeGet[T] | tuple[HDFVirtualNodeGet[T], ...], tre
     assert 0, "Unreachable."
 
 
-def fetch_one_level_at(where: HDFVirtualNodeGet[T] | tuple[HDFVirtualNodeGet[T], ...],
-                       tree: T) -> T:
+def fetch_one_level_at(where: HDFVirtualNodeGet | tuple[HDFVirtualNodeGet, ...],
+                       tree: AbstractVxData) -> AbstractVxData:
     # Useful to fetch dictionary keys with virtual nodes for values.
     # Or a collection of vitruals, or object with virtual nodes for attributes.
     return fetch_at(where, tree=tree, levels=1)
 
 
-def fetch_all(tree: T) -> T:
+def fetch_all(tree: AbstractVxData) -> AbstractVxData:
     # Note 1:
     # Preprocessing to catch any set in the pytree. JAX pytree does not
     # navigate into sets as it does with list/dicts/tuples.
