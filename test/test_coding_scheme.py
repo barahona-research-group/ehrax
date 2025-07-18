@@ -5,14 +5,11 @@ from unittest import mock
 import pytest
 import tables as tb
 
-from ehrax.coding_scheme import CodingSchemesManager, FrozenDict11, OutcomeExtractor, FrozenDict1N, ReducedCodeMapN1, \
-    CodingScheme
+import ehrax as rx
 from ehrax.example_schemes.icd import CCSICDSchemeSelection, setup_standard_icd_ccs, CCSICDOutcomeSelection, \
     setup_icd_schemes, setup_icd_outcomes
 
 _DIR = os.path.dirname(__file__)
-
-
 
 
 class TestFlatScheme:
@@ -27,17 +24,17 @@ class TestFlatScheme:
         else:
             desc = dict()
         return dict(name=request.param['name'], codes=tuple(sorted(request.param['codes'])),
-                    desc=FrozenDict11(desc))
+                    desc=rx.FrozenDict11(desc))
 
     @pytest.fixture(scope='class')
-    def primitive_flat_scheme(self, primitive_flat_scheme_kwarg) -> CodingScheme:
-        return CodingScheme(**primitive_flat_scheme_kwarg)
+    def primitive_flat_scheme(self, primitive_flat_scheme_kwarg) -> rx.CodingScheme:
+        return rx.CodingScheme(**primitive_flat_scheme_kwarg)
 
     @pytest.fixture(scope='class')
-    def scheme_manager(self, primitive_flat_scheme: CodingScheme) -> CodingSchemesManager:
-        return CodingSchemesManager().add_scheme(primitive_flat_scheme)
+    def scheme_manager(self, primitive_flat_scheme: rx.CodingScheme) -> rx.CodingSchemesManager:
+        return rx.CodingSchemesManager().add_scheme(primitive_flat_scheme)
 
-    def test_from_name(self, primitive_flat_scheme: CodingScheme, scheme_manager: CodingSchemesManager):
+    def test_from_name(self, primitive_flat_scheme: rx.CodingScheme, scheme_manager: rx.CodingSchemesManager):
         assert scheme_manager.scheme[primitive_flat_scheme.name].equals(primitive_flat_scheme)
 
         with pytest.raises(KeyError):
@@ -49,7 +46,7 @@ class TestFlatScheme:
                                        ('A', 'A', 'A', 'A')])
     def test_codes_uniqueness(self, codes):
         with pytest.raises(AssertionError) as excinfo:
-            CodingScheme(name='test', codes=tuple(sorted(codes)), desc=FrozenDict11({c: c for c in codes}))
+            _ = rx.CodingScheme(name='test', codes=tuple(sorted(codes)), desc=rx.FrozenDict11({c: c for c in codes}))
             assert 'should be unique' in str(excinfo.value)
 
     def test_register_scheme(self, primitive_flat_scheme):
@@ -63,7 +60,7 @@ class TestFlatScheme:
            register a scheme that is already registered with the same name and content.
         """
         # First, test that the register_scheme method works.
-        manager = CodingSchemesManager().add_scheme(primitive_flat_scheme)
+        manager = rx.CodingSchemesManager().add_scheme(primitive_flat_scheme)
         assert manager.scheme[primitive_flat_scheme.name].equals(primitive_flat_scheme)
 
         # Second, test that the register_scheme method raises an error when
@@ -83,13 +80,12 @@ class TestFlatScheme:
         assert primitive_flat_scheme.equals(primitive_flat_scheme)
 
         if len(primitive_flat_scheme) > 0:
-            desc_mutated = FrozenDict11(
+            desc_mutated = rx.FrozenDict11(
                 {code: f'{desc} muted' for code, desc in primitive_flat_scheme.desc.items()})
-            mutated_scheme = CodingScheme(name=primitive_flat_scheme.name,
-                                          codes=primitive_flat_scheme.codes,
-                                          desc=desc_mutated)
+            mutated_scheme = rx.CodingScheme(name=primitive_flat_scheme.name,
+                                             codes=primitive_flat_scheme.codes,
+                                             desc=desc_mutated)
             assert not primitive_flat_scheme.equals(mutated_scheme)
-
 
     @pytest.fixture(params=[('dx_icd10',), ('dx_icd9',), ('pr_icd9',), ('dx_flat_icd10',), ('pr_flat_icd10',),
                             ('dx_ccs', 'dx_icd9'), ('pr_ccs', 'pr_icd9'), ('dx_flat_ccs', 'dx_icd9'),
@@ -122,20 +118,21 @@ class TestFlatScheme:
         return tuple(scheme_selection.flag_set)
 
     @pytest.fixture(scope="class")
-    def icd_ccs_scheme_manager(self, scheme_selection: CCSICDSchemeSelection) -> CodingSchemesManager:
-        return setup_icd_schemes(CodingSchemesManager(), scheme_selection)
+    def icd_ccs_scheme_manager(self, scheme_selection: CCSICDSchemeSelection) -> rx.CodingSchemesManager:
+        return setup_icd_schemes(rx.CodingSchemesManager(), scheme_selection)
 
     @pytest.fixture(scope="class")
-    def icd_ccs_outcome_manager_prerequisite(self, outcome_selection: CCSICDOutcomeSelection) -> CodingSchemesManager:
-        return setup_icd_schemes(CodingSchemesManager(), CCSICDSchemeSelection(dx_icd9=True, dx_flat_ccs=True))
+    def icd_ccs_outcome_manager_prerequisite(self,
+                                             outcome_selection: CCSICDOutcomeSelection) -> rx.CodingSchemesManager:
+        return setup_icd_schemes(rx.CodingSchemesManager(), CCSICDSchemeSelection(dx_icd9=True, dx_flat_ccs=True))
 
     @pytest.fixture(scope="class")
-    def icd_ccs_map_manager(self, scheme_pair_selection: CCSICDSchemeSelection) -> CodingSchemesManager:
-        return setup_standard_icd_ccs(CodingSchemesManager(), scheme_pair_selection, CCSICDOutcomeSelection())
+    def icd_ccs_map_manager(self, scheme_pair_selection: CCSICDSchemeSelection) -> rx.CodingSchemesManager:
+        return setup_standard_icd_ccs(rx.CodingSchemesManager(), scheme_pair_selection, CCSICDOutcomeSelection())
 
     @pytest.fixture
-    def icd_ccs_outcome_manager(self, icd_ccs_outcome_manager_prerequisite: CodingSchemesManager,
-                                outcome_selection: CCSICDOutcomeSelection) -> CodingSchemesManager:
+    def icd_ccs_outcome_manager(self, icd_ccs_outcome_manager_prerequisite: rx.CodingSchemesManager,
+                                outcome_selection: CCSICDOutcomeSelection) -> rx.CodingSchemesManager:
         return setup_icd_outcomes(icd_ccs_outcome_manager_prerequisite, outcome_selection)
 
     def test_icd_ccs_schemes(self, icd_ccs_scheme_manager, selection_names):
@@ -144,7 +141,7 @@ class TestFlatScheme:
         for name in selection_names:
             assert name in icd_ccs_scheme_manager.scheme
             assert icd_ccs_scheme_manager.scheme[name].name == name
-            assert isinstance(icd_ccs_scheme_manager.scheme[name], CodingScheme)
+            assert isinstance(icd_ccs_scheme_manager.scheme[name], rx.CodingScheme)
 
     def test_icd_ccs_outcomes(self, icd_ccs_outcome_manager, outcome_selection_name):
         assert len(icd_ccs_outcome_manager.outcomes) == 1
@@ -152,9 +149,9 @@ class TestFlatScheme:
 
         assert outcome_selection_name in icd_ccs_outcome_manager.outcome
         assert icd_ccs_outcome_manager.outcome[outcome_selection_name].name == outcome_selection_name
-        assert isinstance(icd_ccs_outcome_manager.outcome[outcome_selection_name], OutcomeExtractor)
+        assert isinstance(icd_ccs_outcome_manager.outcome[outcome_selection_name], rx.OutcomeExtractor)
 
-    def test_icd_ccs_maps(self, icd_ccs_map_manager: CodingSchemesManager,
+    def test_icd_ccs_maps(self, icd_ccs_map_manager: rx.CodingSchemesManager,
                           scheme_pair_selection: CCSICDSchemeSelection):
         assert len(scheme_pair_selection.flag_set) == 2
         assert len(icd_ccs_map_manager.maps) == 2
@@ -178,45 +175,45 @@ class TestFlatScheme:
         assert m1.range_ratio(icd_ccs_map_manager.scheme[b]) > 0.2
         assert m2.range_ratio(icd_ccs_map_manager.scheme[a]) > 0.2
 
-    def test_primitive_scheme_serialization(self, primitive_flat_scheme: CodingScheme, tmpdir: str):
+    def test_primitive_scheme_serialization(self, primitive_flat_scheme: rx.CodingScheme, tmpdir: str):
         path = f'{tmpdir}/coding_scheme.h5'
         with tb.open_file(path, 'w') as f:
             primitive_flat_scheme.to_hdf_group(f.create_group('/', 'scheme_data'))
 
         with tb.open_file(path, 'r') as f:
-            reloaded = CodingScheme.from_hdf_group(f.root.scheme_data)
+            reloaded = rx.CodingScheme.from_hdf_group(f.root.scheme_data)
 
         assert primitive_flat_scheme.equals(reloaded)
 
-    def test_icd_ccs_scheme_serialization(self, icd_ccs_scheme_manager: CodingSchemesManager,
+    def test_icd_ccs_scheme_serialization(self, icd_ccs_scheme_manager: rx.CodingSchemesManager,
                                           tmpdir: str):
         path = f'{tmpdir}/coding_schemes.h5'
         with tb.open_file(path, 'w') as f:
             icd_ccs_scheme_manager.to_hdf_group(f.create_group('/', 'context_view'))
 
         with tb.open_file(path, 'r') as f:
-            reloaded = CodingSchemesManager.from_hdf_group(f.root.context_view)
+            reloaded = rx.CodingSchemesManager.from_hdf_group(f.root.context_view)
 
         assert icd_ccs_scheme_manager.equals(reloaded)
 
-    def test_icd_ccs_outcome_serialization(self, icd_ccs_outcome_manager: CodingSchemesManager, tmpdir: str):
+    def test_icd_ccs_outcome_serialization(self, icd_ccs_outcome_manager: rx.CodingSchemesManager, tmpdir: str):
         path = f'{tmpdir}/coding_schemes.h5'
         with tb.open_file(path, 'w') as f:
             icd_ccs_outcome_manager.to_hdf_group(f.create_group('/', 'context_view'))
 
         with tb.open_file(path, 'r') as f:
-            reloaded = CodingSchemesManager.from_hdf_group(f.root.context_view)
+            reloaded = rx.CodingSchemesManager.from_hdf_group(f.root.context_view)
 
         assert icd_ccs_outcome_manager.equals(reloaded)
 
-    def test_icd_ccs_map_serialization(self, icd_ccs_map_manager: CodingSchemesManager, hf5_group_writer: tb.Group,
+    def test_icd_ccs_map_serialization(self, icd_ccs_map_manager: rx.CodingSchemesManager, hf5_group_writer: tb.Group,
                                        tmpdir: str):
         path = f'{tmpdir}/coding_schemes.h5'
         with tb.open_file(path, 'w') as f:
             icd_ccs_map_manager.to_hdf_group(f.create_group('/', 'context_view'))
 
         with tb.open_file(path, 'r') as f:
-            reloaded = CodingSchemesManager.from_hdf_group(f.root.context_view)
+            reloaded = rx.CodingSchemesManager.from_hdf_group(f.root.context_view)
 
         assert icd_ccs_map_manager.equals(reloaded)
 
@@ -233,7 +230,7 @@ class TestFlatScheme:
         or KeyError to be raised.
         """
         with pytest.raises((AssertionError, KeyError)):
-            CodingScheme(name=name, codes=tuple(sorted(codes)), desc=FrozenDict11(desc))
+            rx.CodingScheme(name=name, codes=tuple(sorted(codes)), desc=rx.FrozenDict11(desc))
 
     @pytest.mark.parametrize("name, codes, desc", [
         ('problematic_desc', ['1', '3'], {'1': 'one'}),
@@ -250,7 +247,7 @@ class TestFlatScheme:
         FlatScheme constructor raises either an AssertionError or KeyError when provided with invalid input.
         """
         with pytest.raises((AssertionError, KeyError)):
-            CodingScheme(name=name, codes=tuple(sorted(codes)), desc=FrozenDict11(desc))
+            rx.CodingScheme(name=name, codes=tuple(sorted(codes)), desc=rx.FrozenDict11(desc))
 
     def test_index2code(self, primitive_flat_scheme):
         """
@@ -282,9 +279,9 @@ class TestFlatScheme:
 
         """
         # Arrange
-        scheme = CodingScheme(name='simple_searchable',
-                              codes=('1', '3'),
-                              desc=FrozenDict11({'1': 'one', '3': 'pancreatic cAnCeR'}))
+        scheme = rx.CodingScheme(name='simple_searchable',
+                                 codes=('1', '3'),
+                                 desc=rx.FrozenDict11({'1': 'one', '3': 'pancreatic cAnCeR'}))
         # Act & Assert
         assert scheme.search_regex('cancer') == {'3'}
         assert scheme.search_regex('one') == {'1'}
@@ -318,8 +315,8 @@ class TestFlatScheme:
         assert set(df.columns) == {'code', 'desc'}
         codes = df.code.tolist()
         desc = df.set_index('code')['desc'].to_dict()
-        assert primitive_flat_scheme.equals(CodingScheme(name=primitive_flat_scheme.name, codes=tuple(sorted(codes)),
-                                                         desc=FrozenDict11(desc)))
+        assert primitive_flat_scheme.equals(rx.CodingScheme(name=primitive_flat_scheme.name, codes=tuple(sorted(codes)),
+                                                            desc=rx.FrozenDict11(desc)))
 
 
 class TestSchemeManager:
@@ -336,53 +333,54 @@ class TestReducedCodeMapN1:
 
     @pytest.fixture(scope='class')
     def aggregation(self):
-        return FrozenDict11({'A1': 'w_sum',
-                             'A2': 'w_sum',
-                             'A3': 'w_sum',
-                             'A4': 'w_sum'})
+        return rx.FrozenDict11({'A1': 'w_sum',
+                                'A2': 'w_sum',
+                                'A3': 'w_sum',
+                                'A4': 'w_sum'})
 
     @pytest.fixture(scope='class')
-    def source_code_scheme(self, codes_n1) -> CodingScheme:
+    def source_code_scheme(self, codes_n1) -> rx.CodingScheme:
         codes = tuple(sorted(b for bs in codes_n1.values() for b in bs))
-        desc = FrozenDict11({b: b for b in codes})
-        return CodingScheme(name='source', codes=codes, desc=desc)
+        desc = rx.FrozenDict11({b: b for b in codes})
+        return rx.CodingScheme(name='source', codes=codes, desc=desc)
 
     @pytest.fixture(scope='class')
-    def target_code_scheme(self, codes_n1) -> CodingScheme:
-        desc = FrozenDict11({k: k for k in codes_n1.keys()})
-        return CodingScheme(name='target', codes=tuple(codes_n1.keys()), desc=desc)
+    def target_code_scheme(self, codes_n1) -> rx.CodingScheme:
+        desc = rx.FrozenDict11({k: k for k in codes_n1.keys()})
+        return rx.CodingScheme(name='target', codes=tuple(codes_n1.keys()), desc=desc)
 
     @pytest.fixture(scope='class')
-    def mapping_data(self, codes_n1) -> FrozenDict1N:
-        return FrozenDict1N({b: {a} for a, bs in codes_n1.items() for b in bs})
+    def mapping_data(self, codes_n1) -> rx.FrozenDict1N:
+        return rx.FrozenDict1N({b: {a} for a, bs in codes_n1.items() for b in bs})
 
     @pytest.fixture(scope='class')
     def reduced_code_map(self, source_code_scheme, target_code_scheme, mapping_data,
-                         aggregation) -> ReducedCodeMapN1:
-        return ReducedCodeMapN1.from_data(source_code_scheme.name,
-                                          target_code_scheme.name,
-                                          mapping_data, aggregation)
+                         aggregation) -> rx.ReducedCodeMapN1:
+        return rx.ReducedCodeMapN1.from_data(source_code_scheme.name,
+                                             target_code_scheme.name,
+                                             mapping_data, aggregation)
 
     @pytest.fixture(scope='class')
     def scheme_manager(self, source_code_scheme, target_code_scheme, reduced_code_map):
-        return CodingSchemesManager().add_scheme(source_code_scheme).add_scheme(target_code_scheme).add_map(
+        return rx.CodingSchemesManager().add_scheme(source_code_scheme).add_scheme(target_code_scheme).add_map(
             reduced_code_map)
 
     @pytest.fixture(scope='class')
-    def source_index(self, reduced_code_map: ReducedCodeMapN1, scheme_manager: CodingSchemesManager) -> dict[str, int]:
+    def source_index(self, reduced_code_map: rx.ReducedCodeMapN1, scheme_manager: rx.CodingSchemesManager) -> dict[
+        str, int]:
         return scheme_manager.scheme[reduced_code_map.source_name].index
 
-    def test_reduced_groups(self, reduced_code_map: ReducedCodeMapN1):
+    def test_reduced_groups(self, reduced_code_map: rx.ReducedCodeMapN1):
         assert set(reduced_code_map.reduced_groups.data.keys()) == {'A1', 'A2', 'A3', 'A4'}
 
-    def test_groups_aggregation(self, reduced_code_map: ReducedCodeMapN1):
+    def test_groups_aggregation(self, reduced_code_map: rx.ReducedCodeMapN1):
         assert reduced_code_map.groups_aggregation == ('w_sum',) * 4
 
-    def test_groups_size(self, reduced_code_map: ReducedCodeMapN1, source_index: dict[str, int]):
+    def test_groups_size(self, reduced_code_map: rx.ReducedCodeMapN1, source_index: dict[str, int]):
         assert reduced_code_map.groups_size(source_index) == (3, 3, 1, 2)
 
-    def test_groups_split(self, reduced_code_map: ReducedCodeMapN1, source_index: dict[str, int]):
+    def test_groups_split(self, reduced_code_map: rx.ReducedCodeMapN1, source_index: dict[str, int]):
         assert reduced_code_map.groups_split(source_index) == (3, 6, 7, 9)
 
-    def test_groups_permute(self, reduced_code_map: ReducedCodeMapN1, source_index: dict[str, int]):
+    def test_groups_permute(self, reduced_code_map: rx.ReducedCodeMapN1, source_index: dict[str, int]):
         assert reduced_code_map.groups_permute(source_index) == (0, 1, 2, 3, 5, 7, 6, 4, 8)

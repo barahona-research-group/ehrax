@@ -29,7 +29,7 @@ class _ModuleMeta(type(eqx.Module)):
             bases,
             dict_,
             /,
-            strict: bool | eqx.StrictConfig = False,
+            strict: bool = False,
             **kwargs,
     ):
         cls = super().__new__(mcs, name, bases, dict_, strict=strict, **kwargs)
@@ -614,7 +614,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
             fields = list(map(str, range(len(collection))))
             group._v_attrs.type_enum = cls._dict_to_str(dict(zip(fields, map(cls.object_type_enum_name, collection))))
             for i, item in enumerate(collection):
-                cls.serialize_object(group, item, str(i))
+                cls.serialize_object(group, item, f'i{i}')
 
     @classmethod
     def deserialize_collection(cls, group: tb.Group, defer: tuple[tuple[str, ...], ...], levels: Optional[int]) -> list[
@@ -624,7 +624,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
         if 'data' in group:
             return pd.read_hdf(group._v_file.filename, key=group.data._v_pathname).values.tolist()
         metadata = cls._str_to_dict(group._v_attrs.type_enum)
-        return [cls.deserialize_object(group, str(k), element_type, defer, levels) for k, element_type in
+        return [cls.deserialize_object(group, f'i{k}', element_type, defer, levels) for k, element_type in
                 metadata.items()]
 
     @classmethod
@@ -664,6 +664,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
 
     @staticmethod
     def _str_to_dict(x: np.str_) -> dict:
+        # see comment in _dict_to_str.
         return ast.literal_eval(x.item())
 
     def to_hdf_group(self, group: tb.Group) -> None:

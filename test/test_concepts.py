@@ -7,11 +7,7 @@ import numpy as np
 import pytest
 import tables as tb
 
-from ehrax.coding_scheme import NumericalTypeHint, CodingScheme
-from ehrax.tvx_concepts import (InpatientObservables, LeadingObservableExtractor,
-                                InpatientInput, InpatientInterventions, SegmentedInpatientInterventions, Admission,
-                                SegmentedAdmission, StaticInfo, Patient, SegmentedPatient,
-                                SegmentedInpatientObservables)
+import ehrax as rx
 from test.common_setup import BINARY_OBSERVATION_CODE_INDEX, CATEGORICAL_OBSERVATION_CODE_INDEX, \
     NUMERIC_OBSERVATION_CODE_INDEX, ORDINAL_OBSERVATION_CODE_INDEX, \
     inpatient_binary_input, LENGTH_OF_STAY, leading_observables_extractor, SCHEMES
@@ -20,7 +16,7 @@ from test.common_setup import BINARY_OBSERVATION_CODE_INDEX, CATEGORICAL_OBSERVA
 class TestInpatientObservables:
 
     def test_empty(self):
-        obs = InpatientObservables.empty(len(SCHEMES['obs']))
+        obs = rx.InpatientObservables.empty(len(SCHEMES['obs']))
         assert len(obs.time) == 0
         assert len(obs.value) == 0
         assert len(obs.mask) == 0
@@ -31,46 +27,46 @@ class TestInpatientObservables:
     @pytest.mark.parametrize('time_invalid_dtype', [np.int32, np.int64, np.float32, bool, str, object])
     @pytest.mark.parametrize('mask_invalid_dtype', [np.int32, np.int64, np.float32, str, object])
     def test_invalid_init(self, time_invalid_dtype, mask_invalid_dtype, time_valid_dtype, mask_valid_dtype):
-        obs = InpatientObservables(time=np.array([1.0, 2.0], dtype=time_valid_dtype),
-                                   value=np.array([[1.0, 2.0, 3.0], [2.0, 3.0, 4.0]]),
-                                   mask=np.array([[True, False, True], [False, True, False]],
-                                                 dtype=mask_valid_dtype))
+        obs = rx.InpatientObservables(time=np.array([1.0, 2.0], dtype=time_valid_dtype),
+                                      value=np.array([[1.0, 2.0, 3.0], [2.0, 3.0, 4.0]]),
+                                      mask=np.array([[True, False, True], [False, True, False]],
+                                                    dtype=mask_valid_dtype))
 
         # Invalid value shape
         with pytest.raises(AssertionError):
-            InpatientObservables(time=obs.time[:1], value=obs.value[:1].squeeze(), mask=obs.mask[:1])
+            rx.InpatientObservables(time=obs.time[:1], value=obs.value[:1].squeeze(), mask=obs.mask[:1])
 
         # Invalid mask shape
         with pytest.raises(AssertionError):
-            InpatientObservables(time=obs.time[:1], value=obs.value[:1], mask=obs.mask[:1].squeeze())
+            rx.InpatientObservables(time=obs.time[:1], value=obs.value[:1], mask=obs.mask[:1].squeeze())
 
         # inconsistent time and value shape
         with pytest.raises(AssertionError):
-            InpatientObservables(time=obs.time, value=obs.value[:-1], mask=obs.mask)
+            rx.InpatientObservables(time=obs.time, value=obs.value[:-1], mask=obs.mask)
 
         # inconsistent time and mask shape
         with pytest.raises(AssertionError):
-            InpatientObservables(time=obs.time, value=obs.value, mask=obs.mask[:-1])
+            rx.InpatientObservables(time=obs.time, value=obs.value, mask=obs.mask[:-1])
 
         with pytest.raises(AssertionError):
-            InpatientObservables(time=np.array([1.0, 2.0], dtype=time_invalid_dtype),
-                                 value=np.array([[1.0, 2.0, 3.0], [2.0, 3.0, 4.0]]),
-                                 mask=np.array([[True, False, True], [False, True, False]],
-                                               dtype=mask_valid_dtype))
+            rx.InpatientObservables(time=np.array([1.0, 2.0], dtype=time_invalid_dtype),
+                                    value=np.array([[1.0, 2.0, 3.0], [2.0, 3.0, 4.0]]),
+                                    mask=np.array([[True, False, True], [False, True, False]],
+                                                  dtype=mask_valid_dtype))
 
         with pytest.raises(AssertionError):
-            InpatientObservables(time=np.array([1.0, 2.0], dtype=time_valid_dtype),
-                                 value=np.array([[1.0, 2.0, 3.0], [2.0, 3.0, 4.0]]),
-                                 mask=np.array([[True, False, True], [False, True, False]],
-                                               dtype=mask_invalid_dtype))
+            rx.InpatientObservables(time=np.array([1.0, 2.0], dtype=time_valid_dtype),
+                                    value=np.array([[1.0, 2.0, 3.0], [2.0, 3.0, 4.0]]),
+                                    mask=np.array([[True, False, True], [False, True, False]],
+                                                  dtype=mask_invalid_dtype))
 
-    def test_time_sorted(self, inpatient_observables: InpatientObservables):
+    def test_time_sorted(self, inpatient_observables: rx.InpatientObservables):
         assert np.all(np.diff(inpatient_observables.time) >= 0)
 
-    def test_len(self, inpatient_observables: InpatientObservables):
+    def test_len(self, inpatient_observables: rx.InpatientObservables):
         assert len(inpatient_observables) == len(inpatient_observables.time)
 
-    def test_equal(self, inpatient_observables: InpatientObservables):
+    def test_equal(self, inpatient_observables: rx.InpatientObservables):
         assert inpatient_observables.equals(deepcopy(inpatient_observables))
         if len(inpatient_observables) == 0:
             raise pytest.skip("No observations to test")
@@ -102,33 +98,33 @@ class TestInpatientObservables:
         return request.param
 
     @pytest.fixture(scope='class')
-    def segmented_inpatient_observables(self, inpatient_observables: InpatientObservables, sep):
-        return SegmentedInpatientObservables.from_observables(inpatient_observables, sep)
+    def segmented_inpatient_observables(self, inpatient_observables: rx.InpatientObservables, sep):
+        return rx.SegmentedInpatientObservables.from_observables(inpatient_observables, sep)
 
-    def test_segmentation_concat(self, inpatient_observables: InpatientObservables,
-                                 segmented_inpatient_observables: SegmentedInpatientObservables, sep: np.ndarray):
+    def test_segmentation_concat(self, inpatient_observables: rx.InpatientObservables,
+                                 segmented_inpatient_observables: rx.SegmentedInpatientObservables, sep: np.ndarray):
         seg = segmented_inpatient_observables.segments
         assert len(seg) == len(sep) + 1
         assert sum(len(s) for s in seg) == len(inpatient_observables)
         assert sum(s.time.size + s.value.size + s.mask.size for s in seg) == (inpatient_observables.time.size +
                                                                               inpatient_observables.value.size +
                                                                               inpatient_observables.mask.size)
-        assert inpatient_observables.equals(InpatientObservables.concat(seg))
+        assert inpatient_observables.equals(rx.InpatientObservables.concat(seg))
         assert all(seg[i].time.max() <= sep[i] for i in range(len(sep)) if len(seg[i]) > 0)
         assert all(seg[i + 1].time.min() >= sep[i] for i in range(len(sep)) if len(seg[i + 1]) > 0)
 
-    def test_hf5_group_serialization(self, inpatient_observables: InpatientObservables, hf5_group_writer: tb.Group):
+    def test_hf5_group_serialization(self, inpatient_observables: rx.InpatientObservables, hf5_group_writer: tb.Group):
         inpatient_observables.to_hdf_group(hf5_group_writer)
-        assert inpatient_observables.equals(InpatientObservables.from_hdf_group(hf5_group_writer))
+        assert inpatient_observables.equals(rx.InpatientObservables.from_hdf_group(hf5_group_writer))
 
-    def test_hd5_group_serialization_segmented(self, segmented_inpatient_observables: SegmentedInpatientObservables,
+    def test_hd5_group_serialization_segmented(self, segmented_inpatient_observables: rx.SegmentedInpatientObservables,
                                                hf5_group_writer: tb.Group):
         segmented_inpatient_observables.to_hdf_group(hf5_group_writer)
-        assert segmented_inpatient_observables.equals(SegmentedInpatientObservables.from_hdf_group(hf5_group_writer))
+        assert segmented_inpatient_observables.equals(rx.SegmentedInpatientObservables.from_hdf_group(hf5_group_writer))
 
     @pytest.mark.parametrize("ntype", ['N', 'B', 'C', 'O'])
-    def test_type_aggregator(self, ntype: NumericalTypeHint):
-        aggregator = InpatientObservables.type_hint_aggregator()
+    def test_type_aggregator(self, ntype: rx.NumericalTypeHint):
+        aggregator = rx.InpatientObservables.type_hint_aggregator()
         assert isinstance(aggregator, dict)
         assert isinstance(aggregator[ntype], Callable)
         assert np.size(aggregator[ntype](np.array([1, 2, 3]).reshape(-1, 1, 1), np.ones((3,), dtype=bool))) == 1
@@ -161,20 +157,20 @@ class TestInpatientObservables:
         ntype = np.array(ntype)
         out = np.array([out]).reshape((1,) + x.shape[1:])
 
-        np.testing.assert_equal(InpatientObservables._time_binning_aggregate(x, time_mask, ntype), out)
+        np.testing.assert_equal(rx.InpatientObservables._time_binning_aggregate(x, time_mask, ntype), out)
         # if mask is all zeros, then the result is nan.
         assert np.isnan(
-            InpatientObservables._time_binning_aggregate(x, np.zeros_like(time_mask, dtype=bool), ntype)).all()
+            rx.InpatientObservables._time_binning_aggregate(x, np.zeros_like(time_mask, dtype=bool), ntype)).all()
 
         with pytest.raises(AssertionError):
-            InpatientObservables._time_binning_aggregate(x, time_mask.astype(int), ntype)
+            rx.InpatientObservables._time_binning_aggregate(x, time_mask.astype(int), ntype)
 
         if any(d == 1 for d in x.shape):
             with pytest.raises(AssertionError):
-                InpatientObservables._time_binning_aggregate(x.squeeze(), time_mask, ntype)
+                rx.InpatientObservables._time_binning_aggregate(x.squeeze(), time_mask, ntype)
 
     @pytest.mark.parametrize("hours", [1.0, 2.0, 3.0])
-    def test_time_binning(self, hours: float, inpatient_observables: InpatientObservables):
+    def test_time_binning(self, hours: float, inpatient_observables: rx.InpatientObservables):
         if len(inpatient_observables) == 0:
             raise pytest.skip("No observations to test")
 
@@ -272,7 +268,7 @@ class TestLeadingObservableExtractor:
                                                  [2., 3., np.nan],
                                                  [3., np.nan, np.nan]]))])
     def test_nan_concat_leading_windows(self, x, y):
-        assert np.array_equal(LeadingObservableExtractor._nan_concat_leading_windows(x), y,
+        assert np.array_equal(rx.LeadingObservableExtractor._nan_concat_leading_windows(x), y,
                               equal_nan=True)
 
     @pytest.mark.parametrize("x, y", [(np.array([[1., 2., 3.],
@@ -283,7 +279,7 @@ class TestLeadingObservableExtractor:
                                                  [np.nan, np.nan, np.nan]]), np.array([1., 0., np.nan]))
                                       ])
     def test_nan_agg_nonzero(self, x, y):
-        assert np.array_equal(LeadingObservableExtractor._nan_agg_nonzero(x, axis=1), y,
+        assert np.array_equal(rx.LeadingObservableExtractor._nan_agg_nonzero(x, axis=1), y,
                               equal_nan=True)
 
     @pytest.mark.parametrize("x, y", [(np.array([[1., 2., 3.],
@@ -294,11 +290,11 @@ class TestLeadingObservableExtractor:
                                                  [np.nan, np.nan, np.nan]]), np.array([2., 0., np.nan]))
                                       ])
     def test_nan_agg_max(self, x, y):
-        assert np.array_equal(LeadingObservableExtractor._nan_agg_max(x, axis=1), y,
+        assert np.array_equal(rx.LeadingObservableExtractor._nan_agg_max(x, axis=1), y,
                               equal_nan=True)
 
     @pytest.mark.parametrize("minimum_acquisitions", [0, 1, 2, 3])
-    def test_filter_first_acquisitions(self, inpatient_observables: InpatientObservables,
+    def test_filter_first_acquisitions(self, inpatient_observables: rx.InpatientObservables,
                                        minimum_acquisitions: int):
         lead_extractor = leading_observables_extractor(observation_scheme=SCHEMES['obs'],
                                                        minimum_acquisitions=minimum_acquisitions)
@@ -308,7 +304,7 @@ class TestLeadingObservableExtractor:
         assert (~m)[n_affected:].sum() == 0
 
     @pytest.mark.parametrize("entry_neglect_window", [0.0, 1.0, 2.0])
-    def test_neutralize_entry_neglect_window(self, inpatient_observables: InpatientObservables,
+    def test_neutralize_entry_neglect_window(self, inpatient_observables: rx.InpatientObservables,
                                              entry_neglect_window: int):
         lead_extractor = leading_observables_extractor(observation_scheme=SCHEMES['obs'],
                                                        entry_neglect_window=entry_neglect_window)
@@ -319,7 +315,7 @@ class TestLeadingObservableExtractor:
         assert (~m)[n_affected:].sum() == 0
 
     @pytest.mark.parametrize("recovery_window", [0.0, 1.0, 2.0])
-    def test_neutralize_recovery_window(self, inpatient_observables: InpatientObservables,
+    def test_neutralize_recovery_window(self, inpatient_observables: rx.InpatientObservables,
                                         recovery_window: float):
         if len(inpatient_observables) == 0:
             raise pytest.skip("No observations to test")
@@ -348,7 +344,7 @@ class TestLeadingObservableExtractor:
     @pytest.mark.parametrize("minimum_acquisitions", [0, 100])
     @pytest.mark.parametrize("entry_neglect_window", [0.0, 1000.0])
     @pytest.mark.parametrize("recovery_window", [0.0, 10000.0])
-    def test_mask_noisy_observations(self, inpatient_observables: InpatientObservables,
+    def test_mask_noisy_observations(self, inpatient_observables: rx.InpatientObservables,
                                      minimum_acquisitions: int,
                                      entry_neglect_window: int,
                                      recovery_window: float):
@@ -370,7 +366,7 @@ class TestLeadingObservableExtractor:
                     mocker3.assert_called_once_with(t, x, recovery_window)
 
     @pytest.mark.parametrize("code_index", [BINARY_OBSERVATION_CODE_INDEX, ORDINAL_OBSERVATION_CODE_INDEX])
-    def test_extract_leading_window(self, inpatient_observables: InpatientObservables,
+    def test_extract_leading_window(self, inpatient_observables: rx.InpatientObservables,
                                     code_index: int):
         lead_extractor = leading_observables_extractor(observation_scheme=SCHEMES['obs'],
                                                        code_index=code_index)
@@ -416,7 +412,7 @@ class TestInpatientInput:
     def test_hf5_group_serialization(self, n: int, p: int, hf5_group_writer: tb.Group):
         input = inpatient_binary_input(n, p)
         input.to_hdf_group(hf5_group_writer)
-        loaded_input = InpatientInput.from_hdf_group(hf5_group_writer)
+        loaded_input = rx.InpatientInput.from_hdf_group(hf5_group_writer)
         assert len(input) == len(loaded_input)
         assert input.equals(loaded_input)
 
@@ -426,12 +422,12 @@ class TestInpatientInput:
 
 class TestInpatientInterventions:
 
-    def test_hf5_group_serialization(self, inpatient_interventions_with_a_none: InpatientInterventions,
+    def test_hf5_group_serialization(self, inpatient_interventions_with_a_none: rx.InpatientInterventions,
                                      hf5_group_writer: tb.Group):
         inpatient_interventions_with_a_none.to_hdf_group(hf5_group_writer)
-        assert inpatient_interventions_with_a_none.equals(InpatientInterventions.from_hdf_group(hf5_group_writer))
+        assert inpatient_interventions_with_a_none.equals(rx.InpatientInterventions.from_hdf_group(hf5_group_writer))
 
-    def test_timestamps(self, inpatient_interventions_with_a_none: InpatientInterventions):
+    def test_timestamps(self, inpatient_interventions_with_a_none: rx.InpatientInterventions):
         timestamps = inpatient_interventions_with_a_none.timestamps
         assert len(timestamps) == len(set(timestamps))
         assert all(isinstance(t, float) for t in timestamps)
@@ -453,16 +449,17 @@ class TestSegmentedInpatientInterventions:
 
     def test_from_inpatient_interventions(self, inpatient_interventions_with_a_none):
         assert all(
-            isinstance(scheme, CodingScheme) for scheme in
+            isinstance(scheme, rx.CodingScheme) for scheme in
             (SCHEMES['hosp_procedures'], SCHEMES['icu_procedures'], SCHEMES['icu_inputs']))
         schemes = {"hosp_procedures": SCHEMES['hosp_procedures'],
                    "icu_procedures": SCHEMES['icu_procedures'],
                    "icu_inputs": SCHEMES['icu_inputs']}
-        seg = SegmentedInpatientInterventions.from_interventions(inpatient_interventions_with_a_none, LENGTH_OF_STAY,
-                                                                 hosp_procedures_size=len(SCHEMES['hosp_procedures']),
-                                                                 icu_procedures_size=len(SCHEMES['icu_procedures']),
-                                                                 icu_inputs_size=len(SCHEMES['icu_inputs']),
-                                                                 maximum_padding=1)
+        seg = rx.SegmentedInpatientInterventions.from_interventions(inpatient_interventions_with_a_none, LENGTH_OF_STAY,
+                                                                    hosp_procedures_size=len(
+                                                                        SCHEMES['hosp_procedures']),
+                                                                    icu_procedures_size=len(SCHEMES['icu_procedures']),
+                                                                    icu_inputs_size=len(SCHEMES['icu_inputs']),
+                                                                    maximum_padding=1)
         assert abs(len(seg.time) - len(inpatient_interventions_with_a_none.timestamps)) <= 2
         for k in ("hosp_procedures", "icu_procedures", "icu_inputs"):
             if getattr(inpatient_interventions_with_a_none, k) is not None:
@@ -476,7 +473,7 @@ class TestSegmentedInpatientInterventions:
     @pytest.mark.parametrize("value", [0.0, np.nan])
     @pytest.mark.parametrize("maximum_padding", [1, 2, 3, 5, 10, 100])
     def test_pad_array(self, array, value, maximum_padding):
-        y = SegmentedInpatientInterventions.pad_array(array, value=value, maximum_padding=maximum_padding)
+        y = rx.SegmentedInpatientInterventions.pad_array(array, value=value, maximum_padding=maximum_padding)
         assert len(y) >= len(array)
         assert len(y) <= len(array) + maximum_padding
         assert np.all(y[:len(array)] == array)
@@ -489,7 +486,7 @@ class TestSegmentedInpatientInterventions:
             assert len(y) == len(array)
 
     @pytest.mark.parametrize("test_target", ["hosp_procedures", "icu_procedures", "icu_inputs"])
-    def test_segmentation(self, inpatient_interventions_with_a_none: InpatientInterventions, test_target: str):
+    def test_segmentation(self, inpatient_interventions_with_a_none: rx.InpatientInterventions, test_target: str):
         inpatient_intervention = getattr(inpatient_interventions_with_a_none, test_target)
         if inpatient_intervention is None or inpatient_intervention.starttime.size == 0:
             raise pytest.skip("No interventions to test")
@@ -497,23 +494,24 @@ class TestSegmentedInpatientInterventions:
         scheme = {"hosp_procedures": SCHEMES['hosp_procedures'],
                   "icu_procedures": SCHEMES['icu_procedures'],
                   "icu_inputs": SCHEMES['icu_inputs']}[test_target]
-        seg = SegmentedInpatientInterventions._segment(inpatient_intervention.starttime,
-                                                       inpatient_intervention,
-                                                       len(scheme))
+        seg = rx.SegmentedInpatientInterventions._segment(inpatient_intervention.starttime,
+                                                          inpatient_intervention,
+                                                          len(scheme))
         for i, t in enumerate(inpatient_intervention.starttime):
             assert np.array_equal(inpatient_intervention(t, len(scheme)), seg[i])
 
-    def test_hf5_group_serialization(self, segmented_inpatient_interventions: SegmentedInpatientInterventions,
+    def test_hf5_group_serialization(self, segmented_inpatient_interventions: rx.SegmentedInpatientInterventions,
                                      hf5_group_writer: tb.Group):
         segmented_inpatient_interventions.to_hdf_group(hf5_group_writer)
-        assert segmented_inpatient_interventions.equals(SegmentedInpatientInterventions.from_hdf_group(hf5_group_writer))
+        assert segmented_inpatient_interventions.equals(
+            rx.SegmentedInpatientInterventions.from_hdf_group(hf5_group_writer))
 
 
 class TestAdmission:
 
-    def test_hf5_group_serialization(self, admission: Admission, hf5_group_writer: tb.Group):
+    def test_hf5_group_serialization(self, admission: rx.Admission, hf5_group_writer: tb.Group):
         admission.to_hdf_group(hf5_group_writer)
-        assert admission.equals(Admission.from_hdf_group(hf5_group_writer))
+        assert admission.equals(rx.Admission.from_hdf_group(hf5_group_writer))
 
     def test_interval_hours(self):
         pass
@@ -527,7 +525,7 @@ class TestAdmission:
 
 class TestSegmentedAdmission:
 
-    def test_from_admission(self, admission: Admission, segmented_admission: SegmentedAdmission):
+    def test_from_admission(self, admission: rx.Admission, segmented_admission: rx.SegmentedAdmission):
         assert segmented_admission.admission_id == admission.admission_id
         assert segmented_admission.admission_dates == admission.admission_dates
         assert segmented_admission.dx_codes == admission.dx_codes
@@ -536,9 +534,10 @@ class TestSegmentedAdmission:
         assert segmented_admission.observables is not None
         assert segmented_admission.leading_observable is not None
         if admission.observables is not None:
-            assert InpatientObservables.concat(segmented_admission.observables.segments).equals(admission.observables)
+            assert rx.InpatientObservables.concat(segmented_admission.observables.segments).equals(
+                admission.observables)
         if admission.leading_observable is not None:
-            assert InpatientObservables.concat(segmented_admission.leading_observable.segments).equals(
+            assert rx.InpatientObservables.concat(segmented_admission.leading_observable.segments).equals(
                 admission.leading_observable)
         if admission.interventions is None:
             return
@@ -582,16 +581,16 @@ class TestSegmentedAdmission:
                 assert np.array_equal(segment_val, val)
                 assert np.array_equal(segment_mask, mask)
 
-    def test_hf5_group_serialization(self, segmented_admission: SegmentedAdmission, hf5_group_writer: tb.Group):
+    def test_hf5_group_serialization(self, segmented_admission: rx.SegmentedAdmission, hf5_group_writer: tb.Group):
         segmented_admission.to_hdf_group(hf5_group_writer)
-        assert segmented_admission.equals(SegmentedAdmission.from_hdf_group(hf5_group_writer))
+        assert segmented_admission.equals(rx.SegmentedAdmission.from_hdf_group(hf5_group_writer))
 
 
 class TestStaticInfo:
 
-    def test_hf5_group_serialization(self, static_info: StaticInfo, hf5_group_writer: tb.Group):
+    def test_hf5_group_serialization(self, static_info: rx.StaticInfo, hf5_group_writer: tb.Group):
         static_info.to_hdf_group(hf5_group_writer)
-        assert static_info.equals(StaticInfo.from_hdf_group(hf5_group_writer))
+        assert static_info.equals(rx.StaticInfo.from_hdf_group(hf5_group_writer))
 
     def test_constant_attributes(self):
         pass
@@ -611,9 +610,9 @@ class TestPatient:
     def test_outcome_frequency(self):
         pass
 
-    def test_hf5_group_serialization(self, patient: Patient, hf5_group_writer: tb.Group):
+    def test_hf5_group_serialization(self, patient: rx.Patient, hf5_group_writer: tb.Group):
         patient.to_hdf_group(hf5_group_writer)
-        assert patient.equals(Patient.from_hdf_group(hf5_group_writer))
+        assert patient.equals(rx.Patient.from_hdf_group(hf5_group_writer))
 
 
 class TestSegmentedPatient:
@@ -624,6 +623,6 @@ class TestSegmentedPatient:
     def test_outcome_frequency(self):
         pass
 
-    def test_hf5_group_serialization(self, segmented_patient: SegmentedPatient, hf5_group_writer: tb.Group):
+    def test_hf5_group_serialization(self, segmented_patient: rx.SegmentedPatient, hf5_group_writer: tb.Group):
         segmented_patient.to_hdf_group(hf5_group_writer)
-        assert segmented_patient.equals(Patient.from_hdf_group(hf5_group_writer))
+        assert segmented_patient.equals(rx.SegmentedPatient.from_hdf_group(hf5_group_writer))

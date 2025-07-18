@@ -3,28 +3,26 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ehrax.coding_scheme import CodingSchemeWithUOM
-from ehrax.dataset import Report, DatasetTables, DatasetSchemeConfig
-from ehrax.transformations import FilterInvalidInputRatesSubjects, ICUInputRateUnitConversion, SynchronizeSubjects, \
-    SetIndex, CastTimestamps
+import ehrax as rx
 from test.common_setup import DATASET_CONFIG, DATASET_SCHEME_MANAGER, SCHEMES
 from .conftest import Dataset
 
 
 @pytest.fixture(scope='module')
-def mimiciv_dataset_without_uom_normalization(dataset_tables_with_records: DatasetTables,
-                                  unit_converter_table: pd.DataFrame) -> Dataset:
+def mimiciv_dataset_without_uom_normalization(dataset_tables_with_records: rx.DatasetTables,
+                                              unit_converter_table: pd.DataFrame) -> Dataset:
     config = eqx.tree_at(lambda x: x.scheme, DATASET_CONFIG,
-                         DatasetSchemeConfig(**DATASET_CONFIG.scheme.scheme_fields()))
+                         rx.DatasetSchemeConfig(**DATASET_CONFIG.scheme.scheme_fields()))
     ds = Dataset(tables=dataset_tables_with_records, config=config)
-    return ds._execute_pipeline([SetIndex(), SynchronizeSubjects(), CastTimestamps()], DATASET_SCHEME_MANAGER)
+    return ds._execute_pipeline([rx.SetIndex(), rx.SynchronizeSubjects(), rx.CastTimestamps()], DATASET_SCHEME_MANAGER)
 
 
 class TestUnitConversionAndFilterInvalidInputRates:
 
     @pytest.fixture(scope='class')
     def fixed_dataset(self, mimiciv_dataset_without_uom_normalization: Dataset) -> Dataset:
-        return ICUInputRateUnitConversion.apply(mimiciv_dataset_without_uom_normalization, DATASET_SCHEME_MANAGER, Report())[0]
+        return rx.ICUInputRateUnitConversion.apply(mimiciv_dataset_without_uom_normalization, DATASET_SCHEME_MANAGER,
+                                                   rx.Report())[0]
 
     @pytest.fixture(scope='class')
     def icu_inputs_unfixed(self, mimiciv_dataset_without_uom_normalization: Dataset):
@@ -52,11 +50,12 @@ class TestUnitConversionAndFilterInvalidInputRates:
             "Dataset configuration does not have icu_inputs table defined."
         c = DATASET_CONFIG.tables.icu_inputs
 
-        scheme: CodingSchemeWithUOM = SCHEMES['icu_inputs']
+        scheme: rx.CodingSchemeWithUOM = SCHEMES['icu_inputs']
         # For every (code, unit) pair, a unique normalization factor and universal unit is assigned.
         for (code, unit), inputs_df in icu_inputs_fixed.groupby([c.code_alias, c.amount_unit_alias]):
             assert inputs_df[c.derived_universal_unit].unique() == scheme.universal_unit[code]
-            assert inputs_df[c.derived_unit_normalization_factor].unique() == scheme.uom_normalization_factor[code][unit]
+            assert inputs_df[c.derived_unit_normalization_factor].unique() == scheme.uom_normalization_factor[code][
+                unit]
             assert inputs_df[c.derived_normalized_amount].equals(
                 inputs_df[c.amount_alias] * scheme.uom_normalization_factor[code][unit])
 
@@ -73,7 +72,7 @@ class TestUnitConversionAndFilterInvalidInputRates:
 
     @pytest.fixture(scope='class')
     def filtered_dataset(self, nan_inputs_dataset: Dataset):
-        return FilterInvalidInputRatesSubjects.apply(nan_inputs_dataset, DATASET_SCHEME_MANAGER, Report())[0]
+        return rx.FilterInvalidInputRatesSubjects.apply(nan_inputs_dataset, DATASET_SCHEME_MANAGER, rx.Report())[0]
 
     def test_filter_invalid_input_rates_subjects(self, nan_inputs_dataset: Dataset,
                                                  filtered_dataset: Dataset):

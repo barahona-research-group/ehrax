@@ -7,13 +7,11 @@ import pandas as pd
 import pytest
 import tables as tb
 
-from base import SERIES_GROUPED_ELEMENT_TYPES
-from ehrax.base import AbstractModule, _factory_registry, AbstractConfig, AbstractWithDataframeEquivalent, \
-    AbstractWithSeriesEquivalent, AbstractVxData, HDFVirtualNode, fetch_at, fetch_all, fetch_one_level_at
+import ehrax as rx
 
 
 # (A) Test ModuleMeta and AbstractModule
-class Module(AbstractModule):
+class Module(rx.AbstractModule):
     att1: Any
     att2: Any
 
@@ -24,14 +22,14 @@ class Module(AbstractModule):
 
 class TestAbstractModule:
     def test_module_registration(self):
-        assert Module in _factory_registry.values()
+        assert Module in rx.base._factory_registry.values()
         assert Module.__class_key__() == f"{self.__module__}.Module"
-        assert f"{self.__module__}.Module" in _factory_registry.keys()
-        assert _factory_registry[Module.__class_key__()] == Module
+        assert f"{self.__module__}.Module" in rx.base._factory_registry.keys()
+        assert rx.base._factory_registry[Module.__class_key__()] == Module
 
 
 # (B) Test Config
-class Config(AbstractConfig):
+class Config(rx.AbstractConfig):
     att1: Any
     att2: Any
 
@@ -63,7 +61,7 @@ class TestAbstractConfig:
 
 # (C) Test AbstractWithPandasEquivalent
 
-class WithDataframeEquivalent(AbstractWithDataframeEquivalent):
+class WithDataframeEquivalent(rx.AbstractWithDataframeEquivalent):
     a: dict[str, tuple[int, str, float]]
 
     def __init__(self, a: dict[str, tuple[int, str, float]]):
@@ -83,7 +81,7 @@ class WithDataframeEquivalent(AbstractWithDataframeEquivalent):
         return cls(dict(zip(df.index, vals)))
 
 
-class WithSeriesEquivalent(AbstractWithSeriesEquivalent):
+class WithSeriesEquivalent(rx.AbstractWithSeriesEquivalent):
     a: dict[str, float]
 
     def __init__(self, a: Any):
@@ -156,9 +154,9 @@ class TestAbstractWithPandasEquivalent:
         assert a_proper_sr_eq.to_series().equals(deserialized_sr_eq.to_series())
 
 
-# (D) Test AbstractVxData
+# (D) Test  rx.AbstractVxData
 
-class VxData(AbstractVxData):
+class VxData(rx.AbstractVxData):
     a: Any
     b: Any
     c: Any
@@ -328,18 +326,18 @@ class TestVxDataWithNesting(TestVxData):
 class TestHDFVirtualNode:
     @pytest.fixture(scope='class', params=[('x', 'y', None),  # Cannot contain None
                                            (VxData(None, None, None), 'y', 'z'),  # Cannot contain non-plain types
-                                           (HDFVirtualNode('x', 'y', 'z'), 'y', 'z')  # Cannot contain a virtual node
+                                           (rx.HDFVirtualNode('x', 'y', 'z'), 'y', 'z')  # Cannot contain a virtual node
                                            ])
     def invalid_args(self, request) -> tuple[Any, Any, Any]:
         return request.param
 
     def test_invalid_args(self, invalid_args):
         with pytest.raises(AssertionError):
-            HDFVirtualNode(*invalid_args)
+            rx.HDFVirtualNode(*invalid_args)
 
     @pytest.fixture(scope='class')
     def dummy_vnode(self):
-        return HDFVirtualNode('x', 'y', 'z')
+        return rx.HDFVirtualNode('x', 'y', 'z')
 
     def test_attribute_access(self, dummy_vnode):
         assert dummy_vnode.filename == 'x'
@@ -358,7 +356,7 @@ class TestHDFVirtualNode:
 
     def test_from_hdf(self):
         with pytest.raises(ValueError, match="You are trying to deserialize"):
-            dummy_vnode = HDFVirtualNode.from_hdf_group(None)
+            dummy_vnode = rx.HDFVirtualNode.from_hdf_group(None)
 
 
 COMPLETE_VX_DATA = VxData(a={'a': 1, 'b': VxData(None, 1, 'x')},
@@ -398,7 +396,7 @@ class TestLazyLoading:
     @pytest.fixture(scope='class')
     def pruned_vx_data(self, complete_vx_data: VxData, getter_node_pair: tuple[Callable[[VxData], Any], Any]) -> VxData:
         getter, _ = getter_node_pair
-        return eqx.tree_at(getter, complete_vx_data, HDFVirtualNode('x', 'y', 'z'))
+        return eqx.tree_at(getter, complete_vx_data, rx.HDFVirtualNode('x', 'y', 'z'))
 
     @pytest.fixture
     def hdf_serialized_vxdata(self, complete_vx_data: VxData, tmp_path_factory) -> str:
@@ -424,26 +422,26 @@ class TestLazyLoading:
     def hdf_deserialized_fetched_at_vxdata(self, hdf_deserialized_deferred_vxdata: VxData,
                                            getter_node_pair: tuple[Callable[[VxData], Any], Any]) -> VxData:
         getter, _ = getter_node_pair
-        return fetch_at(getter, hdf_deserialized_deferred_vxdata)
+        return rx.fetch_at(getter, hdf_deserialized_deferred_vxdata)
 
     @pytest.fixture
     def hdf_deserialized_one_level_fetched_at_vxdata(self, hdf_deserialized_deferred_vxdata: VxData,
                                                      getter_node_pair: tuple[Callable[[VxData], Any], Any]) -> VxData:
         getter, _ = getter_node_pair
-        return fetch_one_level_at(getter, hdf_deserialized_deferred_vxdata)
+        return rx.fetch_one_level_at(getter, hdf_deserialized_deferred_vxdata)
 
     @pytest.fixture
     def hdf_deserialized_fetched_at_vxdata2(self, hdf_deserialized_deferred_vxdata2: VxData) -> VxData:
         getters, _ = zip(*GETTER_NODE_PAIR)
-        return fetch_at(getters, hdf_deserialized_deferred_vxdata2)
+        return rx.fetch_at(getters, hdf_deserialized_deferred_vxdata2)
 
     @pytest.fixture
     def hdf_deserialized_fetched_all_vxdata(self, hdf_deserialized_deferred_vxdata: VxData) -> VxData:
-        return fetch_all(hdf_deserialized_deferred_vxdata)
+        return rx.fetch_all(hdf_deserialized_deferred_vxdata)
 
     @pytest.fixture
     def hdf_deserialized_fetched_all_vxdata2(self, hdf_deserialized_deferred_vxdata2: VxData) -> VxData:
-        return fetch_all(hdf_deserialized_deferred_vxdata2)
+        return rx.fetch_all(hdf_deserialized_deferred_vxdata2)
 
     def test_invalid_to_hdf(self, pruned_vx_data: VxData, hf5_group_writer: tb.Group):
         with pytest.raises(ValueError, match="You are trying to serialize an unfetched node"):
@@ -458,7 +456,7 @@ class TestLazyLoading:
     def test_defer(self, hdf_deserialized_deferred_vxdata: VxData,
                    getter_node_pair: tuple[Callable[[VxData], Any], Any]):
         getter, _ = getter_node_pair
-        assert isinstance(getter(hdf_deserialized_deferred_vxdata), HDFVirtualNode)
+        assert isinstance(getter(hdf_deserialized_deferred_vxdata), rx.HDFVirtualNode)
 
     def _aux_test_fetch(self, hdf_deserialized_fetched_vxdata: VxData,
                         getter_node_pair: tuple[Callable[[VxData], Any], Any],
@@ -478,7 +476,7 @@ class TestLazyLoading:
                        complete_vx_data: VxData):
         self._aux_test_fetch(hdf_deserialized_fetched_all_vxdata, getter_node_pair, complete_vx_data)
 
-    def test_fetch_one_level_at(self, complete_vx_data:VxData, hdf_deserialized_one_level_fetched_at_vxdata: VxData,
+    def test_fetch_one_level_at(self, complete_vx_data: VxData, hdf_deserialized_one_level_fetched_at_vxdata: VxData,
                                 getter_node_pair: tuple[Callable[[VxData], Any], Any]):
         getter, node = getter_node_pair
         # Type is equal but contents are not
@@ -487,18 +485,19 @@ class TestLazyLoading:
         # Children themselves must be virtual nodes.
 
         # if the virtual node represents a collection containing plain types, then it will be loaded!
-        get_immediate_leaves = (lambda x: eqx.tree_flatten_one_level(x)[0]) if type(node) is not set else (lambda x: list(x))
-        if set(map(type, get_immediate_leaves(node))).issubset(SERIES_GROUPED_ELEMENT_TYPES):
-            assert all(isinstance(child, HDFVirtualNode) for child in
+        get_immediate_leaves = (lambda x: eqx.tree_flatten_one_level(x)[0]) if type(node) is not set else (
+            lambda x: list(x))
+        if set(map(type, get_immediate_leaves(node))).issubset(rx.base.SERIES_GROUPED_ELEMENT_TYPES):
+            assert all(isinstance(child, rx.HDFVirtualNode) for child in
                        get_immediate_leaves(getter(hdf_deserialized_one_level_fetched_at_vxdata)))
             assert hdf_deserialized_one_level_fetched_at_vxdata.equals(complete_vx_data)
         else:
             assert not hdf_deserialized_one_level_fetched_at_vxdata.equals(complete_vx_data)
 
-    def test_fetch_all_after_fetch_one_level_at(self, complete_vx_data: VxData, hdf_deserialized_one_level_fetched_at_vxdata: VxData):
-        all_fetched = fetch_all(hdf_deserialized_one_level_fetched_at_vxdata)
+    def test_fetch_all_after_fetch_one_level_at(self, complete_vx_data: VxData,
+                                                hdf_deserialized_one_level_fetched_at_vxdata: VxData):
+        all_fetched = rx.fetch_all(hdf_deserialized_one_level_fetched_at_vxdata)
         assert all_fetched.equals(complete_vx_data)
-
 
     def test_fetch_at2(self, hdf_deserialized_fetched_at_vxdata2: VxData,
                        hdf_deserialized_fetched_all_vxdata2: VxData,

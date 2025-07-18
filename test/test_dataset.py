@@ -7,11 +7,7 @@ import pandas as pd
 import pytest
 import tables as tb
 
-from ehrax.coding_scheme import CodingScheme
-from ehrax.dataset import SplitLiteral, TableConfig, DatasetTables, DatasetSchemeProxy, \
-    Dataset, AbstractDatasetPipeline
-from ehrax.transformations import SetIndex, SynchronizeSubjects, CastTimestamps, SetAdmissionRelativeTimes, \
-    DatasetTransformation, ICUInputRateUnitConversion
+import ehrax as rx
 from test.common_setup import DATASET_SCHEME_MANAGER, DATASET_TABLES_CONF, DATASET_SCHEME_CONF
 
 
@@ -31,10 +27,10 @@ def test_table_config(id_alias_attrs: tuple[str, ...], alias_attrs: tuple[str, .
 
     all_alias_dict = id_alias_dict | alias_dict | time_dict | coded_dict
     all_dict = all_alias_dict | other_dict
-    assert TableConfig._alias_dict(all_dict) == all_alias_dict
-    assert TableConfig._alias_id_dict(all_dict) == id_alias_dict
-    assert set(TableConfig._time_cols(all_dict)) == set(time_dict.values())
-    assert set(TableConfig._coded_cols(all_dict)) == set(coded_dict.values())
+    assert rx.dataset.TableConfig._alias_dict(all_dict) == all_alias_dict
+    assert rx.dataset.TableConfig._alias_id_dict(all_dict) == id_alias_dict
+    assert set(rx.dataset.TableConfig._time_cols(all_dict)) == set(time_dict.values())
+    assert set(rx.dataset.TableConfig._coded_cols(all_dict)) == set(coded_dict.values())
 
 
 def test_assert_consistent_aliases():
@@ -82,54 +78,54 @@ def test_assert_consistent_subject_alias_pass():
 
 
 def test_scheme_dict():
-    scheme = DatasetSchemeProxy(config=DATASET_SCHEME_CONF, schemes_context=DATASET_SCHEME_MANAGER)
+    scheme = rx.DatasetSchemeProxy(config=DATASET_SCHEME_CONF, schemes_context=DATASET_SCHEME_MANAGER)
 
     for space, scheme_name in DATASET_SCHEME_CONF.as_dict().items():
         assert hasattr(scheme, space)
         if scheme_name is not None:
-            assert isinstance(getattr(scheme, space), CodingScheme)
+            assert isinstance(getattr(scheme, space), rx.CodingScheme)
 
 
 class AbstractTestDataset:
     @pytest.fixture(scope='class')
     @abstractmethod
-    def dataset_tables(self, *args) -> DatasetTables:
+    def dataset_tables(self, *args) -> rx.DatasetTables:
         raise NotImplementedError()
 
     @pytest.fixture(scope='class')
     @abstractmethod
-    def dataset(self, *args) -> Dataset:
+    def dataset(self, *args) -> rx.Dataset:
         raise NotImplementedError()
 
     @abstractmethod
-    def pipeline(self) -> list[DatasetTransformation]:
+    def pipeline(self) -> list[rx.DatasetTransformation]:
         raise NotImplementedError()
 
     @pytest.fixture(scope='class')
-    def processed_dataset(self, dataset: Dataset, pipeline: list[DatasetTransformation]) -> Dataset:
+    def processed_dataset(self, dataset: rx.Dataset, pipeline: list[rx.DatasetTransformation]) -> rx.Dataset:
         return dataset._execute_pipeline(pipeline, DATASET_SCHEME_MANAGER)
 
     @pytest.fixture(scope='class')
-    def dataset_with_zero_pipeline(self, dataset: Dataset):
-        return dataset.execute_pipeline(AbstractDatasetPipeline(config=None, transformations=[]), None)
+    def dataset_with_zero_pipeline(self, dataset: rx.Dataset):
+        return dataset.execute_pipeline(rx.AbstractDatasetPipeline(config=None, transformations=[]), None)
 
-    def test_tables_dict_property(self, dataset_tables: DatasetTables):
+    def test_tables_dict_property(self, dataset_tables: rx.DatasetTables):
         all_tables_keys = ('static', 'admissions', 'dx_discharge', 'obs',
                            'icu_procedures', 'icu_inputs', 'hosp_procedures')
 
         assert set(dataset_tables.tables_dict.keys()) == set(k for k in all_tables_keys
                                                              if getattr(dataset_tables, k) is not None)
 
-    def test_save_load(self, dataset_tables: DatasetTables, tmpdir):
+    def test_save_load(self, dataset_tables: rx.DatasetTables, tmpdir):
         with tb.open_file(f'{tmpdir}/test_dataset_tables.h5', 'w') as hf5:
             dataset_tables.save(hf5.create_group('/', 'dataset_tables'))
         with tb.open_file(f'{tmpdir}/test_dataset_tables.h5', 'r') as hf5:
-            loaded = DatasetTables.load(hf5.root['dataset_tables'])
+            loaded = rx.DatasetTables.load(hf5.root['dataset_tables'])
         assert loaded.equals(dataset_tables)
 
-    def test_execute_pipeline(self, dataset: Dataset, dataset_with_zero_pipeline: Dataset):
-        assert isinstance(dataset, Dataset)
-        assert isinstance(dataset_with_zero_pipeline, Dataset)
+    def test_execute_pipeline(self, dataset: rx.Dataset, dataset_with_zero_pipeline: rx.Dataset):
+        assert isinstance(dataset, rx.Dataset)
+        assert isinstance(dataset_with_zero_pipeline, rx.Dataset)
         assert dataset.pipeline_report.equals(pd.DataFrame())
 
         # Because we use identity pipeline, the dataset tables should be the same
@@ -142,42 +138,42 @@ class AbstractTestDataset:
 
         with mock.patch('logging.warning') as mocker:
             dataset3 = dataset_with_zero_pipeline.execute_pipeline(
-                AbstractDatasetPipeline(config=None, transformations=[]), None)
+                rx.AbstractDatasetPipeline(config=None, transformations=[]), None)
             assert dataset3.equals(dataset_with_zero_pipeline)
             mocker.assert_called_once_with("A pipeline has already been executed. Doing nothing.")
 
-    def test_subject_ids_of_unindexed_dataset(self, dataset: Dataset,
-                                              dataset_with_zero_pipeline: Dataset):
+    def test_subject_ids_of_unindexed_dataset(self, dataset: rx.Dataset,
+                                              dataset_with_zero_pipeline: rx.Dataset):
         with pytest.raises(AssertionError):
             _ = dataset.subject_ids
 
         with pytest.raises(AssertionError):
             _ = dataset_with_zero_pipeline.subject_ids
 
-    def test_subject_ids_of_indexed_dataset(self, processed_dataset: Dataset):
+    def test_subject_ids_of_indexed_dataset(self, processed_dataset: rx.Dataset):
         assert set(processed_dataset.subject_ids) == set(processed_dataset.tables.static.index.unique())
 
     @pytest.mark.expensive_test
-    def test_save_load(self, dataset: Dataset,
-                       dataset_with_zero_pipeline: Dataset,
+    def test_save_load(self, dataset: rx.Dataset,
+                       dataset_with_zero_pipeline: rx.Dataset,
                        tmpdir: str):
         dataset_with_zero_pipeline.save(f'{tmpdir}/test_dataset')
-        loaded = Dataset.load(f'{tmpdir}/test_dataset')
+        loaded = rx.Dataset.load(f'{tmpdir}/test_dataset')
         assert loaded.equals(dataset_with_zero_pipeline)
         assert not loaded.equals(dataset)
         assert loaded.equals(dataset._execute_pipeline([], None))
 
     @pytest.fixture(scope='class')
-    def subject_ids(self, processed_dataset: Dataset):
+    def subject_ids(self, processed_dataset: rx.Dataset):
         return processed_dataset.subject_ids
 
     @pytest.mark.parametrize('valid_split', [[1.0]])
     @pytest.mark.parametrize('valid_balance', ['subjects', 'admissions', 'admissions_intervals'])
     @pytest.mark.parametrize('invalid_splits', [[], [0.3, 0.8, 0.7, 0.9], [0.5, 0.2]])  # should be sorted.
     @pytest.mark.parametrize('invalid_balance', ['hi', 'unsupported'])
-    def test_random_split_invalid_args(self, processed_dataset: Dataset, subject_ids: list[str],
-                                       valid_split: list[float], valid_balance: SplitLiteral,
-                                       invalid_splits: list[float], invalid_balance: SplitLiteral):
+    def test_random_split_invalid_args(self, processed_dataset: rx.Dataset, subject_ids: list[str],
+                                       valid_split: list[float], valid_balance: rx.SplitLiteral,
+                                       invalid_splits: list[float], invalid_balance: rx.SplitLiteral):
         if len(subject_ids) == 0:
             with pytest.raises(AssertionError):
                 processed_dataset.random_splits(valid_split, balance=valid_balance)
@@ -202,34 +198,34 @@ class AbstractTestDataset:
 
 class TestDatasetWithoutRecords(AbstractTestDataset):
     @pytest.fixture(scope='class')
-    def dataset_tables(self, dataset_tables_without_records: DatasetTables) -> DatasetTables:
+    def dataset_tables(self, dataset_tables_without_records: rx.DatasetTables) -> rx.DatasetTables:
         return dataset_tables_without_records
 
     @pytest.fixture(scope='class')
-    def dataset(self, dataset_without_records: Dataset) -> Dataset:
+    def dataset(self, dataset_without_records: rx.Dataset) -> rx.Dataset:
         return dataset_without_records
 
     @pytest.fixture(scope='class')
-    def pipeline(self) -> list[DatasetTransformation]:
-        return [SetIndex(), SynchronizeSubjects(), CastTimestamps(), SetAdmissionRelativeTimes()]
+    def pipeline(self) -> list[rx.DatasetTransformation]:
+        return [rx.SetIndex(), rx.SynchronizeSubjects(), rx.CastTimestamps(), rx.SetAdmissionRelativeTimes()]
 
 
 class TestDatasetWithRecords(AbstractTestDataset):
     @pytest.fixture(scope='class')
-    def dataset_tables(self, dataset_tables_with_records: DatasetTables) -> DatasetTables:
+    def dataset_tables(self, dataset_tables_with_records: rx.DatasetTables) -> rx.DatasetTables:
         return dataset_tables_with_records
 
     @pytest.fixture(scope='class')
-    def dataset(self, dataset_with_records: Dataset):
+    def dataset(self, dataset_with_records: rx.Dataset) -> rx.Dataset:
         return dataset_with_records
 
     @pytest.fixture(scope='class')
     def pipeline(self):
-        return [SetIndex(), SynchronizeSubjects(), CastTimestamps(), ICUInputRateUnitConversion(),
-                SetAdmissionRelativeTimes()]
+        return [rx.SetIndex(), rx.SynchronizeSubjects(), rx.CastTimestamps(), rx.ICUInputRateUnitConversion(),
+                rx.SetAdmissionRelativeTimes()]
 
     @pytest.fixture(scope='class')
-    def split_measure(self, processed_dataset: Dataset, balance: str):
+    def split_measure(self, processed_dataset: rx.Dataset, balance: str):
         return {
             'subjects': lambda x: len(x),
             'admissions': lambda x: sum(processed_dataset.subjects_n_admissions.loc[x]),
@@ -245,12 +241,12 @@ class TestDatasetWithRecords(AbstractTestDataset):
         return request.param
 
     @pytest.fixture(params=[1, 11, 111], scope='class')
-    def subject_splits(self, processed_dataset: Dataset, balance: SplitLiteral,
+    def subject_splits(self, processed_dataset: rx.Dataset, balance: rx.SplitLiteral,
                        split_quantiles: list[float], request):
         random_seed = request.param
         return processed_dataset.random_splits(split_quantiles, balance=balance, random_seed=random_seed)
 
-    def test_random_split(self, processed_dataset: Dataset, subject_ids: list[str],
+    def test_random_split(self, processed_dataset: rx.Dataset, subject_ids: list[str],
                           subject_splits: list[list[str]],
                           split_quantiles: list[float]):
         assert set.union(*list(map(set, subject_splits))) == set(subject_ids)
