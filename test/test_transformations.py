@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import ehrax as rx
-from ehrax.testing.common_setup import ALIAS, DATASET_SCHEME_MANAGER
+from .common_setup import ALIAS, DATASET_SCHEME_MANAGER
 
 
 @pytest.fixture(scope='module')
@@ -41,9 +41,9 @@ class TestDatasetTransformation:
 
     @pytest.fixture(scope='class')
     def removed_no_admission_subjects_RESULTS(self, removed_subject_admissions_dataset: rx.Dataset):
-        filtered_dataset, report = rx.DatasetTransformation.filter_no_admission_subjects(
+        filtered_dataset, rx.Report = rx.DatasetTransformation.filter_no_admission_subjects(
             removed_subject_admissions_dataset, rx.Report())
-        return filtered_dataset, report
+        return filtered_dataset, rx.Report
 
     @pytest.fixture(scope='class')
     def removed_no_admission_subjects(self, removed_no_admission_subjects_RESULTS) -> rx.Dataset:
@@ -216,9 +216,9 @@ class TestFilterSubjectsWithNegativeAdmissionInterval:
     @pytest.fixture(scope='class')
     def dataset_inverted_admission(self, dataset: rx.Dataset,
                                    sample_admission_id: str) -> rx.Dataset:
-        admissions = dataset.tables.admissions.copy()
-        c_admittime = dataset.config.tables.admissions.admission_time_alias
-        c_dischtime = dataset.config.tables.admissions.discharge_time_alias
+        admissions = rx.Dataset.tables.admissions.copy()
+        c_admittime = rx.Dataset.config.tables.admissions.admission_time_alias
+        c_dischtime = rx.Dataset.config.tables.admissions.discharge_time_alias
         admittime = admissions.loc[sample_admission_id, c_admittime]
         dischtime = admissions.loc[sample_admission_id, c_dischtime]
         admissions.loc[sample_admission_id, c_admittime] = dischtime
@@ -232,8 +232,8 @@ class TestFilterSubjectsWithNegativeAdmissionInterval:
 
     def test_filter_subjects_negative_admission_length(self, dataset_inverted_admission: rx.Dataset,
                                                        filtered_dataset: rx.Dataset, sample_admission_id: str):
-        admissions0 = dataset_inverted_admission.tables.admissions
-        static0 = dataset_inverted_admission.tables.static
+        admissions0 = rx.Dataset_inverted_admission.tables.admissions
+        static0 = rx.Dataset_inverted_admission.tables.static
         admissions1 = filtered_dataset.tables.admissions
         static1 = filtered_dataset.tables.static
 
@@ -468,7 +468,8 @@ class TestClampTimestamps:
 
     @pytest.fixture(scope='class')
     def fixed_dataset(self, shifted_timestamps_dataset: rx.Dataset):
-        return rx.FilterClampTimestampsToAdmissionInterval.apply(shifted_timestamps_dataset, DATASET_SCHEME_MANAGER,
+        return \
+            rx.FilterClampTimestampsToAdmissionInterval.apply(shifted_timestamps_dataset, DATASET_SCHEME_MANAGER,
                                                               rx.Report())[0]
 
     def test_clamp_timestamps_to_admission_interval(self, shifted_timestamps_dataset: rx.Dataset,

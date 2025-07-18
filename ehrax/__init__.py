@@ -15,15 +15,12 @@ from .coding_scheme import (
     CodesVector,
     CodingScheme,
     CodingSchemeWithUOM,
-    HierarchicalScheme,
     CodingSchemesManager,
     NumericScheme,
     NumericalTypeHint,
     OutcomeExtractor,
     ExcludingOutcomeExtractor,
     ReducedCodeMapN1,
-    GroupingData,
-    AggregationLiteral
 )
 
 from .dataset import (
@@ -108,6 +105,4 @@ from .tvx_transformations import (
 from .utils import (
     path_from_getter,
     path_from_jax_keypath,
-    load_config, write_config,
-    translate_path
 )

@@ -1,4 +1,3 @@
-from statistics import median
 from typing import Callable, Any
 
 import equinox as eqx
@@ -7,7 +6,7 @@ import pytest
 import tables as tb
 
 import ehrax as rx
-from ehrax.testing.common_setup import BINARY_OBSERVATION_CODE_INDEX, DATASET_SCHEME_MANAGER, MAX_STAY_DAYS
+from .common_setup import BINARY_OBSERVATION_CODE_INDEX, DATASET_SCHEME_MANAGER, MAX_STAY_DAYS
 
 
 def test_serialization_multi_subjects(tvx_ehr: rx.TVxEHR, tmpdir: str):
@@ -638,8 +637,7 @@ class TestExcludeShortAdmissions:
     def tvx_ehr_concept(self, tvx_ehr: rx.TVxEHR):
         tvx_ehr = eqx.tree_at(lambda x: x.config.interventions, tvx_ehr, False)
         tvx_ehr = eqx.tree_at(lambda x: x.config.observables, tvx_ehr, False)
-        los_median = median((d[1] - d[0]).total_seconds() / 3600 for d in tvx_ehr.admission_dates.values())
-        tvx_ehr = eqx.tree_at(lambda x: x.config.admission_minimum_los, tvx_ehr, los_median,
+        tvx_ehr = eqx.tree_at(lambda x: x.config.admission_minimum_los, tvx_ehr, MAX_STAY_DAYS * 24 / 2,
                               is_leaf=lambda x: x is None)
         return tvx_ehr._execute_pipeline([rx.TVxConcepts()], DATASET_SCHEME_MANAGER)
 
