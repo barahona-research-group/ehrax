@@ -3,20 +3,32 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ehrax.dataset import Report, Dataset
-from ehrax.transformations import ICUInputRateUnitConversion, FilterInvalidInputRatesSubjects
-from test.common_setup import DATASET_CONFIG, DATASET_SCHEME_MANAGER, MockMIMICIVDataset
+from ehrax.coding_scheme import CodingSchemeWithUOM
+from ehrax.dataset import Report, DatasetTables, DatasetSchemeConfig
+from ehrax.transformations import FilterInvalidInputRatesSubjects, ICUInputRateUnitConversion, SynchronizeSubjects, \
+    SetIndex, CastTimestamps
+from test.common_setup import DATASET_CONFIG, DATASET_SCHEME_MANAGER, SCHEMES
+from .conftest import Dataset
+
+
+@pytest.fixture(scope='module')
+def mimiciv_dataset_without_uom_normalization(dataset_tables_with_records: DatasetTables,
+                                  unit_converter_table: pd.DataFrame) -> Dataset:
+    config = eqx.tree_at(lambda x: x.scheme, DATASET_CONFIG,
+                         DatasetSchemeConfig(**DATASET_CONFIG.scheme.scheme_fields()))
+    ds = Dataset(tables=dataset_tables_with_records, config=config)
+    return ds._execute_pipeline([SetIndex(), SynchronizeSubjects(), CastTimestamps()], DATASET_SCHEME_MANAGER)
 
 
 class TestUnitConversionAndFilterInvalidInputRates:
 
     @pytest.fixture(scope='class')
-    def fixed_dataset(self, mimiciv_dataset_no_conv: MockMIMICIVDataset) -> Dataset:
-        return ICUInputRateUnitConversion.apply(mimiciv_dataset_no_conv, DATASET_SCHEME_MANAGER, Report())[0]
+    def fixed_dataset(self, mimiciv_dataset_without_uom_normalization: Dataset) -> Dataset:
+        return ICUInputRateUnitConversion.apply(mimiciv_dataset_without_uom_normalization, DATASET_SCHEME_MANAGER, Report())[0]
 
     @pytest.fixture(scope='class')
-    def icu_inputs_unfixed(self, mimiciv_dataset_no_conv: MockMIMICIVDataset):
-        return mimiciv_dataset_no_conv.tables.icu_inputs
+    def icu_inputs_unfixed(self, mimiciv_dataset_without_uom_normalization: Dataset):
+        return mimiciv_dataset_without_uom_normalization.tables.icu_inputs
 
     @pytest.fixture(scope='class')
     def icu_inputs_fixed(self, fixed_dataset: Dataset):
@@ -33,7 +45,6 @@ class TestUnitConversionAndFilterInvalidInputRates:
     def test_icu_input_rate_unit_conversion(self,
                                             icu_inputs_fixed: pd.DataFrame,
                                             icu_inputs_unfixed: pd.DataFrame,
-                                            unit_converter_table: pd.DataFrame,
                                             derived_icu_inputs_cols: list[str]):
         assert all(c not in icu_inputs_unfixed.columns for c in derived_icu_inputs_cols)
         assert all(c in icu_inputs_fixed.columns for c in derived_icu_inputs_cols)
@@ -41,17 +52,13 @@ class TestUnitConversionAndFilterInvalidInputRates:
             "Dataset configuration does not have icu_inputs table defined."
         c = DATASET_CONFIG.tables.icu_inputs
 
+        scheme: CodingSchemeWithUOM = SCHEMES['icu_inputs']
         # For every (code, unit) pair, a unique normalization factor and universal unit is assigned.
         for (code, unit), inputs_df in icu_inputs_fixed.groupby([c.code_alias, c.amount_unit_alias]):
-            ctable = unit_converter_table[(unit_converter_table[c.code_alias] == code)]
-            ctable = ctable[ctable[c.amount_unit_alias] == unit]
-            norm_factor = ctable[c.derived_unit_normalization_factor].iloc[0]
-            universal_unit = ctable[c.derived_universal_unit].iloc[0]
-
-            assert inputs_df[c.derived_universal_unit].unique() == universal_unit
-            assert inputs_df[c.derived_unit_normalization_factor].unique() == norm_factor
+            assert inputs_df[c.derived_universal_unit].unique() == scheme.universal_unit[code]
+            assert inputs_df[c.derived_unit_normalization_factor].unique() == scheme.uom_normalization_factor[code][unit]
             assert inputs_df[c.derived_normalized_amount].equals(
-                inputs_df[c.amount_alias] * norm_factor)
+                inputs_df[c.amount_alias] * scheme.uom_normalization_factor[code][unit])
 
     @pytest.fixture(scope='class')
     def nan_inputs_dataset(self, fixed_dataset: pd.DataFrame):

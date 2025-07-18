@@ -1,5 +1,6 @@
 from abc import ABCMeta, abstractmethod, ABC
 from functools import cached_property
+from types import MappingProxyType
 from typing import Optional, ClassVar, Iterable, Self
 
 import equinox as eqx
@@ -8,7 +9,7 @@ import jax.tree_util as jtu
 import numpy as np
 import pandas as pd
 
-from .base import AbstractConfig, AbstractVxData
+from .base import AbstractConfig, AbstractVxData, fetch_at
 from .coding_scheme import CodesVector, CodingSchemesManager, CodeMap, ReducedCodeMapN1, GroupingData, OutcomeExtractor
 from .dataset import Dataset, DatasetSchemeProxy, DatasetSchemeConfig, ReportAttributes, \
     AbstractTransformation, AbstractDatasetPipeline, AbstractProcessedDataset, Report, SplitLiteral, PipelineReportTable
@@ -429,7 +430,7 @@ class TVxEHR(AbstractProcessedDataset):
     dataset: Dataset
     numerical_processors: DatasetNumericalProcessors
     splits: Optional[_SplitsType]
-    subjects: Optional[dict[str, Patient]]
+    subjects: Optional[MappingProxyType[str, Patient]]
     patient_class: ClassVar[type[Patient]] = Patient
     report_class: ClassVar[type[TVxReport]] = TVxReport
 
@@ -448,6 +449,14 @@ class TVxEHR(AbstractProcessedDataset):
     def subject_ids(self) -> list[str]:
         """Get the list of subject IDs."""
         return sorted(self.subjects.keys()) if self.subjects is not None else []
+
+    def fetch_subjects(self, subject_ids: Optional[tuple[str, ...]] = None) -> Self:
+        if subject_ids is None:
+            subject_ids = self.subject_ids
+        # generating lambdas inside generators can lead to unexpected behaviour, e.g. all lambdas can be bounded
+        # to one value of subject_id (the last one of the collection).
+        # https://stackoverflow.com/a/452660
+        return fetch_at(tuple(map(lambda k: lambda x: x.subjects[k], subject_ids)), self)
 
     def scheme_proxy(self, schemes_context: CodingSchemesManager) -> TVxEHRSchemeProxy:
         """Get the scheme."""

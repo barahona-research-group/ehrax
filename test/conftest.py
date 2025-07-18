@@ -1,5 +1,4 @@
-from typing import Iterator, Generator
-from unittest.mock import patch, PropertyMock
+from typing import Iterator, Optional
 
 import equinox as eqx
 import numpy as np
@@ -8,26 +7,53 @@ import pytest
 import tables as tb
 
 from ehrax.coding_scheme import CodesVector
-from ehrax.dataset import DatasetTables, Dataset, \
-    DatasetConfig
-from ehrax.transformations import SetIndex, CastTimestamps
+from ehrax.dataset import DatasetTables, DatasetConfig, Dataset as AbstractDataset, DatasetSchemeConfig, \
+    DatasetSchemeProxy, AbstractDatasetPipeline
+from ehrax.transformations import SetIndex, CastTimestamps, SynchronizeSubjects, \
+    SetAdmissionRelativeTimes, ICUInputRateUnitConversion
 from ehrax.tvx_concepts import SegmentedAdmission, InpatientInterventions, Admission, \
     SegmentedInpatientInterventions, Patient, SegmentedPatient, StaticInfo
 from ehrax.tvx_ehr import TVxEHR, InpatientObservables
-from test.common_setup import ALIAS, DATASET_SCHEME_CONF, TVXEHR_CONF, NaiveEHR, _dataset_tables, SCHEMES, \
+from test.common_setup import DATASET_SCHEME_CONF, TVXEHR_CONF, _dataset_tables, SCHEMES, \
     _dx_codes, OUTCOME_EXTRACTOR, \
     DATASET_SCHEME_MANAGER, \
     _singular_codevec, _static_info, _dx_codes_history, _inpatient_observables, _icu_inputs, _proc, _outcome, \
     DATASET_CONFIG, _segmented_inpatient_interventions, _inpatient_interventions, leading_observables_extractor, \
-    _admission, _admissions, DATASET_TABLES_CONF, NaiveDataset, MockMIMICIVDatasetSchemeConfig, MockMIMICIVDataset, \
-    TARGET_SCHEMES
+    _admission, _admissions, DATASET_TABLES_CONF, TARGET_SCHEMES
 
 
-@pytest.fixture(params=[(1, 0, 0), (1, 2, 0), (1, 2, 10), (500, 5, 25)],
+class Dataset(AbstractDataset):
+    @classmethod
+    def load_tables(cls, config: DatasetConfig, scheme: DatasetSchemeProxy) -> DatasetTables:
+        raise NotImplementedError("Still not implemented.")
+
+    @classmethod
+    def make_default_pipeline(cls) -> AbstractDatasetPipeline:
+        raise NotImplementedError("No.")
+
+
+@pytest.fixture(params=[(1, 0, 0), (1, 2, 0)],
                 ids=lambda x: f"_{x[0]}_subjects_{x[0] * x[1]}_admissions_{x[0] * x[1] * x[2]}_records",
                 scope='session')
-def dataset_tables(request) -> DatasetTables:
+def dataset_tables_without_records(request) -> DatasetTables:
     return _dataset_tables(DATASET_TABLES_CONF, DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER, request.param)
+
+
+@pytest.fixture(scope='session')
+def dataset_without_records(dataset_tables_without_records: DatasetTables) -> Dataset:
+    return Dataset(tables=dataset_tables_without_records, config=DATASET_CONFIG)
+
+
+@pytest.fixture(params=[(1, 2, 10), (300, 3, 25)],
+                ids=lambda x: f"_{x[0]}_subjects_{x[0] * x[1]}_admissions_{x[0] * x[1] * x[2]}_records",
+                scope='session')
+def dataset_tables_with_records(request) -> DatasetTables:
+    return _dataset_tables(DATASET_TABLES_CONF, DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER, request.param)
+
+
+@pytest.fixture(scope='session')
+def dataset_with_records(dataset_tables_with_records: DatasetTables) -> Dataset:
+    return Dataset(tables=dataset_tables_with_records, config=DATASET_CONFIG)
 
 
 @pytest.fixture(scope='session')
@@ -36,78 +62,18 @@ def large_dataset_tables():
 
 
 @pytest.fixture(scope='session')
-def dataset(dataset_tables: DatasetTables):
-    return NaiveDataset(tables=dataset_tables, config=DATASET_CONFIG)
+def large_dataset(large_dataset_tables: DatasetTables) -> Dataset:
+    return Dataset(tables=large_dataset_tables, config=DATASET_CONFIG)
 
 
 @pytest.fixture(scope='session')
-def large_dataset(large_dataset_tables: DatasetTables):
-    return NaiveDataset(tables=large_dataset_tables, config=DATASET_CONFIG)
-
-
-@pytest.fixture(scope='session')
-def indexed_dataset(dataset) -> NaiveDataset:
-    return dataset.execute_pipeline(dataset.make_default_pipeline(), DATASET_SCHEME_MANAGER)
-
-
-@pytest.fixture(scope='session')
-def indexed_large_dataset(large_dataset) -> NaiveDataset:
-    return large_dataset.execute_pipeline(large_dataset.make_default_pipeline(), DATASET_SCHEME_MANAGER)
-
-
-@pytest.fixture(scope='session')
-def has_admissions_dataset(indexed_dataset: NaiveDataset) -> Generator[NaiveDataset, None, None]:
-    if len(indexed_dataset.tables.admissions) == 0:
-        raise pytest.skip("No admissions data found in dataset.")
-    yield indexed_dataset
-
-
-@pytest.fixture(scope='session')
-def has_codes_dataset(has_admissions_dataset: Dataset):
-    if all(len(getattr(has_admissions_dataset.tables, k)) == 0 for k in
-           has_admissions_dataset.config.tables.code_column.keys()):
-        raise pytest.skip("No coded tables or they are all empty.")
-    yield has_admissions_dataset
-
-
-@pytest.fixture(scope='session')
-def has_obs_dataset(has_admissions_dataset: Dataset) -> Generator[NaiveDataset, None, None]:
-    if len(has_admissions_dataset.tables.obs) == 0:
-        raise pytest.skip("No obs data found in dataset.")
-    yield has_admissions_dataset
-
-
-@pytest.fixture(scope='session')
-def subject_id_column(indexed_dataset: Dataset) -> str:
-    return indexed_dataset.config.tables.subject_id_alias
-
-
-@pytest.fixture(scope='session')
-def admission_id_column(indexed_dataset: Dataset) -> str:
-    return indexed_dataset.config.tables.admission_id_alias
-
-
-@pytest.fixture(scope='session')
-def sample_subject_id(has_admissions_dataset: Dataset) -> str:
-    return has_admissions_dataset.tables.admissions[ALIAS['subject_id']].iloc[0]
-
-
-@pytest.fixture(scope='session')
-def sample_admission_id(has_admissions_dataset: Dataset) -> str:
-    return has_admissions_dataset.tables.admissions.index[0]
-
-
-@pytest.fixture(scope='session')
-def unit_converter_table(dataset_tables: DatasetTables) -> Generator[pd.DataFrame, None, None]:
-    if 'icu_inputs' not in dataset_tables.tables_dict or len(dataset_tables.icu_inputs) == 0:
-        raise pytest.skip("No ICU inputs in dataset. Required for the unit conversion table generation.")
-    assert DATASET_CONFIG.tables.icu_inputs is not None, \
-        "Dataset configuration must have ICU inputs table defined."
+def unit_converter_table(dataset_tables_with_records: DatasetTables) -> Optional[pd.DataFrame]:
+    assert 'icu_inputs' in dataset_tables_with_records.tables_dict or len(dataset_tables_with_records.icu_inputs) == 0
     c_code = DATASET_CONFIG.tables.icu_inputs.code_alias
     c_amount_unit = DATASET_CONFIG.tables.icu_inputs.amount_unit_alias
     c_norm_factor = DATASET_CONFIG.tables.icu_inputs.derived_unit_normalization_factor
     c_universal_unit = DATASET_CONFIG.tables.icu_inputs.derived_universal_unit
-    icu_inputs = dataset_tables.icu_inputs
+    icu_inputs = dataset_tables_with_records.icu_inputs
 
     table = pd.DataFrame(columns=[c_code, c_amount_unit],
                          data=[(code, unit) for code, unit in
@@ -122,12 +88,12 @@ def unit_converter_table(dataset_tables: DatasetTables) -> Generator[pd.DataFram
             norm_factor = np.where(units == universal_unit, 1, norm_factor)
         table.loc[df.index, c_norm_factor] = norm_factor
         table.loc[df.index, c_universal_unit] = universal_unit
-    yield table
+    return table
 
 
 @pytest.fixture(scope='session')
-def mimiciv_dataset_scheme_config() -> MockMIMICIVDatasetSchemeConfig:
-    return MockMIMICIVDatasetSchemeConfig(
+def mimiciv_dataset_scheme_config() -> DatasetSchemeConfig:
+    return DatasetSchemeConfig(
         ethnicity=SCHEMES['ethnicity'].name,
         gender=SCHEMES['gender'].name,
         dx_discharge=SCHEMES['dx_discharge'].name,
@@ -138,37 +104,37 @@ def mimiciv_dataset_scheme_config() -> MockMIMICIVDatasetSchemeConfig:
 
 
 @pytest.fixture(scope='session')
-def mimiciv_dataset_config(mimiciv_dataset_scheme_config: MockMIMICIVDatasetSchemeConfig):
+def mimiciv_dataset_config(mimiciv_dataset_scheme_config: DatasetSchemeConfig) -> DatasetConfig:
     return DatasetConfig(scheme=mimiciv_dataset_scheme_config, tables=DATASET_TABLES_CONF)
 
 
 @pytest.fixture(scope='session')
-def mimiciv_dataset_no_conv(mimiciv_dataset_config, dataset_tables,
-                            unit_converter_table) -> Iterator[MockMIMICIVDataset]:
-    ds = MockMIMICIVDataset(tables=dataset_tables, config=mimiciv_dataset_config)
-    with patch(__name__ + '.MockMIMICIVDatasetSchemeConfig.icu_inputs_uom_normalization_table',
-               return_value=unit_converter_table,
-               new_callable=PropertyMock):
-        yield eqx.tree_at(lambda x: x.tables, ds, dataset_tables,
-                          is_leaf=lambda x: x is None)._execute_pipeline([SetIndex(), CastTimestamps()],
-                                                                         DATASET_SCHEME_MANAGER)
+def mimiciv_dataset_without_records(mimiciv_dataset_config, dataset_tables_without_records) -> Dataset:
+    ds = Dataset(tables=dataset_tables_without_records, config=mimiciv_dataset_config)
+    return eqx.tree_at(lambda x: x.tables, ds, dataset_tables_without_records,
+                       is_leaf=lambda x: x is None)._execute_pipeline([SetIndex(), SynchronizeSubjects(),
+                                                                       CastTimestamps(), SetAdmissionRelativeTimes()],
+                                                                      DATASET_SCHEME_MANAGER)
 
 
 @pytest.fixture(scope='session')
-def mimiciv_dataset(dataset_tables: DatasetTables,
-                    unit_converter_table: pd.DataFrame) -> Iterator[MockMIMICIVDataset]:
+def mimiciv_dataset(dataset_tables_with_records: DatasetTables,
+                    unit_converter_table: pd.DataFrame) -> Dataset:
     config = eqx.tree_at(lambda x: x.scheme, DATASET_CONFIG,
-                         MockMIMICIVDatasetSchemeConfig(**DATASET_CONFIG.scheme.scheme_fields()))
-    ds = MockMIMICIVDataset(tables=dataset_tables, config=config)
-    with patch('test.common_setup.MockMIMICIVDatasetSchemeConfig.icu_inputs_uom_normalization_table',
-               return_value=unit_converter_table,
-               new_callable=PropertyMock):
-        yield ds.execute_pipeline(MockMIMICIVDataset.make_default_pipeline(DATASET_CONFIG), DATASET_SCHEME_MANAGER)
+                         DatasetSchemeConfig(**DATASET_CONFIG.scheme.scheme_fields()))
+    ds = Dataset(tables=dataset_tables_with_records, config=config)
+    return ds._execute_pipeline([SetIndex(), SynchronizeSubjects(), CastTimestamps(), ICUInputRateUnitConversion(),
+                                 SetAdmissionRelativeTimes()], DATASET_SCHEME_MANAGER)
 
 
 @pytest.fixture(scope='session')
-def tvx_ehr(mimiciv_dataset: MockMIMICIVDataset) -> TVxEHR:
-    return NaiveEHR(dataset=mimiciv_dataset, config=TVXEHR_CONF)
+def tvx_ehr(mimiciv_dataset: Dataset) -> TVxEHR:
+    return TVxEHR(dataset=mimiciv_dataset, config=TVXEHR_CONF)
+
+
+@pytest.fixture(scope='session')
+def tvx_ehr_without_records(mimiciv_dataset_without_records: Dataset) -> TVxEHR:
+    return TVxEHR(dataset=mimiciv_dataset_without_records, config=TVXEHR_CONF)
 
 
 @pytest.fixture

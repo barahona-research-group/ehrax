@@ -5,7 +5,8 @@ from unittest import mock
 import pytest
 import tables as tb
 
-from ehrax.coding_scheme import CodingSchemesManager, FrozenDict11, OutcomeExtractor, FrozenDict1N, ReducedCodeMapN1, CodingScheme
+from ehrax.coding_scheme import CodingSchemesManager, FrozenDict11, OutcomeExtractor, FrozenDict1N, ReducedCodeMapN1, \
+    CodingScheme
 from ehrax.example_schemes.icd import CCSICDSchemeSelection, setup_standard_icd_ccs, CCSICDOutcomeSelection, \
     setup_icd_schemes, setup_icd_outcomes
 

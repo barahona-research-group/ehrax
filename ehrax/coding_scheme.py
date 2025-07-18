@@ -8,16 +8,15 @@ import re
 from abc import abstractmethod, ABCMeta
 from collections import defaultdict, OrderedDict
 from functools import cached_property
-from pathlib import Path
 from types import MappingProxyType
-from typing import Optional, ClassVar, Literal, ItemsView, Iterator, Iterable, Mapping, Callable, Self, TypeVar, Generic
+from typing import Optional, ClassVar, Literal, Iterable, Mapping, Callable, Self
 
 import numpy as np
 import pandas as pd
 import tables as tbl  # type: ignore
 
-from ehrax.freezer import FrozenDict11, FrozenDict1N
 from ehrax.base import AbstractVxData
+from ehrax.freezer import FrozenDict11, FrozenDict1N, FrozenDict1NM
 from ehrax.utils import load_config, tqdm_constructor, Array
 
 NumericalTypeHint = Literal['B', 'N', 'O', 'C']  # Binary, Numerical, Ordinal, Categorical
@@ -25,6 +24,7 @@ NumericalTypeHint = Literal['B', 'N', 'O', 'C']  # Binary, Numerical, Ordinal, C
 
 def resources_dir(*subdir: str) -> str:
     return os.path.join(os.path.dirname(__file__), "resources", *subdir)
+
 
 class CodesVector(AbstractVxData):
     vec: Array
@@ -207,6 +207,25 @@ class CodingScheme(AbstractVxData):
             index=index,
         )
 
+    @classmethod
+    def _init_args_from_table(cls, name: str,
+                              table: pd.DataFrame,
+                              c_code: str, c_desc: Optional[str],
+                              code_selection: Optional[pd.DataFrame], **kwargs) -> tuple[
+        str, tuple[str, ...], FrozenDict11]:
+        # TODO: test this method.
+        # drop=False in case we use c_code as c_desc.
+        df = table.astype({c_code: str}).drop_duplicates(c_code).set_index(c_code, drop=False)
+        if code_selection is not None:
+            df = df.loc[code_selection[c_code].drop_duplicates().astype(str).tolist()]
+        return name, tuple(sorted(df.index.tolist())), FrozenDict11(df[(c_desc or c_code)].to_dict())
+
+    @classmethod
+    def from_table(cls, name: str, table: pd.DataFrame, c_code: str, c_desc: Optional[str] = None,
+                   code_selection: Optional[pd.DataFrame] = None, *args, **kwargs) -> Self:
+        return cls(*cls._init_args_from_table(name=name, table=table, c_code=c_code, c_desc=c_desc,
+                                              code_selection=code_selection))
+
 
 class NumericScheme(CodingScheme):
     """
@@ -239,6 +258,45 @@ class NumericScheme(CodingScheme):
         assert set(self.index[c] for c in self.codes) == set(range(len(self))), \
             f"The order of codes ({self.codes}) does not match the order of type hints ({self.type_hint.keys()})."
         return np.array([self.type_hint[code] for code in self.codes])
+
+
+class CodingSchemeWithUOM(CodingScheme):
+    uom_normalization_factor: FrozenDict1NM  # dict[code, dict[unit, conversion_factor]]
+    universal_unit: FrozenDict11
+
+    def __init__(self, name: str, codes: tuple[str, ...],
+                 desc: FrozenDict11, uom_normalization_factor: FrozenDict1NM,
+                 universal_unit: FrozenDict11):
+        super().__init__(name=name, codes=codes, desc=desc)
+        self.uom_normalization_factor = uom_normalization_factor
+        self.universal_unit = universal_unit
+
+    @classmethod
+    def from_table(cls, name: str,
+                   table: pd.DataFrame,
+                   c_code: str,
+                   c_desc: Optional[str] = None,
+                   code_selection: Optional[pd.DataFrame] = None, *,
+                   c_normalization_factor: str,
+                   c_unit: str,
+                   c_universal_unit: Optional[str] = None) -> Self:
+        name, codes, desc = cls._init_args_from_table(name=name, table=table, c_code=c_code, c_desc=c_desc,
+                                                      code_selection=code_selection)
+        # TODO: test this method.
+        df = table.astype({c_code: str, c_normalization_factor: float}).drop_duplicates(c_code).set_index(c_code)
+        df = df[df.index.isin(codes)]
+        assert all(c in df.columns for c in (c_unit, c_normalization_factor)), "Some columns are missing."
+        if c_universal_unit is not None and c_universal_unit in df.columns:
+            uom_universal = df[c_universal_unit].to_dict()
+        else:
+            # Choose one of the units with 1.0 as a normalization factor.
+            uom_universal = df[df[c_normalization_factor] == 1.0][c_unit].to_dict()
+        # Narrow down the codes to those who have at least one universal unit (the target unit to which all units are converted).
+        df = df[df.index.isin(uom_universal.keys())]
+        uom_data = {code: code_df.set_index(c_unit)[c_normalization_factor].to_dict() for code, code_df in
+                    df.groupby(df.index)}
+        return cls(name=name, codes=codes, desc=desc,
+                   uom_normalization_factor=FrozenDict1NM(uom_data), universal_unit=FrozenDict11(uom_universal))
 
 
 class HierarchicalScheme(CodingScheme):
@@ -738,6 +796,23 @@ class CodeMap(AbstractVxData):
             t_code = target_scheme.code2dag[t_code]
         return target_scheme.code_ancestors_bfs(t_code, include_itself=include_itself)
 
+    @classmethod
+    def _init_args_from_table(cls, source_scheme: CodingScheme, target_scheme: CodingScheme,
+                              map_table: pd.DataFrame, c_source_code: str, c_target_code: str, *args, **kwargs) -> \
+            tuple[str, str, FrozenDict1N]:
+        """
+        # TODO: test me.
+        """
+        map_table = map_table[[c_source_code, c_target_code]].astype(str)
+        map_table = map_table[
+            map_table[c_source_code].isin(source_scheme.codes) & map_table[c_target_code].isin(target_scheme.codes)]
+        mapping = map_table.groupby(c_source_code)[c_target_code].apply(set).to_dict()
+        return source_scheme.name, target_scheme.name, FrozenDict1N(mapping)
+
+    @classmethod
+    def from_table(cls, *args, **kwargs):
+        return cls(*cls._kw_init_from_table(*args, **kwargs))
+
 
 AggregationLiteral = Literal['sum', 'or', 'w_sum']
 
@@ -782,6 +857,24 @@ class ReducedCodeMapN1(CodeMap):
         return cls(source_name=source_name, target_name=target_name, data=map_data,
                    set_aggregation=set_aggregation,
                    reduced_groups=FrozenDict1N(new_map))
+
+    @classmethod
+    def from_table(cls,
+                   source_scheme: CodingScheme,
+                   target_scheme: CodingScheme,
+                   c_source_code: str,
+                   c_target_code: str,
+                   c_target_agg: str,
+                   table: pd.DataFrame) -> Self:
+        source_name, target_name, map_data = cls._init_args_from_table(source_scheme=source_scheme,
+                                                                       target_scheme=target_scheme,
+                                                                       c_source_code=c_source_code,
+                                                                       c_target_code=c_target_code,
+                                                                       map_table=table)
+        return cls.from_data(source_name=source_name,
+                             target_name=target_name,
+                             map_data=map_data,
+                             set_aggregation=FrozenDict11(table.set_index(c_target_code)[c_target_agg].to_dict()))
 
     def groups(self, source_index: dict[str, int]) -> tuple[tuple[str, ...], ...]:
         target_codes = tuple(sorted(self.reduced_groups.keys()))
@@ -959,11 +1052,13 @@ class CodingSchemesManager(AbstractVxData):
             updated = updated.add_map(m)
         for o in (o for o in other.outcomes if o.name not in updated.outcome):
             updated = updated.add_outcome(o)
+        for u in (u for u in other.uom_normalizers if u.name not in updated.uom_normalizers):
+            updated = updated.add_uom_normalizer(u)
         return updated
 
     @cached_property
-    def scheme(self) -> dict[str, CodingScheme]:
-        return {s.name: s for s in self.schemes}
+    def scheme(self) -> Mapping[str, CodingScheme]:
+        return MappingProxyType({s.name: s for s in self.schemes})
 
     @cached_property
     def identity_maps(self) -> dict[tuple[str, str], CodeMap]:
@@ -976,12 +1071,12 @@ class CodingSchemesManager(AbstractVxData):
         raise NotImplementedError
 
     @cached_property
-    def map(self) -> dict[tuple[str, str], CodeMap]:
-        return {(m.source_name, m.target_name): m for m in self.maps} | self.identity_maps
+    def map(self) -> Mapping[tuple[str, str], CodeMap]:
+        return MappingProxyType({(m.source_name, m.target_name): m for m in self.maps} | self.identity_maps)
 
     @cached_property
-    def outcome(self) -> dict[str, OutcomeExtractor]:
-        return {o.name: o for o in self.outcomes}
+    def outcome(self) -> Mapping[str, OutcomeExtractor]:
+        return MappingProxyType({o.name: o for o in self.outcomes})
 
     def register_chained_map(self, s_scheme: str, inter_scheme: str, t_scheme: str) -> Self:
         """
@@ -1009,60 +1104,5 @@ class CodingSchemesManager(AbstractVxData):
         data = FrozenDict1N({c: bridge(c) for c in new_source_codes})
         return self.add_map(CodeMap(source_name=s_scheme, target_name=t_scheme, data=data))
 
-    def register_target_scheme(self, source_name: str, target_name: str,
-                               map_table: pd.DataFrame, c_code: str, c_target_code: str,
-                               c_target_desc: str) -> Self:
-        """
-        Register a target scheme and its mapping.
-        # TODO: test me.
-        """
-        target_codes = tuple(sorted(map_table[c_target_code].drop_duplicates().astype(str).tolist()))
-        # drop=False in case c_target_code == c_target_desc.
-        target_desc = map_table.set_index(c_target_code, drop=False)[c_target_desc].to_dict()
-        target_scheme = CodingScheme(name=target_name, codes=target_codes, desc=FrozenDict11(target_desc))
-        updated = self.add_scheme(target_scheme)
-        source_scheme = self.scheme[source_name]
-        map_table = map_table[[c_code, c_target_code]].astype(str)
-        map_table = map_table[
-            map_table[c_code].isin(source_scheme.codes) & map_table[c_target_code].isin(target_scheme.codes)]
-        mapping = map_table.groupby(c_code)[c_target_code].apply(set).to_dict()
-        data = FrozenDict1N(mapping)
-        return updated.add_map(CodeMap(source_name=source_scheme.name, target_name=target_name, data=data))
-
-    def register_scheme_from_selection(self, name: str,
-                                       supported_space: pd.DataFrame,
-                                       code_selection: Optional[pd.DataFrame],
-                                       c_code: str, c_desc: str) -> Self:
-        # TODO: test this method.
-        if code_selection is None:
-            code_selection_list = supported_space[c_code].drop_duplicates().astype(str).tolist()
-        else:
-            code_selection_list = code_selection[c_code].drop_duplicates().astype(str).tolist()
-
-            assert len(set(code_selection_list) - set(supported_space[c_code])) == 0, \
-                "Some item ids are not supported."
-        # drop=False in case c_target_code == c_target_desc.
-        desc: dict[str, str] = supported_space.set_index(c_code, drop=False)[c_desc].to_dict()
-        scheme = CodingScheme(name=name,
-                              codes=tuple(sorted(code_selection_list)),
-                              desc=FrozenDict11({k: v for k, v in desc.items() if k in code_selection_list}))
-        return self.add_scheme(scheme)
-
     def scheme_supported_targets(self, scheme) -> tuple[str, ...]:
         return tuple(t for s, t in self.map.keys() if s == scheme.name)
-
-    def save(self, store: str | Path | tbl.Group, overwrite: bool = False,
-             complib: Literal['blosc', 'zlib', 'lzo', 'bzip2'] = 'blosc', complevel: int = 9):
-        if not isinstance(store, tbl.Group):
-            filters = tbl.Filters(complib=complib, complevel=complevel)
-            with tbl.open_file(str(Path(store).with_suffix('.h5')), mode='w', filters=filters,
-                               max_numexpr_threads=None, max_blosc_threads=None) as store:
-                return self.save(store.root, overwrite=overwrite)
-        return self.to_hdf_group(store)
-
-    @classmethod
-    def load(cls, store: str | Path | tbl.Group):
-        if not isinstance(store, tbl.Group):
-            with tbl.open_file(str(Path(store).with_suffix('.h5')), 'r') as store:
-                return cls.load(store.root)
-        return CodingSchemesManager.from_hdf_group(store)

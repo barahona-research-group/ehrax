@@ -1,17 +1,14 @@
 import logging
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
-from dataclasses import field
-from typing import ClassVar, Final
+from typing import Final
 
 import equinox as eqx
 import numpy as np
 import pandas as pd
 
-from .coding_scheme import CodingSchemesManager
-from .dataset import (Dataset, AbstractTransformation, AbstractDatasetPipeline,
-                      TransformationsDependency, Report, SECONDS_TO_HOURS_SCALER)
-from .example_datasets.mimiciv import MIMICIVDataset
+from .coding_scheme import CodingSchemesManager, CodingSchemeWithUOM
+from .dataset import (Dataset, AbstractTransformation, Report, SECONDS_TO_HOURS_SCALER)
 
 
 class DatasetTransformation(AbstractTransformation, metaclass=ABCMeta):
@@ -426,54 +423,6 @@ class SelectSubjectsWithObservation(DatasetTransformation):
         return cls.synchronize_subjects(dataset, report)
 
 
-class ICUInputRateUnitConversion(DatasetTransformation):
-
-    @classmethod
-    def apply(cls, dataset: MIMICIVDataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[
-        Dataset, Report]:
-        ds_config = dataset.config
-        tables_config = ds_config.tables
-        table_config = tables_config.icu_inputs
-        c_code = table_config.code_alias
-        c_amount = table_config.amount_alias
-        c_start_time = table_config.start_time_alias
-        c_end_time = table_config.end_time_alias
-        c_amount_unit = table_config.amount_unit_alias
-        c_normalized_amount = table_config.derived_normalized_amount
-        c_normalized_amount_per_hour = table_config.derived_normalized_amount_per_hour
-        c_universal_unit = table_config.derived_universal_unit
-        c_normalization_factor = table_config.derived_unit_normalization_factor
-        icu_inputs = dataset.tables.icu_inputs
-
-        _derived_columns = [c_normalized_amount, c_normalized_amount_per_hour, c_universal_unit, c_normalization_factor]
-
-        conversion_table = dataset.icu_inputs_uom_normalization(
-            dataset.config.tables.icu_inputs, dataset.config.scheme.icu_inputs_uom_normalization_table)
-
-        assert (c in icu_inputs.columns for c in [c_code, c_amount, c_amount_unit]), \
-            f"Some columns in: {c_code}, {c_amount}, {c_amount_unit}, not found in icu_inputs table"
-        assert all(c not in icu_inputs.columns for c in _derived_columns), \
-            f"Some of these columns [{', '.join(_derived_columns)}] already exists in icu_inputs table"
-        assert (c in conversion_table for c in _derived_columns[2:]), \
-            f"Some columns in: {', '.join(_derived_columns[2:])}, not " \
-            "found in the conversion table"
-
-        df = pd.merge(icu_inputs, conversion_table, how='left',
-                      on=[c_code, c_amount_unit],
-                      suffixes=('_x', '_y'))
-
-        delta_hours = ((df[c_end_time] - df[c_start_time]).dt.total_seconds() * SECONDS_TO_HOURS_SCALER)
-        df[c_normalized_amount] = df[c_amount] * df[c_normalization_factor]
-        df[c_normalized_amount_per_hour] = df[c_normalized_amount] / delta_hours
-        df = df[icu_inputs.columns.tolist() + _derived_columns]
-        dataset = eqx.tree_at(lambda x: x.tables.icu_inputs, dataset, df)
-        report = report.add(table='icu_inputs', column=None,
-                            value_type='columns', operation='new_columns',
-                            before=icu_inputs.columns.tolist(), after=df.columns.tolist())
-
-        return dataset, report
-
-
 class FilterInvalidInputRatesSubjects(DatasetTransformation):
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
@@ -510,25 +459,67 @@ class FilterInvalidInputRatesSubjects(DatasetTransformation):
         return cls.synchronize_subjects(dataset, report)
 
 
-DS_DEPENDS_RELATIONS: Final[dict[type[DatasetTransformation], set[type[DatasetTransformation]]]] = {
-    SetAdmissionRelativeTimes: {CastTimestamps, SetIndex},
-    FilterSubjectsNegativeAdmissionLengths: {CastTimestamps, SetIndex},
-    ProcessOverlappingAdmissions: {SetIndex, CastTimestamps},
-    FilterClampTimestampsToAdmissionInterval: {SetIndex, CastTimestamps},
-    SelectSubjectsWithObservation: {SetIndex},
-    FilterInvalidInputRatesSubjects: {SetIndex, ICUInputRateUnitConversion},
-}
+class ICUInputRateUnitConversion(DatasetTransformation):
 
-DS_BLOCKED_BY_RELATIONS: Final[dict[type[DatasetTransformation], set[type[DatasetTransformation]]]] = {
-    FilterClampTimestampsToAdmissionInterval: {SetAdmissionRelativeTimes},
-    ICUInputRateUnitConversion: {SetAdmissionRelativeTimes}
-}
-DS_PIPELINE_VALIDATOR: Final[TransformationsDependency] = TransformationsDependency({}, {}
-                                                                                    # depends=DS_DEPENDS_RELATIONS,
-                                                                                    # blocked_by=DS_BLOCKED_BY_RELATIONS,
-                                                                                    )
+    @classmethod
+    def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[
+        Dataset, Report]:
+        ds_config = dataset.config
+        tables_config = ds_config.tables
+        table_config = tables_config.icu_inputs
+        c_code = table_config.code_alias
+        c_amount = table_config.amount_alias
+        c_start_time = table_config.start_time_alias
+        c_end_time = table_config.end_time_alias
+        c_amount_unit = table_config.amount_unit_alias
+        c_normalized_amount = table_config.derived_normalized_amount
+        c_normalized_amount_per_hour = table_config.derived_normalized_amount_per_hour
+        c_universal_unit = table_config.derived_universal_unit
+        c_normalization_factor = table_config.derived_unit_normalization_factor
+        icu_inputs = dataset.tables.icu_inputs
 
+        scheme = dataset.scheme_proxy(schemes_context).icu_inputs
+        assert isinstance(scheme, CodingSchemeWithUOM), (f"Expected CodingSchemeWithUOM but got {type(scheme)}")
+        _derived_columns = [c_normalized_amount, c_normalized_amount_per_hour, c_universal_unit, c_normalization_factor]
 
-class ValidatedDatasetPipeline(AbstractDatasetPipeline):
-    transformations: list[DatasetTransformation] = field(kw_only=True)
-    validator: ClassVar[TransformationsDependency] = DS_PIPELINE_VALIDATOR
+        assert (c in icu_inputs.columns for c in [c_code, c_amount, c_amount_unit]), \
+            f"Some columns in: {c_code}, {c_amount}, {c_amount_unit}, not found in icu_inputs table"
+        assert all(c not in icu_inputs.columns for c in _derived_columns), \
+            f"Some of these columns [{', '.join(_derived_columns)}] already exists in icu_inputs table"
+        df = icu_inputs.iloc[:, :]
+        df[c_universal_unit] = df[c_code].map(lambda c: scheme.universal_unit[c])
+        df[c_normalization_factor] = [scheme.uom_normalization_factor[code][unit] for code, unit in
+                                      zip(df[c_code], df[c_amount_unit])]
+
+        delta_hours = ((df[c_end_time] - df[c_start_time]).dt.total_seconds() * SECONDS_TO_HOURS_SCALER)
+        df[c_normalized_amount] = df[c_amount] * df[c_normalization_factor]
+        df[c_normalized_amount_per_hour] = df[c_normalized_amount] / delta_hours
+        df = df[icu_inputs.columns.tolist() + _derived_columns]
+        dataset = eqx.tree_at(lambda x: x.tables.icu_inputs, dataset, df)
+        report = report.add(table='icu_inputs', column=None,
+                            value_type='columns', operation='new_columns',
+                            before=icu_inputs.columns.tolist(), after=df.columns.tolist())
+
+        return dataset, report
+# DS_DEPENDS_RELATIONS: Final[dict[type[DatasetTransformation], set[type[DatasetTransformation]]]] = {
+#     SetAdmissionRelativeTimes: {CastTimestamps, SetIndex},
+#     FilterSubjectsNegativeAdmissionLengths: {CastTimestamps, SetIndex},
+#     ProcessOverlappingAdmissions: {SetIndex, CastTimestamps},
+#     FilterClampTimestampsToAdmissionInterval: {SetIndex, CastTimestamps},
+#     SelectSubjectsWithObservation: {SetIndex},
+#     FilterInvalidInputRatesSubjects: {SetIndex, ICUInputRateUnitConversion},
+# }
+#
+# DS_BLOCKED_BY_RELATIONS: Final[dict[type[DatasetTransformation], set[type[DatasetTransformation]]]] = {
+#     FilterClampTimestampsToAdmissionInterval: {SetAdmissionRelativeTimes},
+#     ICUInputRateUnitConversion: {SetAdmissionRelativeTimes}
+# }
+# DS_PIPELINE_VALIDATOR: Final[TransformationsDependency] = TransformationsDependency({}, {}
+#                                                                                     # depends=DS_DEPENDS_RELATIONS,
+#                                                                                     # blocked_by=DS_BLOCKED_BY_RELATIONS,
+#                                                                                     )
+#
+#
+# class ValidatedDatasetPipeline(AbstractDatasetPipeline):
+#     transformations: list[DatasetTransformation] = field(kw_only=True)
+#     validator: ClassVar[TransformationsDependency] = DS_PIPELINE_VALIDATOR

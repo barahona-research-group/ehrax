@@ -11,8 +11,10 @@ import pandas as pd
 import sqlalchemy
 from sqlalchemy import Engine
 
+from coding_scheme import ReducedCodeMapN1, NumericScheme
 from ..base import AbstractVxData, AbstractConfig
-from ..coding_scheme import (CodingScheme, resources_dir, CodingSchemesManager, FrozenDict11, NumericalTypeHint)
+from ..coding_scheme import (CodingScheme, resources_dir, CodingSchemesManager, FrozenDict11, NumericalTypeHint,
+                             CodingSchemeWithUOM)
 from ..dataset import SECONDS_TO_HOURS_SCALER
 from ..dataset import (StaticTableConfig,
                        AdmissionTimestampedMultiColumnTableConfig, AdmissionIntervalBasedCodedTableConfig,
@@ -22,7 +24,8 @@ from ..dataset import (StaticTableConfig,
                        DatasetTables, DatasetConfig, DatasetSchemeConfig, Dataset, AbstractDatasetPipelineConfig,
                        DatasetSchemeProxy)
 from ..example_schemes.icd import setup_standard_icd_ccs, CCSICDSchemeSelection, CCSICDOutcomeSelection
-from ..example_schemes.mimic import MixedICDScheme, AggregatedICUInputsScheme, ObservableMIMICScheme
+from ..example_schemes.mimiciv_icd import MixedICDScheme, ObservableMIMICScheme, \
+    ICUInputsUOMNormalizer
 from ..utils import tqdm_constructor
 
 warnings.filterwarnings('error', category=RuntimeWarning, message=r'overflow encountered in cast')
@@ -357,9 +360,9 @@ class CodedSQLTable(CategoricalSQLTable):
 
     def register_scheme(self, manager: CodingSchemesManager, name: str,
                         engine: Engine, code_selection: Optional[pd.DataFrame]) -> CodingSchemesManager:
-        return manager.register_scheme_from_selection(name=name, supported_space=self.space(engine),
-                                                      code_selection=code_selection, c_code=self.config.code_alias,
-                                                      c_desc=self.config.description_alias)
+        return manager.add_scheme(CodingScheme.from_table(name=name, table=self.space(engine),
+                                                          code_selection=code_selection, c_code=self.config.code_alias,
+                                                          c_desc=self.config.description_alias))
 
 
 class TimestampedMultiColumnSQLTable(SQLTable):
@@ -744,7 +747,15 @@ class ObservablesSQLTable(SQLTable):
                                                 suffixes=(None, '_y'),
                                                 how='inner')
 
-        return manager.add_scheme(ObservableMIMICScheme.from_selection(name, attributes_selection))
+        # format codes to be of the form 'table_name.attribute'
+        df = attributes_selection.astype({'attribute': str, 'type_hint': str})
+        codes = tuple(sorted(df.index + '.' + df['attribute'].tolist()))
+        desc = FrozenDict11(dict(zip(codes, codes)))
+        type_hint = FrozenDict11(dict(zip(codes, df['type_hint'].tolist())))
+        return manager.add_scheme(NumericScheme(name=name,
+                                                codes=codes,
+                                                desc=desc,
+                                                type_hint=type_hint))
 
 
 ENV_MIMICIV_HOST: Final[str] = 'MIMICIV_HOST'
@@ -983,22 +994,29 @@ class MIMICIVSQLTablesInterface(AbstractVxData):
     def register_icu_inputs_scheme(self, manager: CodingSchemesManager,
                                    config: MIMICIVDatasetSchemeConfig) -> CodingSchemesManager:
 
-        code_selection = config.icu_inputs_selection
         mapping = config.icu_inputs_map
         c_aggregation = config.icu_inputs_aggregation_column
-        table = CodedSQLTable(self.config.icu_inputs)
-        manager = table.register_scheme(manager, config.icu_inputs, self.create_engine(), code_selection)
+        c_source_code = self.config.icu_inputs.code_alias
+        c_source_desc = self.config.icu_inputs.description_alias
+        c_target_code = config.target_column_name(self.config.icu_inputs.code_alias)
+        c_target_desc = config.target_column_name(self.config.icu_inputs.description_alias)
+        scheme = CodingSchemeWithUOM.from_table(name=config.icu_inputs, table=config.icu_inputs_uom_normalization_table,
+                                                c_code=c_source_code, c_desc=c_source_desc,
+                                                c_universal_unit=self.config.icu_inputs.derived_universal_unit,
+                                                c_unit=self.config.icu_inputs.amount_unit_alias,
+                                                c_normalization_factor=self.config.icu_inputs.derived_unit_normalization_factor)
+        manager = manager.add_scheme(scheme)
         if mapping is not None and c_aggregation is not None:
             source_scheme = manager.scheme[config.icu_inputs]
-            manager = AggregatedICUInputsScheme.register_aggregated_scheme(
-                manager=manager, scheme=source_scheme,
-                target_scheme_name=config.propose_target_scheme_name(config.suffixes.icu_inputs),
-                code_column=self.config.icu_inputs.code_alias,
-                target_code_column=config.target_column_name(self.config.icu_inputs.code_alias),
-                target_desc_column=config.target_column_name(self.config.icu_inputs.description_alias),
-                target_aggregation_column=c_aggregation,
-                mapping_table=mapping
-            )
+            target_scheme = CodingScheme.from_table(name=config.propose_target_scheme_name(config.suffixes.icu_inputs),
+                                                    table=mapping,
+                                                    c_code=c_target_code,
+                                                    c_desc=c_target_desc)
+            codemap = ReducedCodeMapN1.from_table(source_scheme, target_scheme, c_source_code=c_source_code,
+                                                  c_target_code=c_target_code, c_target_agg=c_aggregation,
+                                                  table=mapping)
+            manager = manager.add_scheme(target_scheme).add_map(codemap)
+
         return manager
 
     def register_icu_procedures_scheme(self, manager: CodingSchemesManager,
@@ -1201,27 +1219,6 @@ class MIMICIVDataset(Dataset):
     config: MIMICIVDatasetConfig
 
     @staticmethod
-    def icu_inputs_uom_normalization(icu_inputs_config: RatedInputTableConfig,
-                                     icu_inputs_uom_normalization_table: pd.DataFrame) -> pd.DataFrame:
-        c_universal_uom = icu_inputs_config.derived_universal_unit
-        c_code = icu_inputs_config.code_alias
-        c_unit = icu_inputs_config.amount_unit_alias
-        c_normalization = icu_inputs_config.derived_unit_normalization_factor
-        df = icu_inputs_uom_normalization_table.astype({c_normalization: float})
-
-        columns = [c_code, c_unit, c_normalization]
-        assert all(c in df.columns for c in columns), \
-            f"Columns {columns} not found in the normalization table."
-
-        if c_universal_uom not in df.columns:
-            df[c_universal_uom] = ''
-            for code, code_df in df.groupby(c_code):
-                # Select the first unit associated with 1.0 as a normalization factor.
-                index = code_df[code_df[c_normalization] == 1.0].first_valid_index()
-                if index is not None:
-                    df.loc[code_df.index, c_universal_uom] = code_df.loc[index, c_unit]
-        return df
-
     @classmethod
     def load_scheme_manager(cls, config: MIMICIVDatasetConfig) -> CodingSchemesManager:
         sql = MIMICIVSQLTablesInterface(config.tables)

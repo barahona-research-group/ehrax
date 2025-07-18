@@ -6,12 +6,13 @@ import os
 import zipfile
 from datetime import datetime
 from types import ModuleType
-from typing import Optional, Callable, TypeVar
+from typing import Optional, Callable, TypeVar, Any
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax._src.tree_util import KeyEntry, GetAttrKey, SequenceKey, DictKey, FlattenedIndexKey
 from jax.tree_util import tree_flatten, tree_map, tree_leaves
 from tqdm import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
@@ -75,7 +76,10 @@ def tree_add_scalar_mul(tree_x: eqx.Module, scalar: float, tree_y: eqx.Module) -
     tree_y = eqx.filter(tree_y, eqx.is_inexact_array)
     return tree_map(lambda x, y: x + scalar * y, tree_x, tree_y)
 
+
 T = TypeVar('T')
+
+
 def model_params_scaler(model: T, scaler: float, filter_spec: Callable[[eqx.Module], bool]) -> T:
     """Scale the parameters in a model by a given scaler.
 
@@ -249,6 +253,56 @@ def modified_environ(*remove, **update):
     finally:
         env.update(update_after)
         [env.pop(k) for k in remove_after]
+
+
+def path_from_getter(getter: Callable[[Any], Any]) -> list[str]:
+    """
+    Generate a sequence of attribute names or indices (converted to strings) recording the sequence of access steps
+    applied by the function on its input.
+    
+    !!! Example
+    
+    ```python
+    path_from_getter(lambda x: x.y.z.a.b)
+    # returns ['y', 'z', 'a', 'b']
+    path_from_getter(lambda x: x["y"][4].money)
+    # returns ['y', '4', 'money']
+    ```
+    """
+
+    class _M:
+        _x_path: list[str]
+
+        def __init__(self, _x_path: list[str]):
+            self._x_path = _x_path
+
+        def __getattribute__(self, item: str):
+            try:
+                return object.__getattribute__(self, item)
+            except AttributeError:
+                return _M(object.__getattribute__(self, '_x_path') + [item])
+
+        def __getitem__(self, item: str):
+            return _M(object.__getattribute__(self, '_x_path') + [str(item)])
+
+    return getter(_M([]))._x_path
+
+
+def path_from_jax_keypath(path: tuple[KeyEntry, ...]) -> list[str]:
+    def _extract(entry: KeyEntry):
+        match entry:
+            case GetAttrKey(name):
+                return name
+            case SequenceKey(idx):
+                return str(idx)
+            case DictKey(key):
+                return str(key)
+            case FlattenedIndexKey(key):
+                return str(key)
+            case _:
+                raise ValueError(f"Unexpected key {entry}")
+
+    return list(map(_extract, path))
 
 
 class NumpyEncoder(json.JSONEncoder):

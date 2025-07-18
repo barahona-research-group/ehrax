@@ -2,10 +2,11 @@ import ast
 import dataclasses
 import enum
 import json
+import logging
 from abc import abstractmethod
 from pathlib import Path
-from types import MappingProxyType
-from typing import Any, Callable, Self, TYPE_CHECKING, Collection, Mapping, Literal
+from types import MappingProxyType, NoneType
+from typing import Any, Callable, Self, TYPE_CHECKING, Collection, Mapping, Literal, Optional
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -13,7 +14,10 @@ import jax.tree_util as jtu
 import numpy as np
 import pandas as pd
 import tables as tb
-from ehrax.utils import tree_hasnan, NumpyEncoder, ArrayTypes, np_module, load_config, write_config, equal_arrays
+
+from ehrax.utils import tree_hasnan, NumpyEncoder, ArrayTypes, np_module, load_config, write_config, equal_arrays, \
+    path_from_getter
+from utils import path_from_jax_keypath
 
 _factory_registry: dict[str, type[eqx.Module]] = {}
 
@@ -70,12 +74,69 @@ class AbstractHDFSerializable(AbstractModule):
 
     @classmethod
     @abstractmethod
-    def from_hdf_group(cls, group: tb.Group) -> Self:
+    def from_hdf_group(cls, group: tb.Group, defer: tuple[tuple[str, ...], ...], levels: Optional[int]) -> Self:
         raise NotImplementedError
 
     @abstractmethod
     def equals(self, other: Self) -> bool:
         raise NotImplementedError
+
+
+class HDFVirtualNode(AbstractHDFSerializable):
+    """
+    This class represents an unfetched node in a PyTree/AbstractHDFSerializable.
+    This is similar to the notion of lazy-loading, but the library explicitly requires calling `fetch_at(..,..)`
+    or `fetch_all()` on any of the node ancestors, a
+    """
+    filename: str
+    parent_path: str
+    type_enum: str
+    key: str
+
+    def __init__(self, filename: str, parent_path: str, type_enum: str, key: str = '') -> None:
+        self.filename = filename
+        self.parent_path = parent_path
+        self.type_enum = type_enum
+        self.key = key
+
+    def __check_init__(self):
+        for field in dataclasses.fields(self):
+            value = getattr(self, field.name)
+            assert isinstance(value, field.type)
+
+    @property
+    def _v_parent_path_seq(self) -> list[str]:  # to a series of directories with root directory represented by ''
+        if len(self.parent_path) == 0: return []
+        if len(self.parent_path) == 1: return ['']
+        return self.parent_path.split('/')
+
+    def __getattribute__(self, attr: str) -> NoneType:
+        try:
+            return object.__getattribute__(self, attr)
+        except AttributeError:
+            raise AttributeError(
+                f"You are trying to access an attribute in a lazy-loaded node. Please call `fetch_at(..,..)` or "
+                f"`fetch_all()` on any of the node ancestors first."
+            )
+
+    def to_hdf_group(self, group: tb.Group) -> None:
+        raise ValueError(
+            f"You are trying to serialize an unfetched node in a PyTree/AbstractHDFSerializable. Please call `fetch_at(..,..)` or "
+            f"`fetch_all()` on any of the node ancestors first."
+        )
+
+    @classmethod
+    def from_hdf_group(cls, group: tb.Group, defer: tuple[tuple[str, ...], ...] = (),
+                       levels: Optional[int] = None) -> Self:
+        raise ValueError(
+            f"You are trying to deserialize a VirtualNode."
+        )
+
+    def equals(self, other: Self) -> bool:
+        raise ValueError(
+            f"You are trying to test equality with a virtual unfetched node. Please call `fetch_at(..,..)` or "
+            f"`fetch_all()` on any of the node ancestors first."
+        )
 
 
 class AbstractConfig(AbstractHDFSerializable):
@@ -124,7 +185,9 @@ class AbstractConfig(AbstractHDFSerializable):
         group._v_file.create_array(group, 'data', obj=data)
 
     @classmethod
-    def from_hdf_group(cls, group: tb.Group) -> Self:
+    def from_hdf_group(cls, group: tb.Group, defer: tuple[tuple[str, ...], ...] = (),
+                       levels: Optional[int] = None) -> Self:
+        assert len(defer) == 0, "Unexpected."
         return cls.from_dict(json.loads(group["data"].read().decode('utf-8')))
 
     def log_json(self, path: str | Path, key: str):
@@ -235,6 +298,7 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
     def to_pandas(self) -> pd.DataFrame | pd.Series:
         raise NotImplementedError
 
+    @classmethod
     @abstractmethod
     def from_pandas(cls, pandas: pd.DataFrame | pd.Series) -> Self:
         raise NotImplementedError
@@ -243,7 +307,9 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
         self.serialize_pandas(self.to_pandas(), group)
 
     @classmethod
-    def from_hdf_group(cls, group: tb.Group) -> Self:
+    def from_hdf_group(cls, group: tb.Group, defer: tuple[tuple[str, ...], ...] = (),
+                       levels: Optional[int] = None) -> Self:
+        assert len(defer) == 0, "Unexpected."
         return cls.from_pandas(cls.deserialize_pandas(group))
 
     def equals(self, other: Self) -> bool:
@@ -349,6 +415,17 @@ SERIES_GROUPED_ELEMENT = (SERIALIZABLE_FIELD.float, SERIALIZABLE_FIELD.integer, 
 SERIES_GROUPED_ELEMENT_TYPES = sum((e.value for e in SERIES_GROUPED_ELEMENT), ())
 
 
+class _MyCustomList(list):
+    # a custom list used to deal with replacing sets with list, since sets are not considered a pytree
+    # like lists/dicts/tuples, so we replace all sets with this type of list, so we can reverse the operation
+    # (i.e. map back to a set) by identifying this type in the pytree. See `fetch_all` for more details.
+
+    pass
+
+
+jtu.register_pytree_node(_MyCustomList, lambda x: (list(x), None), lambda _, x: _MyCustomList(x))
+
+
 class AbstractVxData(AbstractHDFSerializable, eqx.Module):
     """
     AbstractVxData class represents vectorized data object, which inherits from eqx.AbstractVxData.
@@ -406,6 +483,8 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
     def object_type_enum_name(cls, obj: Any) -> str:
         if type(obj) in _TYPE_ENUM_DICT:
             return _TYPE_ENUM_DICT[type(obj)]
+        if type(obj) is _MyCustomList:
+            return _TYPE_ENUM_DICT[type(list())]
         elif isinstance(obj,
                         SERIALIZABLE_FIELD.hdf_serializable.value):  ## Potentially a subclass of AbstractHDFSerializable
             return SERIALIZABLE_FIELD.hdf_serializable.name
@@ -438,8 +517,11 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
                     if not a.equals(b): return False
                 case SERIALIZABLE_FIELD.config | SERIALIZABLE_FIELD.hdf_serializable:
                     if not a.equals(b): return False
+
                 case SERIALIZABLE_FIELD.homogeneous_list | SERIALIZABLE_FIELD.homogeneous_tuple | SERIALIZABLE_FIELD.homogeneous_set:
                     if len(a) != len(b): return False
+                    if isinstance(a, set):  # order is not guaranteed!.
+                        a, b = sorted(a, key=hash), sorted(b, key=hash)
                     for a_item, b_item in zip(a, b):
                         if not _equal_attributes(a_item, b_item): return False
                 case SERIALIZABLE_FIELD.homogeneous_dict | SERIALIZABLE_FIELD.homogeneous_mapping_proxy:
@@ -486,9 +568,18 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
                 raise ValueError(f"Unknown type {type(obj)} for attribute {attribute}")
 
     @classmethod
-    def deserialize_object(cls, parent_group: tb.Group, attribute: str, attr_type_enum_name: str):
+    def deserialize_object(cls, parent_group: tb.Group, attribute: str, attr_type_enum_name: str,
+                           defer: tuple[tuple[str, ...], ...], levels: Optional[int]):
         hd_file = parent_group._v_file
         node = lambda: hd_file.get_node(parent_group, attribute)
+        defer_current = any(len(d) == 1 and d[0] == attribute for d in defer)
+        defer_next = tuple(d[1:] for d in defer if len(d) > 1 and d[0] == attribute)
+
+        if defer_current or levels == 0:
+            return HDFVirtualNode(hd_file.filename, parent_group._v_pathname, attr_type_enum_name, key=attribute)
+
+        next_level = levels - 1 if levels is not None else None
+
         match SERIALIZABLE_FIELD[attr_type_enum_name]:
             case SERIALIZABLE_FIELD.numpy_array:
                 return node().read()
@@ -497,7 +588,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
             case SERIALIZABLE_FIELD.hdf_serializable | SERIALIZABLE_FIELD.config:
                 cls_key = parent_group._v_attrs[attribute].item()
                 cls = cls.__get_factory__(cls_key)
-                return cls.from_hdf_group(node())
+                return cls.from_hdf_group(node(), defer_next, next_level)
             case SERIALIZABLE_FIELD.none:
                 return None
             case SERIALIZABLE_FIELD.integer | SERIALIZABLE_FIELD.float | SERIALIZABLE_FIELD.boolean | SERIALIZABLE_FIELD.string:
@@ -507,10 +598,10 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
                 return pd.Timestamp(node().read())
             case SERIALIZABLE_FIELD.homogeneous_list | SERIALIZABLE_FIELD.homogeneous_tuple | SERIALIZABLE_FIELD.homogeneous_set:
                 (collection_type,) = SERIALIZABLE_FIELD[attr_type_enum_name].value
-                return collection_type(cls.deserialize_collection(node()))
+                return collection_type(cls.deserialize_collection(node(), defer_next, next_level))
             case SERIALIZABLE_FIELD.homogeneous_dict | SERIALIZABLE_FIELD.homogeneous_mapping_proxy:
                 (collection_type,) = SERIALIZABLE_FIELD[attr_type_enum_name].value
-                return collection_type(cls.deserialize_dict(node()))
+                return collection_type(cls.deserialize_dict(node(), defer_next, next_level))
             case _:
                 raise ValueError(f"Unhandled type {attr_type_enum_name} for attribute {attribute}.")
 
@@ -527,13 +618,15 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
                 cls.serialize_object(group, item, str(i))
 
     @classmethod
-    def deserialize_collection(cls, group: tb.Group) -> list[Any]:
+    def deserialize_collection(cls, group: tb.Group, defer: tuple[tuple[str, ...], ...], levels: Optional[int]) -> list[
+        Any]:
         if group._v_nchildren == 0:
             return []
         if 'data' in group:
             return pd.read_hdf(group._v_file.filename, key=group.data._v_pathname).values.tolist()
         metadata = cls._str_to_dict(group._v_attrs.type_enum)
-        return [cls.deserialize_object(group, str(k), element_type) for k, element_type in metadata.items()]
+        return [cls.deserialize_object(group, str(k), element_type, defer, levels) for k, element_type in
+                metadata.items()]
 
     @classmethod
     def serialize_dict(cls, group: tb.Group, d: Mapping[str | int, Any]):
@@ -548,13 +641,15 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
                 cls.serialize_object(group, v, str(k))
 
     @classmethod
-    def deserialize_dict(cls, group: tb.Group) -> dict[str | int, Any]:
+    def deserialize_dict(cls, group: tb.Group, defer: tuple[tuple[str, ...], ...], levels: Optional[int]) -> dict[
+        str | int, Any]:
         if group._v_nchildren == 0:
             return {}
         elif 'data' in group:
             return pd.read_hdf(group._v_file.filename, key=group.data._v_pathname).to_dict()
         type_enum = cls._str_to_dict(group._v_attrs.type_enum)
-        return {k: cls.deserialize_object(group, str(k), value_type_enum) for k, value_type_enum in type_enum.items()}
+        return {k: cls.deserialize_object(group, str(k), value_type_enum, defer, levels) for k, value_type_enum in
+                type_enum.items()}
 
     @staticmethod
     def _dict_to_str(x: dict) -> str:
@@ -583,24 +678,17 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
             self.serialize_object(group, obj, attribute)
 
     @classmethod
-    def _from_hdf_group(cls, group: tb.Group) -> Self:
-        # TODO: lazy-loading of attributes if (cls) has metadata flags for that attribute.
-        # hint 1: retrieve from (cls) all fields that has that metadata flag.
-        # hint 2: return an object that stores (HDF parent group descriptors, attr name, attr_type_enum)
-        # hint 3: that object type has the __getitem__ disabled except for the three attribites mentioned,
-        # hint 4: calling __getitem__ on a disabled attribute should return a descriptive message showing
-        # the reason of error and the solution.
-        # hint 5: a lazy-loaded object can be concretized calling ehrax.hdf_fetch_at(lambda x: x.lazy_attr, parent_obj)
-        # which returns a parent object with that attribute loaded.
-        # hint 6: implement another ehrax.hdf_fetch_all(obj) to load all tree lazy-loaded nodes.
+    def _from_hdf_group(cls, group: tb.Group, defer: tuple[tuple[str, ...], ...], levels: Optional[int]) -> Self:
         type_enum = cls._str_to_dict(group._v_attrs.type_enum)
-        data = {attr: cls.deserialize_object(group, attr, attr_type_enum) for attr, attr_type_enum in type_enum.items()}
+        data = {attr: cls.deserialize_object(group, attr, attr_type_enum, defer, levels) for attr, attr_type_enum in
+                type_enum.items()}
         return cls(**data)
 
     @classmethod
-    def from_hdf_group(cls, group: tb.Group) -> Self:
+    def from_hdf_group(cls, group: tb.Group, defer: tuple[tuple[str, ...], ...] = (),
+                       levels: Optional[int] = None) -> Self:
         classname = group.classname.read().decode('utf-8')
-        return cls.__get_factory__(classname)._from_hdf_group(group)
+        return cls.__get_factory__(classname)._from_hdf_group(group, defer, levels=levels)
 
     def save(self, store: str | Path | tb.Group, complib: Literal['blosc', 'zlib', 'lzo', 'bzip2'] = 'blosc',
              complevel: int = 9, log_config_json: bool = True):
@@ -622,11 +710,18 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
         self.to_hdf_group(store)
 
     @classmethod
-    def load(cls, hf5_filename_or_group: str | Path | tb.Group) -> Self:  # type: ignore[override]
+    def load(cls, hf5_filename_or_group: str | Path | tb.Group,
+             defer: tuple[Callable[[AbstractHDFSerializable], Any], ...] = (),
+             levels: Optional[tuple[int]] = None) -> Self:
         if not isinstance(hf5_filename_or_group, tb.Group):
             with tb.open_file(str(Path(hf5_filename_or_group).with_suffix('.h5')), 'r') as hf5_file:
-                return cls.load(hf5_file.root)
-        return cls.from_hdf_group(hf5_filename_or_group)
+                return cls.load(hf5_file.root, defer, levels=levels)
+
+        defer_paths = tuple(map(tuple, map(path_from_getter, defer)))
+        loaded = cls.from_hdf_group(hf5_filename_or_group, defer_paths)
+        if levels is not None:
+            return fetch_at(defer, loaded, levels=levels)
+        return loaded
 
     def to_numpy_arrays(self):
         arrs, others = eqx.partition(self, eqx.is_array)
@@ -649,3 +744,107 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
     #
     # def __eq__(self, other: Self) -> bool:
     #     return self.equals(other)
+
+
+HDFVirtualNodeGet = Callable[[AbstractHDFSerializable], HDFVirtualNode]
+
+
+def _match_child_parent_paths(ch: list[str], pt: list[str]):
+    # E.g., if we hold a node representing the *patients*, and we want to fetch
+    # a v_node at the observables of the third admission of the patient at key/index 6, considering the nesting
+    # a.b.....y.z.patients[key].admissions[index].observables, then:
+    # child = ["6", "admissions", "2", "observables"]
+    # parent = ["a", "b", ..., "x", "y", "z", "patients", "6", "admissions", "2"]
+    if len(ch) == 1:
+        return True
+    return ch[:-1] == pt[-(len(ch) - 1):]
+
+
+def fetch_at(where: HDFVirtualNodeGet | tuple[HDFVirtualNodeGet, ...], tree: AbstractVxData,
+             levels: Optional[int] | tuple[int, ...] = None) -> AbstractVxData:
+    # deal with a collection to avoid opening a file for each v_node fetch.
+    if callable(where):
+        where = (where,)
+    if not isinstance(levels, (tuple, list)):
+        levels = (levels,) * len(where)
+
+    if len(where) == 0:
+        return tree
+
+    assert len(where) == len(levels), (
+        f"Passed a tuple of getters and a tuple of levels of different sizes: {len(where)} and {len(levels)}.")
+
+    if any(not isinstance(w(tree), HDFVirtualNode) for w in where):
+        logging.warning(f"You are trying to fetch a non-virtual node, which might be already fetched.")
+
+    v_nodes = [w(tree) for w in where]
+    v_nodes_paths = [path_from_getter(w) for w in where]
+    parent_paths = [v_node._v_parent_path_seq for v_node in v_nodes]
+
+    assert all(map(_match_child_parent_paths, v_nodes_paths, parent_paths)), (
+        f"Incompatible parent path and v_node path and parent path.")
+    assert all(v_node.filename == v_nodes[0].filename for v_node in v_nodes), "Unexpected Filename mismatch!"
+    with tb.open_file(v_nodes[0].filename, 'r') as hf5_file:
+        for w, v_node, attr, levels_i in zip(where, v_nodes, map(lambda p: p[-1], v_nodes_paths), levels):
+            parent_group = hf5_file.get_node(v_node.parent_path)
+            assert isinstance(parent_group, tb.Group)
+            fetched = AbstractVxData.deserialize_object(parent_group, attribute=attr,
+                                                        attr_type_enum_name=v_node.type_enum, defer=(), levels=levels_i)
+            tree = eqx.tree_at(w, tree, fetched)
+        return tree
+    assert 0, "Unreachable."
+
+
+def fetch_one_level_at(where: HDFVirtualNodeGet | tuple[HDFVirtualNodeGet, ...],
+                       tree: AbstractVxData) -> AbstractVxData:
+    # Useful to fetch dictionary keys with virtual nodes for values.
+    # Or a collection of vitruals, or object with virtual nodes for attributes.
+    return fetch_at(where, tree=tree, levels=1)
+
+
+def fetch_all(tree: AbstractVxData) -> AbstractVxData:
+    # Note 1:
+    # Preprocessing to catch any set in the pytree. JAX pytree does not
+    # navigate into sets as it does with list/dicts/tuples.
+    # We will transform any such set into a list, then we return them to sets after fetching.
+    # Maybe an alternative is to enforce a design where lazy loading is not allowed with sets involved.
+
+    is_set = jtu.tree_map(lambda a: isinstance(a, set), tree)
+    tree = jtu.tree_map(lambda a, isset: _MyCustomList(a) if isset else a, tree, is_set)
+
+    _is_vnode = lambda x: isinstance(x, HDFVirtualNode)
+    _is_leaf = lambda x: isinstance(x, HDFVirtualNode)
+
+    with_v_nodes, without_v_nodes = eqx.partition(tree, _is_vnode, is_leaf=_is_leaf)
+    leaves_with_path, struct = jtu.tree_flatten_with_path(with_v_nodes, is_leaf=_is_leaf)
+    if len(leaves_with_path) == 0:
+        logging.warning("No virtual nodes found.")
+        return tree
+    logging.info(f"Fetching {len(leaves_with_path)} leaf nodes from {type(tree).__name__}")
+
+    assert all(isinstance(vn, HDFVirtualNode) for (_, vn) in leaves_with_path)
+
+    filename = leaves_with_path[0][1].filename
+    assert all(vn.filename == filename for (_, vn) in leaves_with_path), (
+        f"Filenames of virtual nodes {tuple(vn.filename for (_, vn) in leaves_with_path)} do not match.")
+    v_nodes_paths = [path_from_jax_keypath(p) for (p, _) in leaves_with_path]
+    parents_paths = [vn._v_parent_path_seq for (_, vn) in leaves_with_path]
+    attrs = [vn.key for (_, vn) in leaves_with_path]
+    assert all(map(_match_child_parent_paths, v_nodes_paths, parents_paths)), (
+        f"Incompatible parent path and v_node path and parent path.")
+    with tb.open_file(filename, mode='r') as hf5_file:
+        fetched_nodes = []
+        for (_, v_node), attr in zip(leaves_with_path, attrs):
+            parent_group = hf5_file.get_node(v_node.parent_path)
+            assert isinstance(parent_group, tb.Group)
+            fetched = AbstractVxData.deserialize_object(parent_group, attribute=attr,
+                                                        attr_type_enum_name=v_node.type_enum, defer=(), levels=None)
+            fetched_nodes.append(fetched)
+
+        with_v_nodes = jtu.tree_unflatten(struct, fetched_nodes)
+        tree = eqx.combine(without_v_nodes, with_v_nodes, is_leaf=_is_leaf)
+        # return all transformed sets to lists back to sets (read Note 1 above).
+        return jtu.tree_map(lambda a: set(a) if isinstance(a, _MyCustomList) else a, tree,
+                            is_leaf=lambda a: isinstance(a, _MyCustomList))
+
+    assert 0, "Unreachable."

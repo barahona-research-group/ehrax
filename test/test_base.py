@@ -1,13 +1,15 @@
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Callable
 
+import equinox as eqx
 import numpy as np
 import pandas as pd
 import pytest
 import tables as tb
 
+from base import SERIES_GROUPED_ELEMENT_TYPES
 from ehrax.base import AbstractModule, _factory_registry, AbstractConfig, AbstractWithDataframeEquivalent, \
-    AbstractWithSeriesEquivalent, AbstractVxData
+    AbstractWithSeriesEquivalent, AbstractVxData, HDFVirtualNode, fetch_at, fetch_all, fetch_one_level_at
 
 
 # (A) Test ModuleMeta and AbstractModule
@@ -319,3 +321,188 @@ class TestVxDataWithNesting(TestVxData):
     ])
     def vxdata_pair(self, request) -> tuple[VxData, VxData]:
         return VxData(*request.param[0]), VxData(*request.param[1])
+
+
+# Test lazy-loading...
+
+class TestHDFVirtualNode:
+    @pytest.fixture(scope='class', params=[('x', 'y', None),  # Cannot contain None
+                                           (VxData(None, None, None), 'y', 'z'),  # Cannot contain non-plain types
+                                           (HDFVirtualNode('x', 'y', 'z'), 'y', 'z')  # Cannot contain a virtual node
+                                           ])
+    def invalid_args(self, request) -> tuple[Any, Any, Any]:
+        return request.param
+
+    def test_invalid_args(self, invalid_args):
+        with pytest.raises(AssertionError):
+            HDFVirtualNode(*invalid_args)
+
+    @pytest.fixture(scope='class')
+    def dummy_vnode(self):
+        return HDFVirtualNode('x', 'y', 'z')
+
+    def test_attribute_access(self, dummy_vnode):
+        assert dummy_vnode.filename == 'x'
+        assert dummy_vnode.parent_path == 'y'
+        assert dummy_vnode.type_enum == 'z'
+        with pytest.raises(AttributeError):
+            dummy_vnode.foo
+
+    def test_equality(self, dummy_vnode):
+        with pytest.raises(ValueError, match="You are trying to test equality with a virtual unfetched node"):
+            _ = dummy_vnode.equals(dummy_vnode)
+
+    def test_to_hdf(self, dummy_vnode):
+        with pytest.raises(ValueError, match="You are trying to serialize an unfetched node"):
+            dummy_vnode.to_hdf_group(None)
+
+    def test_from_hdf(self):
+        with pytest.raises(ValueError, match="You are trying to deserialize"):
+            dummy_vnode = HDFVirtualNode.from_hdf_group(None)
+
+
+COMPLETE_VX_DATA = VxData(a={'a': 1, 'b': VxData(None, 1, 'x')},
+                          b={'c': VxData(2.0, VxData(np.arange(100), pd.Timestamp(4), [pd.Series(np.arange(4))]),
+                                         {34: 'x'}),
+                             'd': VxData(None, pd.Timestamp(10), [Config(Config(6, None), False)])},
+                          c={pd.Timestamp(0), pd.Timestamp(100), 'yyy'})
+
+GETTER_NODE_PAIR = (
+    # a pair of getter lambda, and the expected node from `complete_vx_data` to be returned.
+    (lambda x: x.a, dict(a=1, b=VxData(None, 1, 'x'))),
+    (lambda x: x.b['c'].b, VxData(np.arange(100), pd.Timestamp(4), [pd.Series(np.arange(4))])),
+    (lambda x: x.b['d'], VxData(None, pd.Timestamp(10), [Config(Config(6, None), False)])),
+    (lambda x: x.c, {pd.Timestamp(0), pd.Timestamp(100), 'yyy'}),
+)
+
+
+def _cmp(a: Any, b: Any):
+    if hasattr(a, 'equals'):
+        return a.equals(b)
+    else:
+        return a == b
+
+
+class TestLazyLoading:
+    @pytest.fixture(scope='class')
+    def complete_vx_data(self) -> VxData:
+        return COMPLETE_VX_DATA
+
+    @pytest.fixture(scope='class', params=GETTER_NODE_PAIR)
+    def getter_node_pair(self, request, complete_vx_data: VxData) -> tuple[Callable[[VxData], Any], Any]:
+        # ensure we are writing the right getters.
+        getter, node = request.param
+        assert _cmp(node, getter(complete_vx_data))
+        return getter, node
+
+    @pytest.fixture(scope='class')
+    def pruned_vx_data(self, complete_vx_data: VxData, getter_node_pair: tuple[Callable[[VxData], Any], Any]) -> VxData:
+        getter, _ = getter_node_pair
+        return eqx.tree_at(getter, complete_vx_data, HDFVirtualNode('x', 'y', 'z'))
+
+    @pytest.fixture
+    def hdf_serialized_vxdata(self, complete_vx_data: VxData, tmp_path_factory) -> str:
+        filename = tmp_path_factory.mktemp('vxdata').joinpath('vxdata.h5')
+        complete_vx_data.save(filename, complevel=0)
+        loaded = VxData.load(filename)
+        assert complete_vx_data.equals(loaded)
+        return str(filename)
+
+    @pytest.fixture
+    def hdf_deserialized_deferred_vxdata(self, hdf_serialized_vxdata: str,
+                                         getter_node_pair: tuple[Callable[[VxData], Any], Any]) -> VxData:
+        getter, _ = getter_node_pair
+        return VxData.load(hdf_serialized_vxdata, defer=(getter,))
+
+    @pytest.fixture
+    def hdf_deserialized_deferred_vxdata2(self, hdf_serialized_vxdata: str) -> VxData:
+        getters, _ = zip(*GETTER_NODE_PAIR)
+        # No all four nodes deferred at once.
+        return VxData.load(hdf_serialized_vxdata, defer=getters)
+
+    @pytest.fixture
+    def hdf_deserialized_fetched_at_vxdata(self, hdf_deserialized_deferred_vxdata: VxData,
+                                           getter_node_pair: tuple[Callable[[VxData], Any], Any]) -> VxData:
+        getter, _ = getter_node_pair
+        return fetch_at(getter, hdf_deserialized_deferred_vxdata)
+
+    @pytest.fixture
+    def hdf_deserialized_one_level_fetched_at_vxdata(self, hdf_deserialized_deferred_vxdata: VxData,
+                                                     getter_node_pair: tuple[Callable[[VxData], Any], Any]) -> VxData:
+        getter, _ = getter_node_pair
+        return fetch_one_level_at(getter, hdf_deserialized_deferred_vxdata)
+
+    @pytest.fixture
+    def hdf_deserialized_fetched_at_vxdata2(self, hdf_deserialized_deferred_vxdata2: VxData) -> VxData:
+        getters, _ = zip(*GETTER_NODE_PAIR)
+        return fetch_at(getters, hdf_deserialized_deferred_vxdata2)
+
+    @pytest.fixture
+    def hdf_deserialized_fetched_all_vxdata(self, hdf_deserialized_deferred_vxdata: VxData) -> VxData:
+        return fetch_all(hdf_deserialized_deferred_vxdata)
+
+    @pytest.fixture
+    def hdf_deserialized_fetched_all_vxdata2(self, hdf_deserialized_deferred_vxdata2: VxData) -> VxData:
+        return fetch_all(hdf_deserialized_deferred_vxdata2)
+
+    def test_invalid_to_hdf(self, pruned_vx_data: VxData, hf5_group_writer: tb.Group):
+        with pytest.raises(ValueError, match="You are trying to serialize an unfetched node"):
+            pruned_vx_data.to_hdf_group(hf5_group_writer)
+
+    def test_invalid_equality(self, pruned_vx_data: VxData, complete_vx_data: VxData):
+        assert not pruned_vx_data.equals(complete_vx_data)
+        assert not complete_vx_data.equals(pruned_vx_data)
+        with pytest.raises(ValueError, match="You are trying to test equality with a virtual unfetched node"):
+            _ = pruned_vx_data.equals(pruned_vx_data)
+
+    def test_defer(self, hdf_deserialized_deferred_vxdata: VxData,
+                   getter_node_pair: tuple[Callable[[VxData], Any], Any]):
+        getter, _ = getter_node_pair
+        assert isinstance(getter(hdf_deserialized_deferred_vxdata), HDFVirtualNode)
+
+    def _aux_test_fetch(self, hdf_deserialized_fetched_vxdata: VxData,
+                        getter_node_pair: tuple[Callable[[VxData], Any], Any],
+                        complete_vx_data: VxData):
+        getter, node = getter_node_pair
+        assert _cmp(getter(hdf_deserialized_fetched_vxdata), node)
+        assert _cmp(getter(complete_vx_data), getter(hdf_deserialized_fetched_vxdata))
+        assert complete_vx_data.equals(hdf_deserialized_fetched_vxdata)
+
+    def test_fetch_at(self, hdf_deserialized_fetched_at_vxdata: VxData,
+                      getter_node_pair: tuple[Callable[[VxData], Any], Any],
+                      complete_vx_data: VxData):
+        self._aux_test_fetch(hdf_deserialized_fetched_at_vxdata, getter_node_pair, complete_vx_data)
+
+    def test_fetch_all(self, hdf_deserialized_fetched_all_vxdata: VxData,
+                       getter_node_pair: tuple[Callable[[VxData], Any], Any],
+                       complete_vx_data: VxData):
+        self._aux_test_fetch(hdf_deserialized_fetched_all_vxdata, getter_node_pair, complete_vx_data)
+
+    def test_fetch_one_level_at(self, complete_vx_data:VxData, hdf_deserialized_one_level_fetched_at_vxdata: VxData,
+                                getter_node_pair: tuple[Callable[[VxData], Any], Any]):
+        getter, node = getter_node_pair
+        # Type is equal but contents are not
+        assert type(getter(hdf_deserialized_one_level_fetched_at_vxdata)) is type(node)
+        assert not _cmp(getter(hdf_deserialized_one_level_fetched_at_vxdata), node)
+        # Children themselves must be virtual nodes.
+
+        # if the virtual node represents a collection containing plain types, then it will be loaded!
+        get_immediate_leaves = (lambda x: eqx.tree_flatten_one_level(x)[0]) if type(node) is not set else (lambda x: list(x))
+        if set(map(type, get_immediate_leaves(node))).issubset(SERIES_GROUPED_ELEMENT_TYPES):
+            assert all(isinstance(child, HDFVirtualNode) for child in
+                       get_immediate_leaves(getter(hdf_deserialized_one_level_fetched_at_vxdata)))
+            assert hdf_deserialized_one_level_fetched_at_vxdata.equals(complete_vx_data)
+        else:
+            assert not hdf_deserialized_one_level_fetched_at_vxdata.equals(complete_vx_data)
+
+    def test_fetch_all_after_fetch_one_level_at(self, complete_vx_data: VxData, hdf_deserialized_one_level_fetched_at_vxdata: VxData):
+        all_fetched = fetch_all(hdf_deserialized_one_level_fetched_at_vxdata)
+        assert all_fetched.equals(complete_vx_data)
+
+
+    def test_fetch_at2(self, hdf_deserialized_fetched_at_vxdata2: VxData,
+                       hdf_deserialized_fetched_all_vxdata2: VxData,
+                       complete_vx_data: VxData):
+        assert hdf_deserialized_fetched_at_vxdata2.equals(complete_vx_data)
+        assert hdf_deserialized_fetched_all_vxdata2.equals(complete_vx_data)
+        assert hdf_deserialized_fetched_at_vxdata2.equals(hdf_deserialized_fetched_all_vxdata2)

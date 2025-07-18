@@ -4,26 +4,34 @@ import numpy as np
 import numpy.random as nr
 import pandas as pd
 
-from ehrax.coding_scheme import FrozenDict11, ReducedCodeMapN1, NumericScheme, CodingScheme, CodingSchemesManager, \
-    FrozenDict1N, OutcomeExtractor, ExcludingOutcomeExtractor, CodesVector, CodeMap
+from ehrax.coding_scheme import ReducedCodeMapN1, NumericScheme, CodingScheme, CodingSchemesManager, \
+    OutcomeExtractor, ExcludingOutcomeExtractor, CodesVector, CodeMap, CodingSchemeWithUOM
 from ehrax.dataset import DatasetTablesConfig, RatedInputTableConfig, AdmissionTimestampedCodedValueTableConfig, \
     AdmissionLinkedCodedValueTableConfig, AdmissionIntervalBasedCodedTableConfig, StaticTableConfig, \
-    AdmissionTableConfig, DatasetTables, DatasetConfig, Dataset, AbstractDatasetPipeline, DatasetSchemeProxy, \
-    DatasetSchemeConfig
-from ehrax.transformations import ValidatedDatasetPipeline, SetIndex, CastTimestamps, ICUInputRateUnitConversion, \
-    SetAdmissionRelativeTimes, SynchronizeSubjects
+    AdmissionTableConfig, DatasetTables, DatasetConfig, DatasetSchemeConfig
+from ehrax.freezer import FrozenDict1NM, FrozenDict1N, FrozenDict11
 from ehrax.tvx_concepts import AdmissionDates, InpatientInterventions, LeadingObservableExtractorConfig, \
     LeadingObservableExtractor, Admission, SegmentedInpatientInterventions, InpatientObservables, InpatientInput, \
     DemographicVectorConfig, StaticInfo
-from ehrax.tvx_ehr import AbstractTVxPipeline, TVxEHR, TVxEHRConfig, TVxEHRSchemeConfig
+from ehrax.tvx_ehr import TVxEHRConfig, TVxEHRSchemeConfig
 
 MAX_STAY_DAYS = 356
 LENGTH_OF_STAY = 5.0
+UOM = ['m', 's', 'g', 'mg', 'KG', 'ml']
 
 
 def scheme(name: str, codes: list[str]) -> CodingScheme:
     return CodingScheme(name=name, codes=tuple(sorted(codes)),
                         desc=FrozenDict11(dict(zip(codes, codes))))
+
+
+def scheme_with_uom(name: str, codes: list[str]) -> CodingScheme:
+    universal_unit = FrozenDict11({c: random.choice(UOM) for c in codes})
+    uom_normalization_factor = FrozenDict1NM({
+        c: {u: 1.0 for u in random.sample(UOM, k=3)} for c in codes
+    })
+    return CodingSchemeWithUOM(name=name, codes=tuple(sorted(codes)), desc=FrozenDict11(dict(zip(codes, codes))),
+                               uom_normalization_factor=uom_normalization_factor, universal_unit=universal_unit)
 
 
 def outcome_extractor(dx_scheme: CodingScheme) -> OutcomeExtractor:
@@ -178,8 +186,11 @@ def sample_icu_inputs_dataframe(admissions_df: pd.DataFrame,
     df = _sample_proc_dataframe(admissions_df, admission_table_config, table_config, icu_input_scheme, n)
     c_amount = table_config.amount_alias
     c_unit = table_config.amount_unit_alias
+    c_code = table_config.code_alias
     df[c_amount] = np.random.uniform(low=0, high=1000, size=n)
-    df[c_unit] = random.choices(['mg', 'g', 'kg', 'cm', 'dose', 'ml'], k=n)
+    normalizer = SCHEMES['icu_inputs'].uom_normalization_factor
+    units_map = {c: list(d.keys()) for c, d in normalizer.items()}
+    df[c_unit] = df[c_code].map(lambda c: random.choice(units_map[c]))
     return df
 
 
@@ -375,7 +386,7 @@ SCHEMES: dict[str, CodingScheme] = dict(
     dx_discharge=scheme('dx1', ['Dx1', 'Dx2', 'Dx3', 'Dx4', 'Dx5', 'Dx6', 'Dx7', 'Dx8', 'Dx9', 'Dx10']),
     hosp_procedures=scheme('hosp_proc1', ['HP1', 'HP2', 'HP3', 'HP4', 'HP5', 'HP6']),
     icu_procedures=scheme('icu_proc2', ['ICU1', 'ICU2', 'ICU3', 'ICU4', 'ICU5', 'ICU6']),
-    icu_inputs=scheme('icu_inputs', ['ICUI1', 'ICUI2', 'ICUI3', 'ICUI4', 'ICUI5', 'ICUI6']),
+    icu_inputs=scheme_with_uom('icu_inputs', ['ICUI1', 'ICUI2', 'ICUI3', 'ICUI4', 'ICUI5', 'ICUI6']),
     obs=NumericScheme(name='observation11',
                       codes=tuple(sorted(('O1', 'O2', 'O3', 'O4', 'O5'))),
                       type_hint=FrozenDict11(  # type: ignore
@@ -506,44 +517,3 @@ def _admissions(n_admissions, dx_scheme: CodingScheme,
                                                                             icu_inputs=icu_inputs),
                                      leading_observable=lead))
     return admissions
-
-
-class NaiveDataset(Dataset):
-
-    @classmethod
-    def make_default_pipeline(cls) -> AbstractDatasetPipeline:
-        return AbstractDatasetPipeline(transformations=[SetIndex(), SynchronizeSubjects()])
-
-    @classmethod
-    def load_tables(cls, config: DatasetConfig, scheme: DatasetSchemeProxy) -> DatasetTables:
-        return None
-
-
-class MockMIMICIVDatasetSchemeConfig(DatasetSchemeConfig):
-
-    @property
-    def icu_inputs_uom_normalization_table(self):
-        return 0
-
-
-class MockMIMICIVDataset(NaiveDataset):
-
-    @staticmethod
-    def icu_inputs_uom_normalization(icu_inputs_config: RatedInputTableConfig,
-                                     icu_inputs_uom_normalization_table: pd.DataFrame) -> pd.DataFrame:
-        return icu_inputs_uom_normalization_table
-
-    @classmethod
-    def make_default_pipeline(cls, config: DatasetConfig) -> AbstractDatasetPipeline:
-        return ValidatedDatasetPipeline(
-            transformations=[SetIndex(), SynchronizeSubjects(), CastTimestamps(), ICUInputRateUnitConversion(),
-                             SetAdmissionRelativeTimes()])
-
-
-class NaiveEHR(TVxEHR):
-    @classmethod
-    def make_default_pipeline(cls, config: DatasetConfig) -> AbstractDatasetPipeline:
-        return AbstractTVxPipeline(transformations=[])
-
-    def __repr__(self):
-        return 'NaiveEHR'

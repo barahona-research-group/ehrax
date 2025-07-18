@@ -1,3 +1,4 @@
+from abc import abstractmethod
 from typing import Callable
 from unittest import mock
 
@@ -9,7 +10,9 @@ import tables as tb
 from ehrax.coding_scheme import CodingScheme
 from ehrax.dataset import SplitLiteral, TableConfig, DatasetTables, DatasetSchemeProxy, \
     Dataset, AbstractDatasetPipeline
-from test.common_setup import DATASET_SCHEME_MANAGER, DATASET_TABLES_CONF, DATASET_SCHEME_CONF, NaiveDataset
+from ehrax.transformations import SetIndex, SynchronizeSubjects, CastTimestamps, SetAdmissionRelativeTimes, \
+    DatasetTransformation, ICUInputRateUnitConversion
+from test.common_setup import DATASET_SCHEME_MANAGER, DATASET_TABLES_CONF, DATASET_SCHEME_CONF
 
 
 @pytest.mark.parametrize('id_alias_attrs', [('x_id_alias', 'y_id_alias'), tuple()])
@@ -34,50 +37,81 @@ def test_table_config(id_alias_attrs: tuple[str, ...], alias_attrs: tuple[str, .
     assert set(TableConfig._coded_cols(all_dict)) == set(coded_dict.values())
 
 
-class TestDatasetTablesConfig:
-
-    def test_assert_consistent_aliases(self):
-        DATASET_TABLES_CONF._assert_consistent_aliases()
-
-    def test_assert_consistent_subject_alias_fail(self):
-        with pytest.raises(AssertionError):
-            updated = eqx.tree_at(lambda x: x.admissions.subject_id_alias,
-                                  DATASET_TABLES_CONF,
-                                  f'{DATASET_TABLES_CONF.subject_id_alias}_')
-            updated._assert_consistent_aliases()
-
-    @pytest.mark.parametrize("table_name", ['dx_discharge', 'obs', 'icu_procedures', 'icu_inputs', 'hosp_procedures'])
-    def test_assert_consistent_admission_alias_fail(self, table_name: str):
-        if getattr(DATASET_TABLES_CONF, table_name) is None:
-            raise pytest.skip(f'{table_name} is not in the dataset')
-
-        with pytest.raises(AssertionError):
-            updated = eqx.tree_at(lambda x: getattr(getattr(x, table_name), 'admission_id_alias'),
-                                  DATASET_TABLES_CONF,
-                                  f'{DATASET_TABLES_CONF.admission_id_alias}_')
-            updated._assert_consistent_aliases()
-
-    def test_assert_consistent_subject_alias_pass(self):
-        all_tables_keys = ('static', 'admissions', 'dx_discharge', 'obs',
-                           'icu_procedures', 'icu_inputs', 'hosp_procedures')
-        timestamped_tables = ('obs',)
-        interval_tables = ('icu_procedures', 'icu_inputs', 'hosp_procedures')
-
-        assert set(DATASET_TABLES_CONF.table_config_dict.keys()) == set(k for k in all_tables_keys
-                                                                        if
-                                                                        getattr(DATASET_TABLES_CONF, k) is not None)
-        assert set(DATASET_TABLES_CONF.timestamped_table_config_dict.keys()) == set(k for k in timestamped_tables
-                                                                                    if getattr(DATASET_TABLES_CONF,
-                                                                                               k) is not None)
-        assert set(DATASET_TABLES_CONF.interval_based_table_config_dict.keys()) == set(k for k in interval_tables
-                                                                                       if
-                                                                                       getattr(DATASET_TABLES_CONF,
-                                                                                               k) is not None)
-
-        assert set(DATASET_TABLES_CONF.indices.keys()) == {'static', 'admissions'}
+def test_assert_consistent_aliases():
+    DATASET_TABLES_CONF._assert_consistent_aliases()
 
 
-class TestDatasetTables:
+def test_assert_consistent_subject_alias_fail():
+    with pytest.raises(AssertionError):
+        updated = eqx.tree_at(lambda x: x.admissions.subject_id_alias,
+                              DATASET_TABLES_CONF,
+                              f'{DATASET_TABLES_CONF.subject_id_alias}_')
+        updated._assert_consistent_aliases()
+
+
+@pytest.mark.parametrize("table_name", ['dx_discharge', 'obs', 'icu_procedures', 'icu_inputs', 'hosp_procedures'])
+def test_assert_consistent_admission_alias_fail(table_name: str):
+    if getattr(DATASET_TABLES_CONF, table_name) is None:
+        raise pytest.skip(f'{table_name} is not in the dataset')
+
+    with pytest.raises(AssertionError):
+        updated = eqx.tree_at(lambda x: getattr(getattr(x, table_name), 'admission_id_alias'),
+                              DATASET_TABLES_CONF,
+                              f'{DATASET_TABLES_CONF.admission_id_alias}_')
+        updated._assert_consistent_aliases()
+
+
+def test_assert_consistent_subject_alias_pass():
+    all_tables_keys = ('static', 'admissions', 'dx_discharge', 'obs',
+                       'icu_procedures', 'icu_inputs', 'hosp_procedures')
+    timestamped_tables = ('obs',)
+    interval_tables = ('icu_procedures', 'icu_inputs', 'hosp_procedures')
+
+    assert set(DATASET_TABLES_CONF.table_config_dict.keys()) == set(k for k in all_tables_keys
+                                                                    if
+                                                                    getattr(DATASET_TABLES_CONF, k) is not None)
+    assert set(DATASET_TABLES_CONF.timestamped_table_config_dict.keys()) == set(k for k in timestamped_tables
+                                                                                if getattr(DATASET_TABLES_CONF,
+                                                                                           k) is not None)
+    assert set(DATASET_TABLES_CONF.interval_based_table_config_dict.keys()) == set(k for k in interval_tables
+                                                                                   if
+                                                                                   getattr(DATASET_TABLES_CONF,
+                                                                                           k) is not None)
+
+    assert set(DATASET_TABLES_CONF.indices.keys()) == {'static', 'admissions'}
+
+
+def test_scheme_dict():
+    scheme = DatasetSchemeProxy(config=DATASET_SCHEME_CONF, schemes_context=DATASET_SCHEME_MANAGER)
+
+    for space, scheme_name in DATASET_SCHEME_CONF.as_dict().items():
+        assert hasattr(scheme, space)
+        if scheme_name is not None:
+            assert isinstance(getattr(scheme, space), CodingScheme)
+
+
+class AbstractTestDataset:
+    @pytest.fixture(scope='class')
+    @abstractmethod
+    def dataset_tables(self, *args) -> DatasetTables:
+        raise NotImplementedError()
+
+    @pytest.fixture(scope='class')
+    @abstractmethod
+    def dataset(self, *args) -> Dataset:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def pipeline(self) -> list[DatasetTransformation]:
+        raise NotImplementedError()
+
+    @pytest.fixture(scope='class')
+    def processed_dataset(self, dataset: Dataset, pipeline: list[DatasetTransformation]) -> Dataset:
+        return dataset._execute_pipeline(pipeline, DATASET_SCHEME_MANAGER)
+
+    @pytest.fixture(scope='class')
+    def dataset_with_zero_pipeline(self, dataset: Dataset):
+        return dataset.execute_pipeline(AbstractDatasetPipeline(config=None, transformations=[]), None)
 
     def test_tables_dict_property(self, dataset_tables: DatasetTables):
         all_tables_keys = ('static', 'admissions', 'dx_discharge', 'obs',
@@ -93,107 +127,113 @@ class TestDatasetTables:
             loaded = DatasetTables.load(hf5.root['dataset_tables'])
         assert loaded.equals(dataset_tables)
 
-
-class TestDatasetScheme:
-
-    def test_scheme_dict(self):
-        scheme = DatasetSchemeProxy(config=DATASET_SCHEME_CONF, schemes_context=DATASET_SCHEME_MANAGER)
-
-        for space, scheme_name in DATASET_SCHEME_CONF.as_dict().items():
-            assert hasattr(scheme, space)
-            if scheme_name is not None:
-                assert isinstance(getattr(scheme, space), CodingScheme)
-
-    # def test_demographic_size(self, DATASET_SCHEME_CONF: DatasetSchemeConfig):
-    #     pass
-    #     # scheme = DatasetScheme(config=DATASET_SCHEME_CONF)
-    #     # assert scheme.demographic_size == 3
-
-
-class TestDataset:
-    @pytest.fixture(scope='class')
-    def dataset_after_identity_pipeline(self, dataset: Dataset):
-        return dataset.execute_pipeline(AbstractDatasetPipeline(config=None, transformations=[]), None)
-
-    def test_execute_pipeline(self, dataset: Dataset, dataset_after_identity_pipeline: Dataset):
-        assert isinstance(dataset.make_default_pipeline(), AbstractDatasetPipeline)
+    def test_execute_pipeline(self, dataset: Dataset, dataset_with_zero_pipeline: Dataset):
         assert isinstance(dataset, Dataset)
-        assert isinstance(dataset_after_identity_pipeline, Dataset)
+        assert isinstance(dataset_with_zero_pipeline, Dataset)
         assert dataset.pipeline_report.equals(pd.DataFrame())
 
         # Because we use identity pipeline, the dataset tables should be the same
         # but the new dataset should have a different report (metadata).
-        assert not dataset_after_identity_pipeline.equals(dataset)
-        assert not dataset_after_identity_pipeline.pipeline_report.equals(dataset.pipeline_report)
-        assert dataset_after_identity_pipeline.tables.equals(dataset.tables)
-        assert len(dataset_after_identity_pipeline.pipeline_report) == 1
-        assert dataset_after_identity_pipeline.pipeline_report.loc[0, 'transformation'] == 'identity'
+        assert not dataset_with_zero_pipeline.equals(dataset)
+        assert not dataset_with_zero_pipeline.pipeline_report.equals(dataset.pipeline_report)
+        assert dataset_with_zero_pipeline.tables.equals(dataset.tables)
+        assert len(dataset_with_zero_pipeline.pipeline_report) == 1
+        assert dataset_with_zero_pipeline.pipeline_report.loc[0, 'transformation'] == 'identity'
 
         with mock.patch('logging.warning') as mocker:
-            dataset3 = dataset_after_identity_pipeline.execute_pipeline(
+            dataset3 = dataset_with_zero_pipeline.execute_pipeline(
                 AbstractDatasetPipeline(config=None, transformations=[]), None)
-            assert dataset3.equals(dataset_after_identity_pipeline)
+            assert dataset3.equals(dataset_with_zero_pipeline)
             mocker.assert_called_once_with("A pipeline has already been executed. Doing nothing.")
 
-    def test_subject_ids(self, dataset: NaiveDataset,
-                         dataset_after_identity_pipeline: NaiveDataset,
-                         indexed_large_dataset: NaiveDataset):
+    def test_subject_ids_of_unindexed_dataset(self, dataset: Dataset,
+                                              dataset_with_zero_pipeline: Dataset):
         with pytest.raises(AssertionError):
             _ = dataset.subject_ids
 
         with pytest.raises(AssertionError):
-            _ = dataset_after_identity_pipeline.subject_ids
+            _ = dataset_with_zero_pipeline.subject_ids
 
-        assert set(indexed_large_dataset.subject_ids) == set(indexed_large_dataset.tables.static.index.unique())
+    def test_subject_ids_of_indexed_dataset(self, processed_dataset: Dataset):
+        assert set(processed_dataset.subject_ids) == set(processed_dataset.tables.static.index.unique())
 
     @pytest.mark.expensive_test
-    def test_save_load(self, dataset: NaiveDataset,
-                       dataset_after_identity_pipeline: NaiveDataset,
+    def test_save_load(self, dataset: Dataset,
+                       dataset_with_zero_pipeline: Dataset,
                        tmpdir: str):
-        dataset_after_identity_pipeline.save(f'{tmpdir}/test_dataset')
-        loaded = NaiveDataset.load(f'{tmpdir}/test_dataset')
-        assert loaded.equals(dataset_after_identity_pipeline)
+        dataset_with_zero_pipeline.save(f'{tmpdir}/test_dataset')
+        loaded = Dataset.load(f'{tmpdir}/test_dataset')
+        assert loaded.equals(dataset_with_zero_pipeline)
         assert not loaded.equals(dataset)
         assert loaded.equals(dataset._execute_pipeline([], None))
 
     @pytest.fixture(scope='class')
-    def subject_ids(self, indexed_large_dataset: NaiveDataset):
-        return indexed_large_dataset.subject_ids
+    def subject_ids(self, processed_dataset: Dataset):
+        return processed_dataset.subject_ids
 
     @pytest.mark.parametrize('valid_split', [[1.0]])
     @pytest.mark.parametrize('valid_balance', ['subjects', 'admissions', 'admissions_intervals'])
     @pytest.mark.parametrize('invalid_splits', [[], [0.3, 0.8, 0.7, 0.9], [0.5, 0.2]])  # should be sorted.
     @pytest.mark.parametrize('invalid_balance', ['hi', 'unsupported'])
-    def test_random_split_invalid_args(self, indexed_large_dataset: NaiveDataset, subject_ids: list[str],
+    def test_random_split_invalid_args(self, processed_dataset: Dataset, subject_ids: list[str],
                                        valid_split: list[float], valid_balance: SplitLiteral,
                                        invalid_splits: list[float], invalid_balance: SplitLiteral):
         if len(subject_ids) == 0:
             with pytest.raises(AssertionError):
-                indexed_large_dataset.random_splits(valid_split, balance=valid_balance)
+                processed_dataset.random_splits(valid_split, balance=valid_balance)
             return
 
-        if len(indexed_large_dataset.tables.admissions) == 0 and 'admissions' in valid_balance:
+        if len(processed_dataset.tables.admissions) == 0 and 'admissions' in valid_balance:
             with pytest.raises(AssertionError):
-                indexed_large_dataset.random_splits(valid_split, balance=valid_balance)
+                processed_dataset.random_splits(valid_split, balance=valid_balance)
             return
 
-        assert set(indexed_large_dataset.random_splits(valid_split, balance=valid_balance)[0]) == set(subject_ids)
+        assert set(processed_dataset.random_splits(valid_split, balance=valid_balance)[0]) == set(subject_ids)
 
         with pytest.raises(AssertionError):
-            indexed_large_dataset.random_splits(valid_split, balance=invalid_balance)
+            processed_dataset.random_splits(valid_split, balance=invalid_balance)
 
         with pytest.raises(AssertionError):
-            indexed_large_dataset.random_splits(invalid_splits, balance=valid_balance)
+            processed_dataset.random_splits(invalid_splits, balance=valid_balance)
 
         with pytest.raises(AssertionError):
-            indexed_large_dataset.random_splits(invalid_splits, balance=invalid_balance)
+            processed_dataset.random_splits(invalid_splits, balance=invalid_balance)
+
+
+class TestDatasetWithoutRecords(AbstractTestDataset):
+    @pytest.fixture(scope='class')
+    def dataset_tables(self, dataset_tables_without_records: DatasetTables) -> DatasetTables:
+        return dataset_tables_without_records
 
     @pytest.fixture(scope='class')
-    def split_measure(self, indexed_large_dataset: NaiveDataset, balance: str):
+    def dataset(self, dataset_without_records: Dataset) -> Dataset:
+        return dataset_without_records
+
+    @pytest.fixture(scope='class')
+    def pipeline(self) -> list[DatasetTransformation]:
+        return [SetIndex(), SynchronizeSubjects(), CastTimestamps(), SetAdmissionRelativeTimes()]
+
+
+class TestDatasetWithRecords(AbstractTestDataset):
+    @pytest.fixture(scope='class')
+    def dataset_tables(self, dataset_tables_with_records: DatasetTables) -> DatasetTables:
+        return dataset_tables_with_records
+
+    @pytest.fixture(scope='class')
+    def dataset(self, dataset_with_records: Dataset):
+        return dataset_with_records
+
+    @pytest.fixture(scope='class')
+    def pipeline(self):
+        return [SetIndex(), SynchronizeSubjects(), CastTimestamps(), ICUInputRateUnitConversion(),
+                SetAdmissionRelativeTimes()]
+
+    @pytest.fixture(scope='class')
+    def split_measure(self, processed_dataset: Dataset, balance: str):
         return {
             'subjects': lambda x: len(x),
-            'admissions': lambda x: sum(indexed_large_dataset.subjects_n_admissions.loc[x]),
-            'admissions_intervals': lambda x: sum(indexed_large_dataset.subjects_intervals_sum.loc[x])
+            'admissions': lambda x: sum(processed_dataset.subjects_n_admissions.loc[x]),
+            'admissions_intervals': lambda x: sum(processed_dataset.subjects_intervals_sum.loc[x])
         }[balance]
 
     @pytest.fixture(params=['subjects', 'admissions', 'admissions_intervals'], scope='class')
@@ -205,19 +245,19 @@ class TestDataset:
         return request.param
 
     @pytest.fixture(params=[1, 11, 111], scope='class')
-    def subject_splits(self, indexed_large_dataset: NaiveDataset, balance: SplitLiteral,
+    def subject_splits(self, processed_dataset: Dataset, balance: SplitLiteral,
                        split_quantiles: list[float], request):
         random_seed = request.param
-        return indexed_large_dataset.random_splits(split_quantiles, balance=balance, random_seed=random_seed)
+        return processed_dataset.random_splits(split_quantiles, balance=balance, random_seed=random_seed)
 
-    def test_random_split(self, indexed_large_dataset: NaiveDataset, subject_ids: list[str],
+    def test_random_split(self, processed_dataset: Dataset, subject_ids: list[str],
                           subject_splits: list[list[str]],
                           split_quantiles: list[float]):
         assert set.union(*list(map(set, subject_splits))) == set(subject_ids)
         assert len(subject_splits) == len(split_quantiles) + 1
         # No overlaps.
-        assert sum(len(v) for v in subject_splits) == len(indexed_large_dataset.subject_ids)
-        assert set.union(*[set(v) for v in subject_splits]) == set(indexed_large_dataset.subject_ids)
+        assert sum(len(v) for v in subject_splits) == len(processed_dataset.subject_ids)
+        assert set.union(*[set(v) for v in subject_splits]) == set(processed_dataset.subject_ids)
 
     @pytest.fixture
     def split_proportions(self, split_quantiles: list[float]):
@@ -228,6 +268,9 @@ class TestDataset:
                                   split_proportions: list[float],
                                   balance: str,
                                   split_measure: Callable[[list[str]], float]):
+        if len(subject_ids) < 5:
+            raise pytest.skip("Not enough subjects to test random split")
+
         # # test proportionality
         # NOTE: no specified behaviour when splits have equal proportions, so comparing argsorts
         # is not appropriate.

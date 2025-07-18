@@ -1,46 +1,11 @@
 import logging
-from dataclasses import field
 from typing import Self
 
 import pandas as pd
 
 from ..coding_scheme import FrozenDict11, FrozenDict1N, CodingScheme, CodingSchemesManager, \
-    CodeMap, NumericScheme, ReducedCodeMapN1
+    CodeMap
 from ..example_schemes.icd import ICDScheme
-
-
-class ObservableMIMICScheme(NumericScheme):
-    @classmethod
-    def from_selection(cls, name: str, obs_variables: pd.DataFrame):
-        # TODO: test this method.
-        """
-        Create a scheme from a selection of observation variables.
-
-        Args:
-            name: Name of the scheme.
-            obs_variables: A DataFrame containing the variables to include in the scheme.
-                The DataFrame should have the following columns:
-                    - table_name (index): The name of the table containing the variable.
-                    - attribute: The name of the variable.
-                    - type_hint: The type of the variable. 'B' for boolean, 'N' for numeric, 'O' for ordinal,
-                        'C' for categorical.
-
-        Returns:
-            (CodingScheme.FlatScheme) A new scheme containing the variables in obs_variables.
-        """
-        # format codes to be of the form 'table_name.attribute'
-        codes = tuple(sorted(obs_variables.index + '.' + obs_variables['attribute'].tolist()))
-        desc = FrozenDict11(dict(zip(codes, codes)))
-        type_hint = FrozenDict11(dict(zip(codes, obs_variables['type_hint'].tolist())))
-        return cls(name=name,
-                   codes=codes,
-                   desc=desc,
-                   type_hint=type_hint)
-
-    def as_dataframe(self):
-        columns = ['code', 'desc', 'type_hint', 'code_index', 'table_name', 'attribute']
-        return pd.DataFrame([(c, self.desc[c], self.type_hint[c], self.index[c], *c.split('.')) for c in self.codes],
-                            columns=columns)
 
 
 class MixedICDScheme(CodingScheme):
@@ -48,7 +13,7 @@ class MixedICDScheme(CodingScheme):
     sep: str
 
     def __init__(self,
-                 icd_version_schemes: FrozenDict1N,
+                 icd_version_schemes: FrozenDict11,
                  sep: str = ':', *,
                  name: str, codes: tuple[str, ...], desc: FrozenDict11):
         super().__init__(name, codes, desc)
@@ -186,35 +151,3 @@ class MixedICDScheme(CodingScheme):
         columns = ['code', 'desc', 'code_index', 'icd_version', 'icd_code']
         return pd.DataFrame([(c, self.desc[c], self.index[c], *c.split(self.sep)) for c in self.codes],
                             columns=columns)
-
-
-class AggregatedICUInputsScheme(CodingScheme):
-    aggregation: FrozenDict11 = field(kw_only=True)
-
-    @staticmethod
-    def register_aggregated_scheme(manager: CodingSchemesManager,
-                                   scheme: CodingScheme,
-                                   target_scheme_name: str,
-                                   code_column: str,
-                                   target_code_column: str,
-                                   target_desc_column: str,
-                                   target_aggregation_column: str,
-                                   mapping_table: pd.DataFrame) -> CodingSchemesManager:
-        """
-        Register a target scheme and its mapping.
-        """
-        target_codes = tuple(sorted(mapping_table[target_code_column].drop_duplicates().astype(str).tolist()))
-        target_desc = FrozenDict11(mapping_table.set_index(target_code_column)[target_desc_column].to_dict())
-        target_agg = FrozenDict11(
-            mapping_table.set_index(target_code_column)[target_aggregation_column].to_dict())
-        target_scheme = CodingScheme(name=target_scheme_name, codes=target_codes, desc=target_desc)
-        manager = manager.add_scheme(target_scheme)
-
-        mapping = mapping_table[[code_column, target_code_column]].astype(str)
-        mapping = mapping[
-            mapping[code_column].isin(scheme.codes) & mapping[target_code_column].isin(target_scheme.codes)]
-        mapping = FrozenDict1N(mapping.groupby(code_column)[target_code_column].apply(set).to_dict())
-        return manager.add_map(ReducedCodeMapN1.from_data(source_name=scheme.name,
-                                                          target_name=target_scheme.name,
-                                                          map_data=mapping,
-                                                          set_aggregation=target_agg))

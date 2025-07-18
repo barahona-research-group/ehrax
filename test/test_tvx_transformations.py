@@ -1,10 +1,14 @@
+from typing import Callable, Any
+
 import equinox as eqx
 import numpy as np
 import pytest
 import tables as tb
 
+from ehrax.base import HDFVirtualNode
+from ehrax.base import fetch_all
 from ehrax.coding_scheme import CodesVector
-from ehrax.dataset import Dataset
+from ehrax.dataset import DatasetTables
 from ehrax.tvx_concepts import SegmentedPatient, Patient, SegmentedAdmission, Admission, InpatientInput, \
     InpatientObservables, DemographicVectorConfig, StaticInfo, \
     InpatientInterventions, SegmentedInpatientInterventions, LeadingObservableExtractorConfig, \
@@ -18,65 +22,45 @@ from ehrax.tvx_transformations import SampleSubjects, CodedValueScaler, ObsAdapt
 from test.common_setup import BINARY_OBSERVATION_CODE_INDEX, DATASET_SCHEME_MANAGER, MAX_STAY_DAYS
 
 
-@pytest.fixture(scope='module')
-def multi_subjects_ehr(tvx_ehr: TVxEHR):
-    if len(tvx_ehr.dataset.tables.static) <= 1:
-        raise pytest.skip("Only one subject in dataset.")
-    if len(tvx_ehr.dataset.tables.admissions) == 0:
-        raise pytest.skip("No admissions table found in dataset. The sampling will result on empty dataset.")
-
-    return tvx_ehr
-
-
-@pytest.fixture(scope='module')
-def large_ehr(multi_subjects_ehr: TVxEHR):
-    if len(multi_subjects_ehr.dataset.tables.static) <= 5:
-        raise pytest.skip("Only one subject in dataset.")
-    if len(multi_subjects_ehr.dataset.tables.admissions) == 0:
-        raise pytest.skip("No admissions table found in dataset. The sampling will result on empty dataset.")
-
-    return multi_subjects_ehr
-
-
-def test_serialization_multi_subjects(multi_subjects_ehr: TVxEHR, tmpdir: str):
-    path = f'{tmpdir}/multi_subjects_ehr'
-    multi_subjects_ehr.save(path)
+def test_serialization_multi_subjects(tvx_ehr: TVxEHR, tmpdir: str):
+    path = f'{tmpdir}/tvx_ehr'
+    tvx_ehr.save(path)
     loaded_ehr = TVxEHR.load(path)
-    assert multi_subjects_ehr.equals(loaded_ehr)
+    assert tvx_ehr.equals(loaded_ehr)
 
 
 class TestSampleSubjects:
 
     @pytest.fixture(params=[(1, 3), (111, 5)], scope='class')
-    def sampled_tvx_ehr(self, multi_subjects_ehr: TVxEHR, request):
+    def sampled_tvx_ehr(self, tvx_ehr: TVxEHR, request):
         seed, offset = request.param
-        n_subjects = len(multi_subjects_ehr.dataset.tables.static) // 5
+        n_subjects = len(tvx_ehr.dataset.tables.static) // 5
         sample = TVxEHRSampleConfig(seed=seed, n_subjects=n_subjects, offset=offset)
-        multi_subjects_ehr = eqx.tree_at(lambda x: x.config.sample, multi_subjects_ehr, sample,
-                                         is_leaf=lambda x: x is None)
-        return SampleSubjects.apply(multi_subjects_ehr, DATASET_SCHEME_MANAGER, TVxReport())[0]
+        tvx_ehr = eqx.tree_at(lambda x: x.config.sample, tvx_ehr, sample,
+                              is_leaf=lambda x: x is None)
+        return SampleSubjects.apply(tvx_ehr, DATASET_SCHEME_MANAGER, TVxReport())[0]
 
-    def test_sample_subjects(self, multi_subjects_ehr: TVxEHR, sampled_tvx_ehr: TVxEHR):
-        original_subjects = multi_subjects_ehr.dataset.tables.static.index
+    def test_sample_subjects(self, tvx_ehr: TVxEHR, sampled_tvx_ehr: TVxEHR):
+        original_subjects = tvx_ehr.dataset.tables.static.index
         sampled_subjects = sampled_tvx_ehr.dataset.tables.static.index
         assert len(sampled_subjects) == len(original_subjects) // 5
         assert len(set(sampled_subjects)) == len(sampled_subjects)
         assert set(sampled_subjects).issubset(set(original_subjects))
 
-    def test_ehr_serialization(self, multi_subjects_ehr: TVxEHR, sampled_tvx_ehr: TVxEHR, tmpdir: str):
-        path1 = f'{tmpdir}/multi_subjects_ehr'
+    def test_ehr_serialization(self, tvx_ehr: TVxEHR, sampled_tvx_ehr: TVxEHR, tmpdir: str):
+        path1 = f'{tmpdir}/tvx_ehr'
         path2 = f'{tmpdir}/sampled_tvx_ehr'
 
-        multi_subjects_ehr.save(path1)
-        loaded_multi_subjects_ehr = TVxEHR.load(path1)
+        tvx_ehr.save(path1)
+        loaded_tvx_ehr = TVxEHR.load(path1)
 
         sampled_tvx_ehr.save(path2)
         loaded_sampled_tvx_ehr = TVxEHR.load(path2)
 
-        assert not multi_subjects_ehr.equals(sampled_tvx_ehr)
-        assert not multi_subjects_ehr.equals(loaded_sampled_tvx_ehr)
-        assert not loaded_multi_subjects_ehr.equals(sampled_tvx_ehr)
-        assert not loaded_multi_subjects_ehr.equals(loaded_sampled_tvx_ehr)
+        assert not tvx_ehr.equals(sampled_tvx_ehr)
+        assert not tvx_ehr.equals(loaded_sampled_tvx_ehr)
+        assert not loaded_tvx_ehr.equals(sampled_tvx_ehr)
+        assert not loaded_tvx_ehr.equals(loaded_sampled_tvx_ehr)
         assert sampled_tvx_ehr.equals(loaded_sampled_tvx_ehr)
 
 
@@ -105,18 +89,18 @@ class TestTrainableTransformer:
         return DatasetNumericalProcessorsConfig(scalers_conf, outliers_conf)
 
     @pytest.fixture(scope='class')
-    def large_scalable_split_ehr(self, large_ehr: TVxEHR, scalable_table_name: str, use_float16: bool):
-        if len(getattr(large_ehr.dataset.tables, scalable_table_name)) == 0:
+    def large_scalable_split_ehr(self, tvx_ehr: TVxEHR, scalable_table_name: str, use_float16: bool):
+        if len(getattr(tvx_ehr.dataset.tables, scalable_table_name)) == 0:
             raise pytest.skip(f"No {scalable_table_name} table found in dataset.")
-        subjects = large_ehr.dataset.tables.static.index.tolist()
-        large_ehr = eqx.tree_at(lambda x: x.splits, large_ehr, (tuple(subjects),),
-                                is_leaf=lambda x: x is None)
+        subjects = tvx_ehr.dataset.tables.static.index.tolist()
+        tvx_ehr = eqx.tree_at(lambda x: x.splits, tvx_ehr, (tuple(subjects),),
+                              is_leaf=lambda x: x is None)
 
-        large_ehr = eqx.tree_at(
+        tvx_ehr = eqx.tree_at(
             lambda x: getattr(x.config.numerical_processors.scalers, scalable_table_name),
-            large_ehr, ScalerConfig(use_float16=use_float16),
+            tvx_ehr, ScalerConfig(use_float16=use_float16),
             is_leaf=lambda x: x is None)
-        return large_ehr
+        return tvx_ehr
 
     @pytest.fixture(scope='class')
     def scaled_ehr(self, large_scalable_split_ehr, scaler_class: type[TrainableTransformation]):
@@ -167,10 +151,10 @@ class TestTrainableTransformer:
             loaded_numerical_processors = DatasetNumericalProcessors.load(f.root.numerical_processors)
         assert fitted_numerical_processors.equals(loaded_numerical_processors)
 
-    def test_ehr_serialization(self, large_ehr: TVxEHR, large_scalable_split_ehr: TVxEHR, processed_ehr: TVxEHR,
+    def test_ehr_serialization(self, tvx_ehr: TVxEHR, large_scalable_split_ehr: TVxEHR, processed_ehr: TVxEHR,
                                tmpdir: str):
-        assert not large_ehr.equals(large_scalable_split_ehr)
-        assert not large_ehr.equals(processed_ehr)
+        assert not tvx_ehr.equals(large_scalable_split_ehr)
+        assert not tvx_ehr.equals(processed_ehr)
         assert not large_scalable_split_ehr.equals(processed_ehr)
 
         split_path = f'{tmpdir}/split_ehr'
@@ -184,23 +168,23 @@ class TestTrainableTransformer:
         assert processed_ehr.equals(loaded_processed_ehr)
 
 
-# def test_obs_minmax_scaler(int_indexed_dataset: Dataset):
+# def test_obs_minmax_scaler(int_dataset: Dataset):
 #     assert False
 #
 #
-# def test_obs_adaptive_scaler(int_indexed_dataset: Dataset):
+# def test_obs_adaptive_scaler(int_dataset: Dataset):
 #     assert False
 #
 #
-# def test_obs_iqr_outlier_remover(indexed_dataset: Dataset):
+# def test_obs_iqr_outlier_remover(dataset: Dataset):
 #     assert False
 
 
-@pytest.mark.parametrize('splits', [[0.5], [0.2, 0.5, 0.7], [0.1, 0.2, 0.3, 0.4, 0.5]])
-def test_random_splits(indexed_dataset: Dataset, splits: list[float]):
-    # The logic of splits already tested in test.ehr.dataset.test_dataset.
-    # Maybe assert that functions are called with the correct arguments.
-    pass
+# @pytest.mark.parametrize('splits', [[0.5], [0.2, 0.5, 0.7], [0.1, 0.2, 0.3, 0.4, 0.5]])
+# def test_random_splits(dataset: Dataset, splits: list[float]):
+# The logic of splits already tested in test.ehr.dataset.test_dataset.
+# Maybe assert that functions are called with the correct arguments.
+# pass
 
 
 class TestTVxConcepts:
@@ -210,24 +194,24 @@ class TestTVxConcepts:
         return eqx.tree_at(lambda x: getattr(x, request.param), config, True)
 
     @pytest.fixture(scope='class')
-    def tvx_ehr_configured_demographic(self, large_ehr: TVxEHR,
+    def tvx_ehr_configured_demographic(self, tvx_ehr: TVxEHR,
                                        tvx_ehr_demographic_config: DemographicVectorConfig) -> TVxEHR:
-        return eqx.tree_at(lambda x: x.config.demographic, large_ehr, tvx_ehr_demographic_config)
+        return eqx.tree_at(lambda x: x.config.demographic, tvx_ehr, tvx_ehr_demographic_config)
 
     @pytest.fixture(scope='class')
     def tvx_concepts_static(self, tvx_ehr_configured_demographic: TVxEHR) -> dict[str, StaticInfo]:
         return TVxConcepts._static_info(tvx_ehr_configured_demographic, DATASET_SCHEME_MANAGER, TVxReport())[0]
 
-    def test_tvx_concepts_static(self, large_ehr: TVxEHR,
+    def test_tvx_concepts_static(self, tvx_ehr: TVxEHR,
                                  tvx_concepts_static: dict[str, StaticInfo],
                                  tvx_ehr_demographic_config: DemographicVectorConfig):
-        assert len(tvx_concepts_static) == len(large_ehr.dataset.tables.static)
+        assert len(tvx_concepts_static) == len(tvx_ehr.dataset.tables.static)
         for subject_id, static_info in tvx_concepts_static.items():
             if tvx_ehr_demographic_config.gender:
                 assert static_info.gender is not None
-                assert len(static_info.gender.vec) == len(large_ehr.scheme_proxy(DATASET_SCHEME_MANAGER).gender)
+                assert len(static_info.gender.vec) == len(tvx_ehr.scheme_proxy(DATASET_SCHEME_MANAGER).gender)
                 assert static_info.gender.vec.sum() == 1
-                assert static_info.gender.scheme == large_ehr.scheme_proxy(DATASET_SCHEME_MANAGER).gender.name
+                assert static_info.gender.scheme == tvx_ehr.scheme_proxy(DATASET_SCHEME_MANAGER).gender.name
             else:
                 assert static_info.gender is None
 
@@ -239,20 +223,20 @@ class TestTVxConcepts:
 
             if tvx_ehr_demographic_config.ethnicity:
                 assert static_info.ethnicity is not None
-                assert len(static_info.ethnicity.vec) == len(large_ehr.scheme_proxy(DATASET_SCHEME_MANAGER).ethnicity)
+                assert len(static_info.ethnicity.vec) == len(tvx_ehr.scheme_proxy(DATASET_SCHEME_MANAGER).ethnicity)
                 assert static_info.ethnicity.vec.sum() == 1
-                assert static_info.ethnicity.scheme == large_ehr.scheme_proxy(DATASET_SCHEME_MANAGER).ethnicity.name
+                assert static_info.ethnicity.scheme == tvx_ehr.scheme_proxy(DATASET_SCHEME_MANAGER).ethnicity.name
 
     @pytest.fixture(scope='class')
-    def tvx_ehr_with_dx(self, large_ehr: TVxEHR) -> TVxEHR:
-        if len(large_ehr.dataset.tables.dx_discharge) == 0:
+    def tvx_ehr_with_dx(self, tvx_ehr: TVxEHR) -> TVxEHR:
+        if len(tvx_ehr.dataset.tables.dx_discharge) == 0:
             raise pytest.skip("No diagnoses table found in dataset.")
-        n = len(large_ehr.dataset.tables.admissions)
-        c_admission_id = large_ehr.dataset.config.tables.admissions.admission_id_alias
-        random_admission_id = large_ehr.dataset.tables.admissions.index[n // 2]
-        dx_discharge = large_ehr.dataset.tables.dx_discharge
+        n = len(tvx_ehr.dataset.tables.admissions)
+        c_admission_id = tvx_ehr.dataset.config.tables.admissions.admission_id_alias
+        random_admission_id = tvx_ehr.dataset.tables.admissions.index[n // 2]
+        dx_discharge = tvx_ehr.dataset.tables.dx_discharge
         dx_discharge = dx_discharge[dx_discharge[c_admission_id] != random_admission_id]
-        return eqx.tree_at(lambda x: x.dataset.tables.dx_discharge, large_ehr, dx_discharge)
+        return eqx.tree_at(lambda x: x.dataset.tables.dx_discharge, tvx_ehr, dx_discharge)
 
     @pytest.fixture(scope='class')
     def admission_dx_codes(self, tvx_ehr_with_dx: TVxEHR) -> dict[str, CodesVector]:
@@ -310,10 +294,10 @@ class TestTVxConcepts:
                 outcome_scheme.codes(DATASET_SCHEME_MANAGER.scheme[outcome_scheme.base_name]))
 
     @pytest.fixture(scope='class')
-    def tvx_ehr_with_icu_inputs(self, large_ehr: TVxEHR) -> TVxEHR:
-        if len(large_ehr.dataset.tables.icu_inputs) == 0:
+    def tvx_ehr_with_icu_inputs(self, tvx_ehr: TVxEHR) -> TVxEHR:
+        if len(tvx_ehr.dataset.tables.icu_inputs) == 0:
             raise pytest.skip("No icu_inputs table found in dataset.")
-        return large_ehr
+        return tvx_ehr
 
     @pytest.fixture(scope='class')
     def admission_icu_inputs(self, tvx_ehr_with_icu_inputs: TVxEHR) -> dict[str, InpatientInput]:
@@ -333,10 +317,10 @@ class TestTVxConcepts:
                 tvx_ehr_with_icu_inputs.dataset.scheme_proxy(DATASET_SCHEME_MANAGER).icu_inputs))
 
     @pytest.fixture(scope='class')
-    def tvx_ehr_with_obs(self, large_ehr: TVxEHR) -> TVxEHR:
-        if len(large_ehr.dataset.tables.obs) == 0:
+    def tvx_ehr_with_obs(self, tvx_ehr: TVxEHR) -> TVxEHR:
+        if len(tvx_ehr.dataset.tables.obs) == 0:
             raise pytest.skip("No observations table found in dataset.")
-        return large_ehr
+        return tvx_ehr
 
     @pytest.fixture(scope='class')
     def admission_obs(self, tvx_ehr_with_obs: TVxEHR) -> dict[
@@ -356,10 +340,10 @@ class TestTVxConcepts:
             assert tvx_obs.value.shape[1] == len(tvx_ehr_with_obs.dataset.scheme_proxy(DATASET_SCHEME_MANAGER).obs)
 
     @pytest.fixture(scope='class')
-    def tvx_ehr_with_hosp_procedures(self, large_ehr: TVxEHR) -> TVxEHR:
-        if len(large_ehr.dataset.tables.hosp_procedures) == 0:
+    def tvx_ehr_with_hosp_procedures(self, tvx_ehr: TVxEHR) -> TVxEHR:
+        if len(tvx_ehr.dataset.tables.hosp_procedures) == 0:
             raise pytest.skip("No hospital procedures table found in dataset.")
-        return large_ehr
+        return tvx_ehr
 
     @pytest.fixture(scope='class')
     def admission_hosp_procedures(self, tvx_ehr_with_hosp_procedures: TVxEHR) -> dict[str, InpatientInput]:
@@ -380,10 +364,10 @@ class TestTVxConcepts:
                 tvx_ehr_with_hosp_procedures.scheme_proxy(DATASET_SCHEME_MANAGER).hosp_procedures))
 
     @pytest.fixture(scope='class')
-    def tvx_ehr_with_icu_procedures(self, large_ehr: TVxEHR) -> TVxEHR:
-        if len(large_ehr.dataset.tables.icu_procedures) == 0:
+    def tvx_ehr_with_icu_procedures(self, tvx_ehr: TVxEHR) -> TVxEHR:
+        if len(tvx_ehr.dataset.tables.icu_procedures) == 0:
             raise pytest.skip("No icu procedures table found in dataset.")
-        return large_ehr
+        return tvx_ehr
 
     @pytest.fixture(scope='class')
     def admission_icu_procedures(self, tvx_ehr_with_icu_procedures: TVxEHR) -> dict[str, InpatientInput]:
@@ -404,14 +388,14 @@ class TestTVxConcepts:
                 tvx_ehr_with_icu_procedures.scheme_proxy(DATASET_SCHEME_MANAGER).icu_procedures))
 
     @pytest.fixture(scope='class')
-    def tvx_ehr_with_all_interventions(self, large_ehr: TVxEHR) -> TVxEHR:
-        if len(large_ehr.dataset.tables.icu_procedures) == 0:
+    def tvx_ehr_with_all_interventions(self, tvx_ehr: TVxEHR) -> TVxEHR:
+        if len(tvx_ehr.dataset.tables.icu_procedures) == 0:
             raise pytest.skip("No icu procedures table found in dataset.")
-        if len(large_ehr.dataset.tables.hosp_procedures) == 0:
+        if len(tvx_ehr.dataset.tables.hosp_procedures) == 0:
             raise pytest.skip("No hospital procedures table found in dataset.")
-        if len(large_ehr.dataset.tables.icu_inputs) == 0:
+        if len(tvx_ehr.dataset.tables.icu_inputs) == 0:
             raise pytest.skip("No icu inputs table found in dataset.")
-        return large_ehr
+        return tvx_ehr
 
     @pytest.fixture(scope='class')
     def admission_interventions(self, tvx_ehr_with_all_interventions: TVxEHR) -> dict[str, InpatientInterventions]:
@@ -426,13 +410,13 @@ class TestTVxConcepts:
             assert sum(len(v.starttime) for v in interventions.values() if v is not None) == len(table)
 
     @pytest.fixture(params=['interventions', 'observables'], scope='class')
-    def tvx_ehr_conf_concept(self, large_ehr: TVxEHR, request) -> TVxEHR:
+    def tvx_ehr_conf_concept(self, tvx_ehr: TVxEHR, request) -> TVxEHR:
         concept_name = request.param
-        conf = large_ehr.config
+        conf = tvx_ehr.config
         for cname in ('interventions', 'observables'):
             conf = eqx.tree_at(lambda x: getattr(x, cname), conf,
                                concept_name == cname)
-        return eqx.tree_at(lambda x: x.config, large_ehr, conf)
+        return eqx.tree_at(lambda x: x.config, tvx_ehr, conf)
 
     @pytest.fixture(scope='class')
     def tvx_ehr_concept(self, tvx_ehr_conf_concept: TVxEHR):
@@ -485,10 +469,10 @@ class TestTVxConcepts:
 
 class TestInterventionSegmentation:
     @pytest.fixture(scope='class')
-    def tvx_ehr_concept(self, large_ehr: TVxEHR):
-        large_ehr = eqx.tree_at(lambda x: x.config.interventions, large_ehr, True)
-        large_ehr = eqx.tree_at(lambda x: x.config.observables, large_ehr, True)
-        return large_ehr._execute_pipeline([TVxConcepts()], DATASET_SCHEME_MANAGER)
+    def tvx_ehr_concept(self, tvx_ehr: TVxEHR):
+        tvx_ehr = eqx.tree_at(lambda x: x.config.interventions, tvx_ehr, True)
+        tvx_ehr = eqx.tree_at(lambda x: x.config.observables, tvx_ehr, True)
+        return tvx_ehr._execute_pipeline([TVxConcepts()], DATASET_SCHEME_MANAGER)
 
     @pytest.fixture(scope='class')
     def tvx_ehr_segmented(self, tvx_ehr_concept: TVxEHR) -> SegmentedTVxEHR:
@@ -553,10 +537,10 @@ class TestInterventionSegmentation:
 
 class TestObsTimeBinning:
     @pytest.fixture(scope='class')
-    def tvx_ehr_concept(self, large_ehr: TVxEHR):
-        large_ehr = eqx.tree_at(lambda x: x.config.interventions, large_ehr, False)
-        large_ehr = eqx.tree_at(lambda x: x.config.observables, large_ehr, True)
-        return large_ehr._execute_pipeline([TVxConcepts()], DATASET_SCHEME_MANAGER)
+    def tvx_ehr_concept(self, tvx_ehr: TVxEHR):
+        tvx_ehr = eqx.tree_at(lambda x: x.config.interventions, tvx_ehr, False)
+        tvx_ehr = eqx.tree_at(lambda x: x.config.observables, tvx_ehr, True)
+        return tvx_ehr._execute_pipeline([TVxConcepts()], DATASET_SCHEME_MANAGER)
 
     @pytest.fixture(scope='class')
     def tvx_ehr_binned(self, tvx_ehr_concept: TVxEHR) -> TVxEHR:
@@ -571,10 +555,10 @@ class TestObsTimeBinning:
 
 class TestLeadExtraction:
     @pytest.fixture(scope='class')
-    def tvx_ehr_concept(self, large_ehr: TVxEHR):
-        large_ehr = eqx.tree_at(lambda x: x.config.interventions, large_ehr, False)
-        large_ehr = eqx.tree_at(lambda x: x.config.observables, large_ehr, True)
-        obs_scheme = large_ehr.scheme_proxy(DATASET_SCHEME_MANAGER).obs
+    def tvx_ehr_concept(self, tvx_ehr: TVxEHR):
+        tvx_ehr = eqx.tree_at(lambda x: x.config.interventions, tvx_ehr, False)
+        tvx_ehr = eqx.tree_at(lambda x: x.config.observables, tvx_ehr, True)
+        obs_scheme = tvx_ehr.scheme_proxy(DATASET_SCHEME_MANAGER).obs
         lead_config = LeadingObservableExtractorConfig(leading_hours=[1.0, 2.0],
                                                        scheme=obs_scheme.name,
                                                        entry_neglect_window=0.0,
@@ -582,9 +566,9 @@ class TestLeadExtraction:
                                                        minimum_acquisitions=0,
                                                        observable_code=obs_scheme.index2code[
                                                            BINARY_OBSERVATION_CODE_INDEX])
-        large_ehr = eqx.tree_at(lambda x: x.config.leading_observable, large_ehr, lead_config,
-                                is_leaf=lambda x: x is None)
-        return large_ehr._execute_pipeline([TVxConcepts()], DATASET_SCHEME_MANAGER)
+        tvx_ehr = eqx.tree_at(lambda x: x.config.leading_observable, tvx_ehr, lead_config,
+                              is_leaf=lambda x: x is None)
+        return tvx_ehr._execute_pipeline([TVxConcepts()], DATASET_SCHEME_MANAGER)
 
     @pytest.fixture(scope='class')
     def tvx_ehr_lead(self, tvx_ehr_concept: TVxEHR) -> TVxEHR:
@@ -621,15 +605,54 @@ class TestLeadExtraction:
                 ehr_j = ehr_list[j]
                 assert loaded_ehr_i.equals(ehr_j) == (i == j)
 
+    @pytest.fixture(params=[
+        (lambda tvx: tvx.dataset.tables, DatasetTables),
+        (lambda tvx: tvx.subjects, dict)
+    ])
+    def tvx_ehr_defer_getters(self, request) -> tuple[Callable[[TVxEHR], Any], type]:
+        return request.param
+
+    @pytest.fixture
+    def tvx_ehr_lazy_loaded(self, tvx_ehr_lead, tmpdir: str,
+                            tvx_ehr_defer_getters: tuple[Callable[[TVxEHR], Any], type]) -> TVxEHR:
+        getter, _ = tvx_ehr_defer_getters
+        tvx_ehr_lead.save(f'{tmpdir}/tvx_ehr_lead.h5', complevel=0)
+        return tvx_ehr_lead.load(f'{tmpdir}/tvx_ehr_lead.h5', defer=(getter,),
+                                 levels=(1,))
+
+    def test_lazy_loading(self, tvx_ehr_lead: TVxEHR, tvx_ehr_lazy_loaded: TVxEHR,
+                              tvx_ehr_defer_getters: tuple[Callable[[TVxEHR], Any], type]):
+        getter, node_type = tvx_ehr_defer_getters
+        assert isinstance(getter(tvx_ehr_lazy_loaded), node_type)
+        assert all(
+            isinstance(child, HDFVirtualNode) for child in eqx.tree_flatten_one_level(getter(tvx_ehr_lazy_loaded))[0])
+        loaded = fetch_all(tvx_ehr_lazy_loaded)
+        assert loaded.equals(tvx_ehr_lead)
+
+    def test_lazy_loading_subjects(self, tvx_ehr_lead, tmpdir: str):
+
+        tvx_ehr_lead.save(f'{tmpdir}/tvx_ehr_lead.h5', complevel=0)
+        lazy_loaded = tvx_ehr_lead.load(f'{tmpdir}/tvx_ehr_lead.h5', defer=(lambda x: x.subjects,),
+                                 levels=(1,))
+
+        n = len(tvx_ehr_lead.subject_ids)
+        splits = tvx_ehr_lead.subject_ids[:n//2], tvx_ehr_lead.subject_ids[n//2:]
+        for split in splits:
+            lazy_loaded = lazy_loaded.fetch_subjects(split)
+            for subject_id in split:
+                assert lazy_loaded.subjects[subject_id].equals(tvx_ehr_lead.subjects[subject_id])
+
+
+
 
 class TestExcludeShortAdmissions:
     @pytest.fixture(scope='class')
-    def tvx_ehr_concept(self, large_ehr: TVxEHR):
-        large_ehr = eqx.tree_at(lambda x: x.config.interventions, large_ehr, False)
-        large_ehr = eqx.tree_at(lambda x: x.config.observables, large_ehr, False)
-        large_ehr = eqx.tree_at(lambda x: x.config.admission_minimum_los, large_ehr, MAX_STAY_DAYS * 24 / 2,
-                                is_leaf=lambda x: x is None)
-        return large_ehr._execute_pipeline([TVxConcepts()], DATASET_SCHEME_MANAGER)
+    def tvx_ehr_concept(self, tvx_ehr: TVxEHR):
+        tvx_ehr = eqx.tree_at(lambda x: x.config.interventions, tvx_ehr, False)
+        tvx_ehr = eqx.tree_at(lambda x: x.config.observables, tvx_ehr, False)
+        tvx_ehr = eqx.tree_at(lambda x: x.config.admission_minimum_los, tvx_ehr, MAX_STAY_DAYS * 24 / 2,
+                              is_leaf=lambda x: x is None)
+        return tvx_ehr._execute_pipeline([TVxConcepts()], DATASET_SCHEME_MANAGER)
 
     @pytest.fixture(scope='class')
     def tvx_ehr_filtered(self, tvx_ehr_concept: TVxEHR) -> TVxEHR:

@@ -59,3 +59,20 @@ class FrozenDict1N(AbstractFrozenDict[str, set[V]]):
     @classmethod
     def from_dataframe(cls, df: pd.DataFrame) -> Self:
         return cls(df.groupby('key')['value'].apply(set).to_dict())
+
+
+class FrozenDict1NM(AbstractFrozenDict[str, AbstractFrozenDict[str, float]]):
+    data: MappingProxyType[str, AbstractFrozenDict[str, float]]
+
+    def __init__(self, data: Mapping[K, Mapping[str, float]]):
+        super().__init__({k: MappingProxyType(v) for k, v in data.items()})
+
+    def to_dataframe(self) -> pd.DataFrame:
+        return pd.DataFrame([(k1, k2, v) for k1, kv in self.data.items() for k2, v in kv.items()],
+                            columns=['key1', 'key2', 'value']).sort_values(['key1', 'key2', 'value']).reset_index(
+            drop=True)
+
+    @classmethod
+    def from_dataframe(cls, df: pd.DataFrame) -> Self:
+        return cls({k1: MappingProxyType({k2: v['v'].iloc[0].item() for k2, v in df2.groupby('k2')})  # type: ignore
+                    for k1, df2 in df.groupby('k1')})
