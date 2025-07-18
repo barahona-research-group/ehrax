@@ -10,9 +10,8 @@ import tables as tb
 from ehrax.coding_scheme import CodingScheme
 from ehrax.dataset import SplitLiteral, TableConfig, DatasetTables, DatasetSchemeProxy, \
     Dataset, AbstractDatasetPipeline
-from ehrax.example_datasets.mimiciv_transformations import ICUInputRateUnitConversion
 from ehrax.transformations import SetIndex, SynchronizeSubjects, CastTimestamps, SetAdmissionRelativeTimes, \
-    DatasetTransformation
+    DatasetTransformation, ICUInputRateUnitConversion
 from test.common_setup import DATASET_SCHEME_MANAGER, DATASET_TABLES_CONF, DATASET_SCHEME_CONF
 
 
@@ -269,6 +268,9 @@ class TestDatasetWithRecords(AbstractTestDataset):
                                   split_proportions: list[float],
                                   balance: str,
                                   split_measure: Callable[[list[str]], float]):
+        if len(subject_ids) < 5:
+            raise pytest.skip("Not enough subjects to test random split")
+
         # # test proportionality
         # NOTE: no specified behaviour when splits have equal proportions, so comparing argsorts
         # is not appropriate.

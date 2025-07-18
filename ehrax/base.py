@@ -91,11 +91,13 @@ class HDFVirtualNode(AbstractHDFSerializable):
     filename: str
     parent_path: str
     type_enum: str
+    key: str
 
-    def __init__(self, filename: str, parent_path: str, type_enum: str) -> None:
+    def __init__(self, filename: str, parent_path: str, type_enum: str, key: str = '') -> None:
         self.filename = filename
         self.parent_path = parent_path
         self.type_enum = type_enum
+        self.key = key
 
     def __check_init__(self):
         for field in dataclasses.fields(self):
@@ -413,6 +415,15 @@ SERIES_GROUPED_ELEMENT = (SERIALIZABLE_FIELD.float, SERIALIZABLE_FIELD.integer, 
 SERIES_GROUPED_ELEMENT_TYPES = sum((e.value for e in SERIES_GROUPED_ELEMENT), ())
 
 
+class _MyCustomList(list):
+    # a custom list used to deal with replacing sets with list, since sets are not considered a pytree
+    # like lists/dicts/tuples, so we replace all sets with this type of list, so we can reverse the operation
+    # (i.e. map back to a set) by identifying this type in the pytree. See `fetch_all` for more details.
+
+    pass
+jtu.register_pytree_node(_MyCustomList, lambda x: (list(x),None)  , lambda _, x: _MyCustomList(x))
+
+
 class AbstractVxData(AbstractHDFSerializable, eqx.Module):
     """
     AbstractVxData class represents vectorized data object, which inherits from eqx.AbstractVxData.
@@ -470,6 +481,8 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
     def object_type_enum_name(cls, obj: Any) -> str:
         if type(obj) in _TYPE_ENUM_DICT:
             return _TYPE_ENUM_DICT[type(obj)]
+        if type(obj) is _MyCustomList:
+            return _TYPE_ENUM_DICT[type(list())]
         elif isinstance(obj,
                         SERIALIZABLE_FIELD.hdf_serializable.value):  ## Potentially a subclass of AbstractHDFSerializable
             return SERIALIZABLE_FIELD.hdf_serializable.name
@@ -502,8 +515,11 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
                     if not a.equals(b): return False
                 case SERIALIZABLE_FIELD.config | SERIALIZABLE_FIELD.hdf_serializable:
                     if not a.equals(b): return False
+
                 case SERIALIZABLE_FIELD.homogeneous_list | SERIALIZABLE_FIELD.homogeneous_tuple | SERIALIZABLE_FIELD.homogeneous_set:
                     if len(a) != len(b): return False
+                    if isinstance(a, set):  # order is not guaranteed!.
+                        a, b = sorted(a, key=hash), sorted(b, key=hash)
                     for a_item, b_item in zip(a, b):
                         if not _equal_attributes(a_item, b_item): return False
                 case SERIALIZABLE_FIELD.homogeneous_dict | SERIALIZABLE_FIELD.homogeneous_mapping_proxy:
@@ -558,7 +574,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
         defer_next = tuple(d[1:] for d in defer if len(d) > 1 and d[0] == attribute)
 
         if defer_current or levels == 0:
-            return HDFVirtualNode(hd_file.filename, parent_group._v_pathname, attr_type_enum_name)
+            return HDFVirtualNode(hd_file.filename, parent_group._v_pathname, attr_type_enum_name, key=attribute)
 
         next_level = levels - 1 if levels is not None else None
 
@@ -697,7 +713,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
              levels: Optional[tuple[int]] = None) -> Self:
         if not isinstance(hf5_filename_or_group, tb.Group):
             with tb.open_file(str(Path(hf5_filename_or_group).with_suffix('.h5')), 'r') as hf5_file:
-                return cls.load(hf5_file.root, defer)
+                return cls.load(hf5_file.root, defer, levels=levels)
 
         defer_paths = tuple(map(tuple, map(path_from_getter, defer)))
         loaded = cls.from_hdf_group(hf5_filename_or_group, defer_paths)
@@ -782,6 +798,15 @@ def fetch_one_level_at(where: HDFVirtualNodeGet | tuple[HDFVirtualNodeGet, ...],
 
 
 def fetch_all(tree: AbstractVxData) -> AbstractVxData:
+    # Note 1:
+    # Preprocessing to catch any set in the pytree. JAX pytree does not
+    # navigate into sets as it does with list/dicts/tuples.
+    # We will transform any such set into a list, then we return them to sets after fetching.
+    # Maybe an alternative is to enforce a design where lazy loading is not allowed with sets involved.
+
+    is_set = jtu.tree_map(lambda a: isinstance(a, set), tree)
+    tree = jtu.tree_map(lambda a, isset: _MyCustomList(a) if isset else a, tree, is_set)
+
     _is_vnode = lambda x: isinstance(x, HDFVirtualNode)
     _is_leaf = lambda x: isinstance(x, HDFVirtualNode)
 
@@ -799,7 +824,7 @@ def fetch_all(tree: AbstractVxData) -> AbstractVxData:
         f"Filenames of virtual nodes {tuple(vn.filename for (_, vn) in leaves_with_path)} do not match.")
     v_nodes_paths = [path_from_jax_keypath(p) for (p, _) in leaves_with_path]
     parents_paths = [vn._v_parent_path_seq for (_, vn) in leaves_with_path]
-    attrs = [p[-1] for p in v_nodes_paths]
+    attrs = [vn.key for (_, vn) in leaves_with_path]
     assert all(map(_match_child_parent_paths, v_nodes_paths, parents_paths)), (
         f"Incompatible parent path and v_node path and parent path.")
     with tb.open_file(filename, mode='r') as hf5_file:
@@ -812,5 +837,9 @@ def fetch_all(tree: AbstractVxData) -> AbstractVxData:
             fetched_nodes.append(fetched)
 
         with_v_nodes = jtu.tree_unflatten(struct, fetched_nodes)
-        return eqx.combine(without_v_nodes, with_v_nodes, is_leaf=_is_leaf)
+        tree = eqx.combine(without_v_nodes, with_v_nodes, is_leaf=_is_leaf)
+        # return all transformed sets to lists back to sets (read Note 1 above).
+        return jtu.tree_map(lambda a: set(a) if isinstance(a, _MyCustomList) else a, tree,
+                            is_leaf=lambda a: isinstance(a, _MyCustomList))
+
     assert 0, "Unreachable."

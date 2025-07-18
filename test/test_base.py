@@ -2,11 +2,13 @@ from types import MappingProxyType
 from typing import Any, Callable
 
 import equinox as eqx
+import jax.tree_util as jtu
 import numpy as np
 import pandas as pd
 import pytest
 import tables as tb
 
+from base import SERIES_GROUPED_ELEMENT_TYPES
 from ehrax.base import AbstractModule, _factory_registry, AbstractConfig, AbstractWithDataframeEquivalent, \
     AbstractWithSeriesEquivalent, AbstractVxData, HDFVirtualNode, fetch_at, fetch_all, fetch_one_level_at
 
@@ -364,14 +366,14 @@ COMPLETE_VX_DATA = VxData(a={'a': 1, 'b': VxData(None, 1, 'x')},
                           b={'c': VxData(2.0, VxData(np.arange(100), pd.Timestamp(4), [pd.Series(np.arange(4))]),
                                          {34: 'x'}),
                              'd': VxData(None, pd.Timestamp(10), [Config(Config(6, None), False)])},
-                          c={pd.Timestamp(0), pd.Timestamp(100)})
+                          c={pd.Timestamp(0), pd.Timestamp(100), 'yyy'})
 
 GETTER_NODE_PAIR = (
     # a pair of getter lambda, and the expected node from `complete_vx_data` to be returned.
     (lambda x: x.a, dict(a=1, b=VxData(None, 1, 'x'))),
     (lambda x: x.b['c'].b, VxData(np.arange(100), pd.Timestamp(4), [pd.Series(np.arange(4))])),
     (lambda x: x.b['d'], VxData(None, pd.Timestamp(10), [Config(Config(6, None), False)])),
-    (lambda x: x.c, {pd.Timestamp(0), pd.Timestamp(100)}),
+    (lambda x: x.c, {pd.Timestamp(0), pd.Timestamp(100), 'yyy'}),
 )
 
 
@@ -403,7 +405,8 @@ class TestLazyLoading:
     def hdf_serialized_vxdata(self, complete_vx_data: VxData, tmp_path_factory) -> str:
         filename = tmp_path_factory.mktemp('vxdata').joinpath('vxdata.h5')
         complete_vx_data.save(filename, complevel=0)
-        assert complete_vx_data.equals(VxData.load(filename))
+        loaded = VxData.load(filename)
+        assert complete_vx_data.equals(loaded)
         return str(filename)
 
     @pytest.fixture
@@ -476,12 +479,27 @@ class TestLazyLoading:
                        complete_vx_data: VxData):
         self._aux_test_fetch(hdf_deserialized_fetched_all_vxdata, getter_node_pair, complete_vx_data)
 
-    def test_fetch_one_level_at(self, hdf_deserialized_one_level_fetched_at_vxdata: VxData,
+    def test_fetch_one_level_at(self, complete_vx_data:VxData, hdf_deserialized_one_level_fetched_at_vxdata: VxData,
                                 getter_node_pair: tuple[Callable[[VxData], Any], Any]):
         getter, node = getter_node_pair
         # Type is equal but contents are not
         assert type(getter(hdf_deserialized_one_level_fetched_at_vxdata)) is type(node)
         assert not _cmp(getter(hdf_deserialized_one_level_fetched_at_vxdata), node)
+        # Children themselves must be virtual nodes.
+
+        # if the virtual node represents a collection containing plain types, then it will be loaded!
+        get_immediate_leaves = (lambda x: eqx.tree_flatten_one_level(x)[0]) if type(node) is not set else (lambda x: list(x))
+        if set(map(type, get_immediate_leaves(node))).issubset(SERIES_GROUPED_ELEMENT_TYPES):
+            assert all(isinstance(child, HDFVirtualNode) for child in
+                       get_immediate_leaves(getter(hdf_deserialized_one_level_fetched_at_vxdata)))
+            assert hdf_deserialized_one_level_fetched_at_vxdata.equals(complete_vx_data)
+        else:
+            assert not hdf_deserialized_one_level_fetched_at_vxdata.equals(complete_vx_data)
+
+    def test_fetch_all_after_fetch_one_level_at(self, complete_vx_data: VxData, hdf_deserialized_one_level_fetched_at_vxdata: VxData):
+        all_fetched = fetch_all(hdf_deserialized_one_level_fetched_at_vxdata)
+        assert all_fetched.equals(complete_vx_data)
+
 
     def test_fetch_at2(self, hdf_deserialized_fetched_at_vxdata2: VxData,
                        hdf_deserialized_fetched_all_vxdata2: VxData,

@@ -7,7 +7,7 @@ import equinox as eqx
 import numpy as np
 import pandas as pd
 
-from .coding_scheme import CodingSchemesManager
+from .coding_scheme import CodingSchemesManager, CodingSchemeWithUOM
 from .dataset import (Dataset, AbstractTransformation, Report, SECONDS_TO_HOURS_SCALER)
 
 
@@ -478,7 +478,8 @@ class ICUInputRateUnitConversion(DatasetTransformation):
         c_normalization_factor = table_config.derived_unit_normalization_factor
         icu_inputs = dataset.tables.icu_inputs
 
-        uom_scheme = dataset.scheme_proxy(schemes_context).icu_inputs_uom_normalizer
+        scheme = dataset.scheme_proxy(schemes_context).icu_inputs
+        assert isinstance(scheme, CodingSchemeWithUOM), (f"Expected CodingSchemeWithUOM but got {type(scheme)}")
         _derived_columns = [c_normalized_amount, c_normalized_amount_per_hour, c_universal_unit, c_normalization_factor]
 
         assert (c in icu_inputs.columns for c in [c_code, c_amount, c_amount_unit]), \
@@ -486,10 +487,10 @@ class ICUInputRateUnitConversion(DatasetTransformation):
         assert all(c not in icu_inputs.columns for c in _derived_columns), \
             f"Some of these columns [{', '.join(_derived_columns)}] already exists in icu_inputs table"
         df = icu_inputs.iloc[:, :]
-        df[c_universal_unit] = df[c_code].map(uom_scheme.universal_unit)
-        scalers = uom_scheme.uom_normalization_factor
-        normalizer = lambda x: scalers[x[c_code]][x[c_amount_unit]]
-        df[c_normalization_factor] = df[[c_code, c_amount_unit]].apply(normalizer, axis=1)
+        df[c_universal_unit] = df[c_code].map(lambda c: scheme.universal_unit[c])
+        df[c_normalization_factor] = [scheme.uom_normalization_factor[code][unit] for code, unit in
+                                      zip(df[c_code], df[c_amount_unit])]
+
         delta_hours = ((df[c_end_time] - df[c_start_time]).dt.total_seconds() * SECONDS_TO_HOURS_SCALER)
         df[c_normalized_amount] = df[c_amount] * df[c_normalization_factor]
         df[c_normalized_amount_per_hour] = df[c_normalized_amount] / delta_hours

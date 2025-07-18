@@ -12,7 +12,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax._src.tree_util import KeyEntry, GetAttrKey, SequenceKey, DictKey
+from jax._src.tree_util import KeyEntry, GetAttrKey, SequenceKey, DictKey, FlattenedIndexKey
 from jax.tree_util import tree_flatten, tree_map, tree_leaves
 from tqdm import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
@@ -296,6 +296,8 @@ def path_from_jax_keypath(path: tuple[KeyEntry, ...]) -> list[str]:
             case SequenceKey(idx):
                 return str(idx)
             case DictKey(key):
+                return str(key)
+            case FlattenedIndexKey(key):
                 return str(key)
             case _:
                 raise ValueError(f"Unexpected key {entry}")

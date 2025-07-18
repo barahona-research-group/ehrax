@@ -10,10 +10,30 @@ import pytest
 from ehrax.base import AbstractConfig
 from ehrax.dataset import ReportAttributes, Report, Dataset
 from ehrax.transformations import (DatasetTransformation, FilterUnsupportedCodes, SetAdmissionRelativeTimes,
-                                     ProcessOverlappingAdmissions,
-                                     FilterClampTimestampsToAdmissionInterval, FilterSubjectsNegativeAdmissionLengths,
-                                     CastTimestamps)
+                                   ProcessOverlappingAdmissions,
+                                   FilterClampTimestampsToAdmissionInterval, FilterSubjectsNegativeAdmissionLengths,
+                                   CastTimestamps, SetIndex)
 from test.common_setup import ALIAS, DATASET_SCHEME_MANAGER
+
+
+@pytest.fixture(scope='module')
+def indexed_dataset(large_dataset: Dataset) -> Dataset:
+    return large_dataset._execute_pipeline([SetIndex()], DATASET_SCHEME_MANAGER)
+
+
+@pytest.fixture(scope='module')
+def sample_subject_id(indexed_dataset: Dataset) -> str:
+    return random.choice(indexed_dataset.tables.static.index)
+
+
+@pytest.fixture(scope='module')
+def sample_admission_id(indexed_dataset: Dataset) -> str:
+    # Get an admission id that exists in all tables.
+    candidates = set(indexed_dataset.tables.admissions.index)
+    for _, table in indexed_dataset.tables.tables_dict.items():
+        if ALIAS['admission_id'] in table.columns:
+            candidates &= set(table[ALIAS['admission_id']].values)
+    return random.choice(list(candidates))
 
 
 class TestDatasetTransformation:
@@ -39,16 +59,16 @@ class TestDatasetTransformation:
         return removed_no_admission_subjects_RESULTS[1]
 
     @pytest.fixture(scope='class')
-    def removed_subject_dataset_unsync(self, has_admissions_dataset: Dataset, sample_subject_id: str):
-        static = has_admissions_dataset.tables.static
+    def removed_subject_dataset_unsync(self, indexed_dataset: Dataset, sample_subject_id: str):
+        static = indexed_dataset.tables.static
         static = static.drop(index=sample_subject_id)
-        return eqx.tree_at(lambda x: x.tables.static, has_admissions_dataset, static)
+        return eqx.tree_at(lambda x: x.tables.static, indexed_dataset, static)
 
     @pytest.fixture(scope='class')
-    def removed_admission_dataset_unsync(self, has_admissions_dataset: Dataset, sample_admission_id: str):
-        admissions = has_admissions_dataset.tables.admissions
+    def removed_admission_dataset_unsync(self, indexed_dataset: Dataset, sample_admission_id: str):
+        admissions = indexed_dataset.tables.admissions
         admissions = admissions.drop(index=sample_admission_id)
-        return eqx.tree_at(lambda x: x.tables.admissions, has_admissions_dataset, admissions)
+        return eqx.tree_at(lambda x: x.tables.admissions, indexed_dataset, admissions)
 
     @pytest.fixture(scope='class')
     def removed_subject_dataset_sync_RESULTS(self, removed_subject_dataset_unsync):
@@ -80,22 +100,22 @@ class TestDatasetTransformation:
         assert sample_subject_id not in removed_no_admission_subjects.tables.static
 
     def test_synchronize_index_subjects(self,
-                                        has_admissions_dataset: Dataset,
+                                        indexed_dataset: Dataset,
                                         removed_subject_dataset_unsync: Dataset,
                                         removed_subject_dataset_sync: Dataset,
                                         sample_subject_id: str):
-        assert sample_subject_id in has_admissions_dataset.tables.admissions[ALIAS['subject_id']].values
+        assert sample_subject_id in indexed_dataset.tables.admissions[ALIAS['subject_id']].values
         assert sample_subject_id in removed_subject_dataset_unsync.tables.admissions[ALIAS['subject_id']].values
         assert sample_subject_id not in removed_subject_dataset_sync.tables.admissions[ALIAS['subject_id']].values
         assert set(removed_subject_dataset_sync.tables.static.index) == set(
             removed_subject_dataset_sync.tables.admissions[ALIAS['subject_id']])
 
-    def test_synchronize_index_admissions(self, has_admissions_dataset: Dataset,
+    def test_synchronize_index_admissions(self,
                                           removed_admission_dataset_unsync: Dataset,
                                           removed_admission_dataset_sync: Dataset,
                                           sample_admission_id: str):
         for table_name, table in removed_admission_dataset_unsync.tables.tables_dict.items():
-            if table is not None and ALIAS['admission_id'] in table.columns and len(table) > 0:
+            if ALIAS['admission_id'] in table.columns:
                 assert sample_admission_id in table[ALIAS['admission_id']].values
                 synced_table = getattr(removed_admission_dataset_sync.tables, table_name)
                 assert sample_admission_id not in synced_table[ALIAS['admission_id']].values
@@ -139,15 +159,15 @@ class TestCastTimestamps:
 
 class TestFilterUnsupportedCodes:
     @pytest.fixture(scope='class')
-    def dataset_with_unsupported_codes(self, has_codes_dataset: Dataset) -> tuple[Dataset, dict[str, set[str]]]:
+    def dataset_with_unsupported_codes(self, indexed_dataset: Dataset) -> tuple[Dataset, dict[str, set[str]]]:
         unsupported_codes = {}
-        for table_name, code_col in has_codes_dataset.config.tables.code_column.items():
-            table = has_codes_dataset.tables.tables_dict[table_name]
+        for table_name, code_col in indexed_dataset.config.tables.code_column.items():
+            table = indexed_dataset.tables.tables_dict[table_name]
             unsupported_code = f'UNSUPPORTED_CODE_{"".join(random.choices(string.ascii_uppercase, k=5))}'
             table.loc[table.index[0], code_col] = unsupported_code
             unsupported_codes[table_name] = unsupported_code
-            has_codes_dataset = eqx.tree_at(lambda x: getattr(x.tables, table_name), has_codes_dataset, table)
-        return has_codes_dataset, unsupported_codes
+            indexed_dataset = eqx.tree_at(lambda x: getattr(x.tables, table_name), indexed_dataset, table)
+        return indexed_dataset, unsupported_codes
 
     @pytest.fixture(scope='class')
     def filtered_dataset(self, dataset_with_unsupported_codes: tuple[Dataset, dict[str, set[str]]]) -> Dataset:
@@ -165,21 +185,21 @@ class TestFilterUnsupportedCodes:
 class TestSetRelativeTimes:
 
     @pytest.fixture(scope='class')
-    def relative_times_dataset(self, has_obs_dataset: Dataset):
-        return SetAdmissionRelativeTimes.apply(has_obs_dataset, DATASET_SCHEME_MANAGER, Report())[0]
+    def relative_times_dataset(self, indexed_dataset: Dataset):
+        return SetAdmissionRelativeTimes.apply(indexed_dataset, DATASET_SCHEME_MANAGER, Report())[0]
 
     @pytest.fixture(scope='class')
-    def admission_los_table(self, has_obs_dataset: Dataset):
-        admissions = has_obs_dataset.tables.admissions.copy()
+    def admission_los_table(self, indexed_dataset: Dataset):
+        admissions = indexed_dataset.tables.admissions.copy()
         admissions['los_hours'] = (admissions[ALIAS['discharge_time']] - admissions[
             ALIAS['admission_time']]).dt.total_seconds() / (60 * 60)
         return admissions[['los_hours']]
 
-    def test_set_relative_times(self, has_obs_dataset: Dataset,
+    def test_set_relative_times(self, indexed_dataset: Dataset,
                                 relative_times_dataset: Dataset,
                                 admission_los_table: pd.DataFrame):
 
-        for table_name, time_cols in has_obs_dataset.config.tables.time_cols.items():
+        for table_name, time_cols in indexed_dataset.config.tables.time_cols.items():
             if table_name in ('admissions', 'static'):
                 continue
             table = getattr(relative_times_dataset.tables, table_name)
@@ -194,36 +214,41 @@ class TestSetRelativeTimes:
 
 class TestFilterSubjectsWithNegativeAdmissionInterval:
     @pytest.fixture(scope='class')
-    def dataset_with_negative_admission(self, has_admissions_dataset: Dataset,
-                                        sample_admission_id: str) -> Dataset:
-        admissions = has_admissions_dataset.tables.admissions.copy()
-        c_admittime = has_admissions_dataset.config.tables.admissions.admission_time_alias
-        c_dischtime = has_admissions_dataset.config.tables.admissions.discharge_time_alias
+    def dataset(self, indexed_dataset: Dataset) -> Dataset:
+        return FilterSubjectsNegativeAdmissionLengths.apply(indexed_dataset, DATASET_SCHEME_MANAGER,
+                                                            Report())[0]
+
+    @pytest.fixture(scope='class')
+    def dataset_inverted_admission(self, dataset: Dataset,
+                                   sample_admission_id: str) -> Dataset:
+        admissions = dataset.tables.admissions.copy()
+        c_admittime = dataset.config.tables.admissions.admission_time_alias
+        c_dischtime = dataset.config.tables.admissions.discharge_time_alias
         admittime = admissions.loc[sample_admission_id, c_admittime]
         dischtime = admissions.loc[sample_admission_id, c_dischtime]
         admissions.loc[sample_admission_id, c_admittime] = dischtime
         admissions.loc[sample_admission_id, c_dischtime] = admittime
-        return eqx.tree_at(lambda x: x.tables.admissions, has_admissions_dataset, admissions)
+        return eqx.tree_at(lambda x: x.tables.admissions, dataset, admissions)
 
     @pytest.fixture(scope='class')
-    def filtered_dataset(self, dataset_with_negative_admission: Dataset):
-        return FilterSubjectsNegativeAdmissionLengths.apply(dataset_with_negative_admission, DATASET_SCHEME_MANAGER,
+    def filtered_dataset(self, dataset_inverted_admission: Dataset):
+        return FilterSubjectsNegativeAdmissionLengths.apply(dataset_inverted_admission, DATASET_SCHEME_MANAGER,
                                                             Report())[0]
 
-    def test_filter_subjects_negative_admission_length(self, dataset_with_negative_admission: Dataset,
-                                                       filtered_dataset: Dataset):
-        admissions0 = dataset_with_negative_admission.tables.admissions
-        static0 = dataset_with_negative_admission.tables.static
+    def test_filter_subjects_negative_admission_length(self, dataset_inverted_admission: Dataset,
+                                                       filtered_dataset: Dataset, sample_admission_id: str):
+        admissions0 = dataset_inverted_admission.tables.admissions
+        static0 = dataset_inverted_admission.tables.static
         admissions1 = filtered_dataset.tables.admissions
         static1 = filtered_dataset.tables.static
 
         assert admissions0.shape[0] > admissions1.shape[0]
         assert static0.shape[0] == static1.shape[0] + 1
-        assert admissions0.loc[admissions0.index[0], ALIAS['admission_time']] > admissions0.loc[
-            admissions0.index[0], ALIAS['discharge_time']]
+        assert admissions0.loc[sample_admission_id, ALIAS['admission_time']] > admissions0.loc[sample_admission_id, ALIAS['discharge_time']]
         assert any(admissions0[ALIAS['admission_time']] > admissions0[ALIAS['discharge_time']])
         assert all(admissions1[ALIAS['admission_time']] <= admissions1[ALIAS['discharge_time']])
-        assert admissions0.index[0] not in admissions1.index
+        assert sample_admission_id in admissions0.index
+        assert sample_admission_id not in admissions1.index
 
 
 class TestOverlappingAdmissions:
@@ -300,18 +325,12 @@ class TestOverlappingAdmissions:
             sup2sub[sup].append(sub)
         return sup2sub
 
-    @pytest.fixture(scope='class')
-    def large_admissions_dataset(self, has_admissions_dataset: Dataset):
-        if len(has_admissions_dataset.tables.admissions) < 10:
-            raise pytest.skip("Not enough admissions for the test in dataset.")
-        return has_admissions_dataset
-
     def test_overlapping_cases(self, superset_admissions_dictionary, expected_out):
         assert superset_admissions_dictionary == expected_out
 
     @pytest.fixture(scope='class')
-    def sample_admission_ids_map(self, large_admissions_dataset: Dataset):
-        index = large_admissions_dataset.tables.admissions.index
+    def sample_admission_ids_map(self, indexed_dataset: Dataset):
+        index = indexed_dataset.tables.admissions.index
         return {
             index[1]: index[0],
             index[2]: index[0],
@@ -321,20 +340,20 @@ class TestOverlappingAdmissions:
         }
 
     @pytest.fixture(scope='class')
-    def merged_admissions_dataset(self, large_admissions_dataset: Dataset, sample_admission_ids_map: dict[str, str]):
-        return ProcessOverlappingAdmissions._merge_overlapping_admissions(large_admissions_dataset,
+    def merged_admissions_dataset(self, indexed_dataset: Dataset, sample_admission_ids_map: dict[str, str]):
+        return ProcessOverlappingAdmissions._merge_overlapping_admissions(indexed_dataset,
                                                                           sample_admission_ids_map, Report())[0]
 
-    def test_map_admission_ids(self, large_admissions_dataset: Dataset,
+    def test_map_admission_ids(self, indexed_dataset: Dataset,
                                merged_admissions_dataset: Dataset,
                                sample_admission_ids_map: dict[str, str]):
-        admissions0 = large_admissions_dataset.tables.admissions
+        admissions0 = indexed_dataset.tables.admissions
         admissions1 = merged_admissions_dataset.tables.admissions
 
         assert len(admissions0) == len(admissions1) + len(sample_admission_ids_map)
         assert set(admissions1.index).issubset(set(admissions0.index))
         for table_name, table1 in merged_admissions_dataset.tables.tables_dict.items():
-            table0 = getattr(large_admissions_dataset.tables, table_name)
+            table0 = getattr(indexed_dataset.tables, table_name)
             if ALIAS['admission_id'] in table1.columns:
                 assert len(table1) == len(table0)
                 assert set(table1[ALIAS['admission_id']]) - set(admissions1.index.values) == set()
@@ -342,8 +361,8 @@ class TestOverlappingAdmissions:
                 assert set(table1[ALIAS['admission_id']]) - set(table0[ALIAS['admission_id']]) == set()
 
     @pytest.fixture(scope='class')
-    def large_dataset_overlaps_dictionary(self, large_admissions_dataset: Dataset):
-        admissions = large_admissions_dataset.tables.admissions
+    def large_dataset_overlaps_dictionary(self, indexed_dataset: Dataset):
+        admissions = indexed_dataset.tables.admissions
 
         sub2sup = {adm_id: super_adm_id for _, subject_adms in admissions.groupby(ALIAS['subject_id'])
                    for adm_id, super_adm_id in ProcessOverlappingAdmissions._collect_overlaps(subject_adms,
@@ -352,28 +371,28 @@ class TestOverlappingAdmissions:
                                                                                                   'discharge_time']).items()}
 
         if len(sub2sup) == 0:
-            raise pytest.skip("No overlapping admissions in dataset.")
+            assert 0, ("No overlapping admissions in dataset.")
 
         return sub2sup
 
     @pytest.fixture(scope='class')
-    def merged_overlapping_admission_dataset(self, large_admissions_dataset: Dataset):
-        large_admissions_dataset = eqx.tree_at(lambda x: x.config.overlapping_admissions, large_admissions_dataset,
-                                               "merge")
-        return ProcessOverlappingAdmissions.apply(large_admissions_dataset, DATASET_SCHEME_MANAGER, Report())[0]
+    def merged_overlapping_admission_dataset(self, indexed_dataset: Dataset):
+        indexed_dataset = eqx.tree_at(lambda x: x.config.overlapping_admissions, indexed_dataset,
+                                      "merge")
+        return ProcessOverlappingAdmissions.apply(indexed_dataset, DATASET_SCHEME_MANAGER, Report())[0]
 
     @pytest.fixture(scope='class')
-    def removed_overlapping_admission_subjects_dataset(self, large_admissions_dataset: Dataset):
-        large_admissions_dataset = eqx.tree_at(lambda x: x.config.overlapping_admissions, large_admissions_dataset,
-                                               "remove")
-        return ProcessOverlappingAdmissions.apply(large_admissions_dataset, DATASET_SCHEME_MANAGER, Report())[0]
+    def removed_overlapping_admission_subjects_dataset(self, indexed_dataset: Dataset):
+        indexed_dataset = eqx.tree_at(lambda x: x.config.overlapping_admissions, indexed_dataset,
+                                      "remove")
+        return ProcessOverlappingAdmissions.apply(indexed_dataset, DATASET_SCHEME_MANAGER, Report())[0]
 
-    def test_process_overlapping_admissions(self, large_admissions_dataset: Dataset,
+    def test_process_overlapping_admissions(self, indexed_dataset: Dataset,
                                             large_dataset_overlaps_dictionary: dict[str, str],
                                             merged_overlapping_admission_dataset: Dataset,
                                             removed_overlapping_admission_subjects_dataset: Dataset):
 
-        admissions0 = large_admissions_dataset.tables.admissions
+        admissions0 = indexed_dataset.tables.admissions
         admissions_m = merged_overlapping_admission_dataset.tables.admissions
         admissions_r = removed_overlapping_admission_subjects_dataset.tables.admissions
 
@@ -382,7 +401,7 @@ class TestOverlappingAdmissions:
         assert len(merged_overlapping_admission_dataset.tables.static) > len(
             removed_overlapping_admission_subjects_dataset.tables.static)
 
-        for table_name, table0 in large_admissions_dataset.tables.tables_dict.items():
+        for table_name, table0 in indexed_dataset.tables.tables_dict.items():
             if table_name in ('static', 'admissions'):
                 continue
             table_m = getattr(merged_overlapping_admission_dataset.tables, table_name)

@@ -5,9 +5,10 @@ import numpy as np
 import pytest
 import tables as tb
 
-from base import HDFVirtualNode
+from ehrax.base import fetch_all
+from ehrax.base import HDFVirtualNode
 from ehrax.coding_scheme import CodesVector
-from ehrax.dataset import Dataset, DatasetTables
+from ehrax.dataset import DatasetTables
 from ehrax.tvx_concepts import SegmentedPatient, Patient, SegmentedAdmission, Admission, InpatientInput, \
     InpatientObservables, DemographicVectorConfig, StaticInfo, \
     InpatientInterventions, SegmentedInpatientInterventions, LeadingObservableExtractorConfig, \
@@ -167,23 +168,23 @@ class TestTrainableTransformer:
         assert processed_ehr.equals(loaded_processed_ehr)
 
 
-# def test_obs_minmax_scaler(int_indexed_dataset: Dataset):
+# def test_obs_minmax_scaler(int_dataset: Dataset):
 #     assert False
 #
 #
-# def test_obs_adaptive_scaler(int_indexed_dataset: Dataset):
+# def test_obs_adaptive_scaler(int_dataset: Dataset):
 #     assert False
 #
 #
-# def test_obs_iqr_outlier_remover(indexed_dataset: Dataset):
+# def test_obs_iqr_outlier_remover(dataset: Dataset):
 #     assert False
 
 
-@pytest.mark.parametrize('splits', [[0.5], [0.2, 0.5, 0.7], [0.1, 0.2, 0.3, 0.4, 0.5]])
-def test_random_splits(indexed_dataset: Dataset, splits: list[float]):
-    # The logic of splits already tested in test.ehr.dataset.test_dataset.
-    # Maybe assert that functions are called with the correct arguments.
-    pass
+# @pytest.mark.parametrize('splits', [[0.5], [0.2, 0.5, 0.7], [0.1, 0.2, 0.3, 0.4, 0.5]])
+# def test_random_splits(dataset: Dataset, splits: list[float]):
+# The logic of splits already tested in test.ehr.dataset.test_dataset.
+# Maybe assert that functions are called with the correct arguments.
+# pass
 
 
 class TestTVxConcepts:
@@ -619,12 +620,14 @@ class TestLeadExtraction:
         return tvx_ehr_lead.load(f'{tmpdir}/tvx_ehr_lead.h5', defer=(getter,),
                                  levels=(1,))
 
-    def test_ehr_lazy_leading(self, tvx_ehr_lazy_loaded: TVxEHR,
+    def test_ehr_lazy_loading(self, tvx_ehr_lead: TVxEHR, tvx_ehr_lazy_loaded: TVxEHR,
                               tvx_ehr_defer_getters: tuple[Callable[[TVxEHR], Any], type]):
         getter, node_type = tvx_ehr_defer_getters
         assert isinstance(getter(tvx_ehr_lazy_loaded), node_type)
         assert all(
-            isinstance(child, HDFVirtualNode) for child in eqx.tree_flatten_one_level(getter(tvx_ehr_lazy_loaded)))
+            isinstance(child, HDFVirtualNode) for child in eqx.tree_flatten_one_level(getter(tvx_ehr_lazy_loaded))[0])
+        loaded = fetch_all(tvx_ehr_lazy_loaded)
+        assert loaded.equals(tvx_ehr_lead)
 
 
 class TestExcludeShortAdmissions:

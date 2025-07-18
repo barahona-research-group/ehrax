@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from .coding_scheme import CodeMap, CodingSchemesManager
-from .dataset import Dataset, TransformationsDependency, AbstractTransformation, AdmissionIntervalBasedCodedTableConfig, \
+from .dataset import Dataset, AbstractTransformation, AdmissionIntervalBasedCodedTableConfig, \
     Report, SplitLiteral
 from .transformations import CastTimestamps, SetIndex, DatasetTransformation
 from .tvx_concepts import StaticInfo, CodesVector, InpatientInput, InpatientInterventions, InpatientObservables, \
@@ -441,25 +441,25 @@ class InputScaler(TrainableTransformation):
                             operation=f'scaled_and_maybe_cast_{scaler.config.use_float16}',
                             before=dtype1, after=dtype2)
         return tvx_ehr, report
-
-
-# TODO: add to the relations an explanation to be shown in the error messages.
-
-TVX_DEPENDS_RELATIONS: Final[dict[type[TVxTransformation], set[type[TVxTransformation]]]] = {
-    RandomSplits: {SetIndex, CastTimestamps},
-    TrainableTransformation: {RandomSplits, SetIndex},
-    ObsAdaptiveScaler: {ObsIQROutlierRemover}
-    # <- inherits also from TrainableTransformation (TODO: test the inheritance of dependencies).
-}
-
-TVX_BLOCKED_BY_RELATIONS: Final[dict[type[TVxTransformation], set[type[TVxTransformation]]]] = {
-    # Any TVX Transformation blocks DS Transformation.
-    DatasetTransformation: {TVxTransformation}
-}
-TVX_PIPELINE_VALIDATOR: Final[TransformationsDependency] = TransformationsDependency({}, {}
-                                                                                     # depends=TVX_DEPENDS_RELATIONS,
-                                                                                     # blocked_by=TVX_BLOCKED_BY_RELATIONS,
-                                                                                     )
+#
+#
+# # TODO: add to the relations an explanation to be shown in the error messages.
+#
+# TVX_DEPENDS_RELATIONS: Final[dict[type[TVxTransformation], set[type[TVxTransformation]]]] = {
+#     RandomSplits: {SetIndex, CastTimestamps},
+#     TrainableTransformation: {RandomSplits, SetIndex},
+#     ObsAdaptiveScaler: {ObsIQROutlierRemover}
+#     # <- inherits also from TrainableTransformation (TODO: test the inheritance of dependencies).
+# }
+#
+# TVX_BLOCKED_BY_RELATIONS: Final[dict[type[TVxTransformation], set[type[TVxTransformation]]]] = {
+#     # Any TVX Transformation blocks DS Transformation.
+#     DatasetTransformation: {TVxTransformation}
+# }
+# TVX_PIPELINE_VALIDATOR: Final[TransformationsDependency] = TransformationsDependency({}, {}
+#                                                                                      # depends=TVX_DEPENDS_RELATIONS,
+#                                                                                      # blocked_by=TVX_BLOCKED_BY_RELATIONS,
+#                                                                                      )
 
 
 class InterventionSegmentation(TVxTransformation):

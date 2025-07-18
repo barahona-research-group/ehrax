@@ -207,6 +207,25 @@ class CodingScheme(AbstractVxData):
             index=index,
         )
 
+    @classmethod
+    def _init_args_from_table(cls, name: str,
+                              table: pd.DataFrame,
+                              c_code: str, c_desc: Optional[str],
+                              code_selection: Optional[pd.DataFrame], **kwargs) -> tuple[
+        str, tuple[str, ...], FrozenDict11]:
+        # TODO: test this method.
+        # drop=False in case we use c_code as c_desc.
+        df = table.astype({c_code: str}).drop_duplicates(c_code).set_index(c_code, drop=False)
+        if code_selection is not None:
+            df = df.loc[code_selection[c_code].drop_duplicates().astype(str).tolist()]
+        return name, tuple(sorted(df.index.tolist())), FrozenDict11(df[(c_desc or c_code)].to_dict())
+
+    @classmethod
+    def from_table(cls, name: str, table: pd.DataFrame, c_code: str, c_desc: Optional[str] = None,
+                   code_selection: Optional[pd.DataFrame] = None, *args, **kwargs) -> Self:
+        return cls(*cls._init_args_from_table(name=name, table=table, c_code=c_code, c_desc=c_desc,
+                                              code_selection=code_selection))
+
 
 class NumericScheme(CodingScheme):
     """
@@ -239,6 +258,45 @@ class NumericScheme(CodingScheme):
         assert set(self.index[c] for c in self.codes) == set(range(len(self))), \
             f"The order of codes ({self.codes}) does not match the order of type hints ({self.type_hint.keys()})."
         return np.array([self.type_hint[code] for code in self.codes])
+
+
+class CodingSchemeWithUOM(CodingScheme):
+    uom_normalization_factor: FrozenDict1NM  # dict[code, dict[unit, conversion_factor]]
+    universal_unit: FrozenDict11
+
+    def __init__(self, name: str, codes: tuple[str, ...],
+                 desc: FrozenDict11, uom_normalization_factor: FrozenDict1NM,
+                 universal_unit: FrozenDict11):
+        super().__init__(name=name, codes=codes, desc=desc)
+        self.uom_normalization_factor = uom_normalization_factor
+        self.universal_unit = universal_unit
+
+    @classmethod
+    def from_table(cls, name: str,
+                   table: pd.DataFrame,
+                   c_code: str,
+                   c_desc: Optional[str] = None,
+                   code_selection: Optional[pd.DataFrame] = None, *,
+                   c_normalization_factor: str,
+                   c_unit: str,
+                   c_universal_unit: Optional[str] = None) -> Self:
+        name, codes, desc = cls._init_args_from_table(name=name, table=table, c_code=c_code, c_desc=c_desc,
+                                                      code_selection=code_selection)
+        # TODO: test this method.
+        df = table.astype({c_code: str, c_normalization_factor: float}).drop_duplicates(c_code).set_index(c_code)
+        df = df[df.index.isin(codes)]
+        assert all(c in df.columns for c in (c_unit, c_normalization_factor)), "Some columns are missing."
+        if c_universal_unit is not None and c_universal_unit in df.columns:
+            uom_universal = df[c_universal_unit].to_dict()
+        else:
+            # Choose one of the units with 1.0 as a normalization factor.
+            uom_universal = df[df[c_normalization_factor] == 1.0][c_unit].to_dict()
+        # Narrow down the codes to those who have at least one universal unit (the target unit to which all units are converted).
+        df = df[df.index.isin(uom_universal.keys())]
+        uom_data = {code: code_df.set_index(c_unit)[c_normalization_factor].to_dict() for code, code_df in
+                    df.groupby(df.index)}
+        return cls(name=name, codes=codes, desc=desc,
+                   uom_normalization_factor=FrozenDict1NM(uom_data), universal_unit=FrozenDict11(uom_universal))
 
 
 class HierarchicalScheme(CodingScheme):
@@ -738,6 +796,23 @@ class CodeMap(AbstractVxData):
             t_code = target_scheme.code2dag[t_code]
         return target_scheme.code_ancestors_bfs(t_code, include_itself=include_itself)
 
+    @classmethod
+    def _init_args_from_table(cls, source_scheme: CodingScheme, target_scheme: CodingScheme,
+                              map_table: pd.DataFrame, c_source_code: str, c_target_code: str, *args, **kwargs) -> \
+            tuple[str, str, FrozenDict1N]:
+        """
+        # TODO: test me.
+        """
+        map_table = map_table[[c_source_code, c_target_code]].astype(str)
+        map_table = map_table[
+            map_table[c_source_code].isin(source_scheme.codes) & map_table[c_target_code].isin(target_scheme.codes)]
+        mapping = map_table.groupby(c_source_code)[c_target_code].apply(set).to_dict()
+        return source_scheme.name, target_scheme.name, FrozenDict1N(mapping)
+
+    @classmethod
+    def from_table(cls, *args, **kwargs):
+        return cls(*cls._kw_init_from_table(*args, **kwargs))
+
 
 AggregationLiteral = Literal['sum', 'or', 'w_sum']
 
@@ -783,6 +858,24 @@ class ReducedCodeMapN1(CodeMap):
                    set_aggregation=set_aggregation,
                    reduced_groups=FrozenDict1N(new_map))
 
+    @classmethod
+    def from_table(cls,
+                   source_scheme: CodingScheme,
+                   target_scheme: CodingScheme,
+                   c_source_code: str,
+                   c_target_code: str,
+                   c_target_agg: str,
+                   table: pd.DataFrame) -> Self:
+        source_name, target_name, map_data = cls._init_args_from_table(source_scheme=source_scheme,
+                                                                       target_scheme=target_scheme,
+                                                                       c_source_code=c_source_code,
+                                                                       c_target_code=c_target_code,
+                                                                       map_table=table)
+        return cls.from_data(source_name=source_name,
+                             target_name=target_name,
+                             map_data=map_data,
+                             set_aggregation=FrozenDict11(table.set_index(c_target_code)[c_target_agg].to_dict()))
+
     def groups(self, source_index: dict[str, int]) -> tuple[tuple[str, ...], ...]:
         target_codes = tuple(sorted(self.reduced_groups.keys()))
         return tuple(tuple(sorted(self.reduced_groups[t], key=lambda c: source_index[c])) for t in target_codes)
@@ -818,24 +911,6 @@ class ReducedCodeMapN1(CodeMap):
                             split=np.array(self.groups_split(source_index), dtype=int),
                             size=np.array(self.groups_size(source_index), dtype=int),
                             aggregation=self.groups_aggregation)
-
-
-class UOMNormalizationScheme(AbstractVxData):
-    name: str
-    base_name: str
-    uom_normalization_factor: FrozenDict1NM  # dict[code, dict[unit, conversion_factor]]
-    universal_unit: FrozenDict11
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}({self.name})"
-
-    def __init__(self, name: str, base_name: str,
-                 uom_normalization_factor: FrozenDict1NM,
-                 universal_unit: FrozenDict11):
-        self.name = name
-        self.base_name = base_name
-        self.uom_normalization_factor = uom_normalization_factor
-        self.universal_unit = universal_unit
 
 
 class OutcomeExtractor(AbstractVxData, metaclass=ABCMeta):
@@ -929,17 +1004,15 @@ class CodingSchemesManager(AbstractVxData):
     schemes: tuple[CodingScheme, ...]
     maps: tuple[CodeMap, ...]
     outcomes: tuple[OutcomeExtractor, ...]
-    uom_normalizers: tuple[UOMNormalizationScheme, ...]
 
     def __init__(self, schemes: tuple[CodingScheme, ...] = (), maps: tuple[CodeMap, ...] = (),
-                 outcomes: tuple[OutcomeExtractor, ...] = (), uom_normalizers: tuple[UOMNormalizationScheme, ...] = ()):
+                 outcomes: tuple[OutcomeExtractor, ...] = ()):
         self.schemes = schemes
         self.maps = maps
         self.outcomes = outcomes
-        self.uom_normalizers = uom_normalizers
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({self.schemes}, {self.maps}, {self.outcomes}, {self.uom_normalizers})"
+        return f"{self.__class__.__name__}({self.schemes}, {self.maps}, {self.outcomes})"
 
     def __len__(self):
         return len(self.schemes) + len(self.maps) + len(self.outcomes)
@@ -949,32 +1022,21 @@ class CodingSchemesManager(AbstractVxData):
         if scheme.name in self.scheme:
             logging.warning(f'Scheme {scheme.name} already exists')
             return self
-        return type(self)(schemes=self.schemes + (scheme,), maps=self.maps, outcomes=self.outcomes,
-                          uom_normalizers=self.uom_normalizers)
+        return type(self)(schemes=self.schemes + (scheme,), maps=self.maps, outcomes=self.outcomes)
 
     def add_map(self, map: CodeMap) -> Self:
         assert isinstance(map, CodeMap), f"{map} is not a CodeMap."
         if (map.source_name, map.target_name) in self.map:
             logging.warning(f'Map {map.source_name}->{map.target_name} already exists')
             return self
-        return type(self)(schemes=self.schemes, maps=self.maps + (map,), outcomes=self.outcomes,
-                          uom_normalizers=self.uom_normalizers)
+        return type(self)(schemes=self.schemes, maps=self.maps + (map,), outcomes=self.outcomes)
 
     def add_outcome(self, outcome: OutcomeExtractor) -> Self:
         assert isinstance(outcome, OutcomeExtractor), f"{outcome} is not an OutcomeExtractor."
         if outcome.name in self.outcome:
             logging.warning(f'Outcome {outcome.name} already exists')
             return self
-        return type(self)(schemes=self.schemes, maps=self.maps, outcomes=self.outcomes + (outcome,),
-                          uom_normalizers=self.uom_normalizers)
-
-    def add_uom_normalizer(self, uom_normalizer: UOMNormalizationScheme) -> Self:
-        assert isinstance(uom_normalizer, UOMNormalizationScheme), f"{uom_normalizer} is not an UOMNormalization."
-        if uom_normalizer.name in self.uom_normalizers:
-            logging.warning(f'UOMNormalizer {uom_normalizer.name} already exists')
-            return self
-        return type(self)(schemes=self.schemes, maps=self.maps, outcomes=self.outcomes,
-                          uom_normalizers=self.uom_normalizers + (uom_normalizer,))
+        return type(self)(schemes=self.schemes, maps=self.maps, outcomes=self.outcomes + (outcome,))
 
     def supported_outcome(self, outcome_name: str, supporting_scheme: str) -> bool:
         return outcome_name in self.outcome and (supporting_scheme, self.outcome[outcome_name].base_name) in self.map
@@ -1016,10 +1078,6 @@ class CodingSchemesManager(AbstractVxData):
     def outcome(self) -> Mapping[str, OutcomeExtractor]:
         return MappingProxyType({o.name: o for o in self.outcomes})
 
-    @cached_property
-    def uom_normalizer(self) -> Mapping[str, UOMNormalizationScheme]:
-        return MappingProxyType({u.name: u for u in self.uom_normalizers})
-
     def register_chained_map(self, s_scheme: str, inter_scheme: str, t_scheme: str) -> Self:
         """
         Registers a chained CodeMap. The source and target coding schemes are chained together if there is an intermediate scheme that can act as a bridge between the two.
@@ -1045,45 +1103,6 @@ class CodingSchemesManager(AbstractVxData):
         new_source_codes = set(s_scheme_object.codes) & set(map1.data.keys())
         data = FrozenDict1N({c: bridge(c) for c in new_source_codes})
         return self.add_map(CodeMap(source_name=s_scheme, target_name=t_scheme, data=data))
-
-    def register_target_scheme(self, source_name: str, target_name: str,
-                               map_table: pd.DataFrame, c_code: str, c_target_code: str,
-                               c_target_desc: str) -> Self:
-        """
-        Register a target scheme and its mapping.
-        # TODO: test me.
-        """
-        target_codes = tuple(sorted(map_table[c_target_code].drop_duplicates().astype(str).tolist()))
-        # drop=False in case c_target_code == c_target_desc.
-        target_desc = map_table.set_index(c_target_code, drop=False)[c_target_desc].to_dict()
-        target_scheme = CodingScheme(name=target_name, codes=target_codes, desc=FrozenDict11(target_desc))
-        updated = self.add_scheme(target_scheme)
-        source_scheme = self.scheme[source_name]
-        map_table = map_table[[c_code, c_target_code]].astype(str)
-        map_table = map_table[
-            map_table[c_code].isin(source_scheme.codes) & map_table[c_target_code].isin(target_scheme.codes)]
-        mapping = map_table.groupby(c_code)[c_target_code].apply(set).to_dict()
-        data = FrozenDict1N(mapping)
-        return updated.add_map(CodeMap(source_name=source_scheme.name, target_name=target_name, data=data))
-
-    def register_scheme_from_selection(self, name: str,
-                                       supported_space: pd.DataFrame,
-                                       code_selection: Optional[pd.DataFrame],
-                                       c_code: str, c_desc: str) -> Self:
-        # TODO: test this method.
-        if code_selection is None:
-            code_selection_list = supported_space[c_code].drop_duplicates().astype(str).tolist()
-        else:
-            code_selection_list = code_selection[c_code].drop_duplicates().astype(str).tolist()
-
-            assert len(set(code_selection_list) - set(supported_space[c_code])) == 0, \
-                "Some item ids are not supported."
-        # drop=False in case c_target_code == c_target_desc.
-        desc: dict[str, str] = supported_space.set_index(c_code, drop=False)[c_desc].to_dict()
-        scheme = CodingScheme(name=name,
-                              codes=tuple(sorted(code_selection_list)),
-                              desc=FrozenDict11({k: v for k, v in desc.items() if k in code_selection_list}))
-        return self.add_scheme(scheme)
 
     def scheme_supported_targets(self, scheme) -> tuple[str, ...]:
         return tuple(t for s, t in self.map.keys() if s == scheme.name)

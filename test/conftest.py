@@ -9,9 +9,8 @@ import tables as tb
 from ehrax.coding_scheme import CodesVector
 from ehrax.dataset import DatasetTables, DatasetConfig, Dataset as AbstractDataset, DatasetSchemeConfig, \
     DatasetSchemeProxy, AbstractDatasetPipeline
-from ehrax.example_datasets.mimiciv_transformations import ICUInputRateUnitConversion
 from ehrax.transformations import SetIndex, CastTimestamps, SynchronizeSubjects, \
-    SetAdmissionRelativeTimes
+    SetAdmissionRelativeTimes, ICUInputRateUnitConversion
 from ehrax.tvx_concepts import SegmentedAdmission, InpatientInterventions, Admission, \
     SegmentedInpatientInterventions, Patient, SegmentedPatient, StaticInfo
 from ehrax.tvx_ehr import TVxEHR, InpatientObservables
@@ -123,19 +122,19 @@ def mimiciv_dataset(dataset_tables_with_records: DatasetTables,
                     unit_converter_table: pd.DataFrame) -> Dataset:
     config = eqx.tree_at(lambda x: x.scheme, DATASET_CONFIG,
                          DatasetSchemeConfig(**DATASET_CONFIG.scheme.scheme_fields()))
-    ds = Datset(tables=dataset_tables_with_records, config=config)
+    ds = Dataset(tables=dataset_tables_with_records, config=config)
     return ds._execute_pipeline([SetIndex(), SynchronizeSubjects(), CastTimestamps(), ICUInputRateUnitConversion(),
                                  SetAdmissionRelativeTimes()], DATASET_SCHEME_MANAGER)
 
 
 @pytest.fixture(scope='session')
 def tvx_ehr(mimiciv_dataset: Dataset) -> TVxEHR:
-    return NaiveEHR(dataset=mimiciv_dataset, config=TVXEHR_CONF)
+    return TVxEHR(dataset=mimiciv_dataset, config=TVXEHR_CONF)
 
 
 @pytest.fixture(scope='session')
 def tvx_ehr_without_records(mimiciv_dataset_without_records: Dataset) -> TVxEHR:
-    return NaiveEHR(dataset=mimiciv_dataset_without_records, config=TVXEHR_CONF)
+    return TVxEHR(dataset=mimiciv_dataset_without_records, config=TVXEHR_CONF)
 
 
 @pytest.fixture

@@ -13,9 +13,8 @@ import equinox as eqx
 import numpy as np
 import pandas as pd
 
-from coding_scheme import UOMNormalizationScheme
 from .base import AbstractConfig, AbstractVxData
-from .coding_scheme import (CodingScheme, NumericalTypeHint, CodingSchemesManager, NumericScheme)
+from .coding_scheme import (CodingScheme, NumericalTypeHint, CodingSchemesManager, NumericScheme, CodingSchemeWithUOM)
 from .utils import tqdm_constructor
 
 SECONDS_TO_HOURS_SCALER: Final[float] = 1 / 3600.0  # convert seconds to hours
@@ -437,23 +436,14 @@ class DatasetSchemeProxy:
         return self._scheme(self.config.hosp_procedures)
 
     @property
-    def icu_inputs(self) -> Optional[CodingScheme]:
+    def icu_inputs(self) -> Optional[CodingSchemeWithUOM]:
         return self._scheme(self.config.icu_inputs)
 
     @property
-    def icu_inputs_uom_normalizer(self) -> Optional[UOMNormalizationScheme]:
-        if self.config.icu_inputs in self.schemes_context.uom_normalizer:
-            return self.schemes_context.uom_normalizer[self.config.icu_inputs]
-        else:
-            return None
-
-    @property
     def scheme_dict(self):
-        uom = self.icu_inputs_uom_normalizer
-        d = {'icu_inputs_uom_normalizer': uom} if uom is not None else {}
         return {
             k: self._scheme(v)
-            for k, v in self.config.scheme_fields().items() if self._scheme(v) is not None} | d
+            for k, v in self.config.scheme_fields().items() if self._scheme(v) is not None}
 
 
 class ReportAttributes(AbstractConfig):
