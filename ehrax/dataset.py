@@ -509,7 +509,8 @@ class Report(AbstractConfig):
         object_columns = [c for c in df.columns if df[c].dtype == 'object']
         type_rows = df['value_type'] == 'dtype'
         type_cols = ['after', 'before']
-        df.loc[:, object_columns] = df.loc[:, object_columns].fillna('-')
+        nan_mask = df.loc[:, object_columns].isnull() | df.loc[:, object_columns].isin((None, 'nan', 'NaN', 'None'))
+        df.loc[:, object_columns] = df.loc[:, object_columns].where(~nan_mask, '-')
         df.loc[type_rows, type_cols] = df.loc[type_rows, type_cols].map(lambda x: f'{x}_type')
         if previous_report is None:
             return PipelineReportTable(df)
