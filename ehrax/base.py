@@ -16,8 +16,7 @@ import pandas as pd
 import tables as tb
 
 from ehrax.utils import tree_hasnan, NumpyEncoder, ArrayTypes, np_module, load_config, write_config, equal_arrays, \
-    path_from_getter
-from utils import path_from_jax_keypath
+    path_from_getter, path_from_jax_keypath
 
 _factory_registry: dict[str, type[eqx.Module]] = {}
 
