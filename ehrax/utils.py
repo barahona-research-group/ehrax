@@ -9,12 +9,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax._src.tree_util import KeyEntry, GetAttrKey, SequenceKey, DictKey, FlattenedIndexKey
-from jaxlib._jax import ArrayImpl
 
 from tqdm import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
 
-ArrayTypes = (np.ndarray, jnp.ndarray, jax.Array, ArrayImpl)
+ArrayTypes = (np.ndarray, jnp.ndarray, jax.Array)
 Array = np.ndarray | jnp.ndarray | jax.Array
 
 

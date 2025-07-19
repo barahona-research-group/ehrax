@@ -8,7 +8,7 @@ import pytest
 import tables as tb
 
 import ehrax as rx
-from test.common_setup import BINARY_OBSERVATION_CODE_INDEX, CATEGORICAL_OBSERVATION_CODE_INDEX, \
+from ehrax.testing.common_setup import BINARY_OBSERVATION_CODE_INDEX, CATEGORICAL_OBSERVATION_CODE_INDEX, \
     NUMERIC_OBSERVATION_CODE_INDEX, ORDINAL_OBSERVATION_CODE_INDEX, \
     inpatient_binary_input, LENGTH_OF_STAY, leading_observables_extractor, SCHEMES
 
