@@ -15,9 +15,9 @@ import numpy as np
 import pandas as pd
 import tables as tbl  # type: ignore
 
-from ehrax.base import AbstractVxData
-from ehrax.freezer import FrozenDict11, FrozenDict1N, FrozenDict1NM
-from ehrax.utils import load_config, tqdm_constructor, Array
+from .base import AbstractVxData
+from .freezer import FrozenDict11, FrozenDict1N, FrozenDict1NM
+from .utils import load_config, tqdm_constructor, Array
 
 NumericalTypeHint = Literal['B', 'N', 'O', 'C']  # Binary, Numerical, Ordinal, Categorical
 

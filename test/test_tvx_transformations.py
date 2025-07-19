@@ -7,7 +7,7 @@ import pytest
 import tables as tb
 
 import ehrax as rx
-from .common_setup import BINARY_OBSERVATION_CODE_INDEX, DATASET_SCHEME_MANAGER, MAX_STAY_DAYS
+from ehrax.testing.common_setup import BINARY_OBSERVATION_CODE_INDEX, DATASET_SCHEME_MANAGER, MAX_STAY_DAYS
 
 
 def test_serialization_multi_subjects(tvx_ehr: rx.TVxEHR, tmpdir: str):

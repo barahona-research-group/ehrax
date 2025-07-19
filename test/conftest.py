@@ -7,7 +7,7 @@ import pytest
 import tables as tb
 
 import ehrax as rx
-from .common_setup import DATASET_SCHEME_CONF, TVXEHR_CONF, _dataset_tables, SCHEMES, \
+from ehrax.testing.common_setup import DATASET_SCHEME_CONF, TVXEHR_CONF, _dataset_tables, SCHEMES, \
     _dx_codes, OUTCOME_EXTRACTOR, \
     DATASET_SCHEME_MANAGER, \
     _singular_codevec, _static_info, _dx_codes_history, _inpatient_observables, _icu_inputs, _proc, _outcome, \

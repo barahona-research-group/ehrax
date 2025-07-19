@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import ehrax as rx
-from .common_setup import ALIAS, DATASET_SCHEME_MANAGER
+from ehrax.testing.common_setup import ALIAS, DATASET_SCHEME_MANAGER
 
 
 @pytest.fixture(scope='module')

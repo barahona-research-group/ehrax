@@ -11,7 +11,6 @@ from ..coding_scheme import (HierarchicalScheme, FrozenDict11, FrozenDict1N)
 from ..utils import tqdm_constructor
 
 
-# from ehrax.utils import tqdm_constructor
 
 
 class SNOMEDCT(HierarchicalScheme):

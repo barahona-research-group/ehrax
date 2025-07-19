@@ -8,7 +8,7 @@ import pytest
 import tables as tb
 
 import ehrax as rx
-from test.common_setup import DATASET_SCHEME_MANAGER, DATASET_TABLES_CONF, DATASET_SCHEME_CONF
+from ehrax.testing.common_setup import DATASET_SCHEME_MANAGER, DATASET_TABLES_CONF, DATASET_SCHEME_CONF
 
 
 @pytest.mark.parametrize('id_alias_attrs', [('x_id_alias', 'y_id_alias'), tuple()])

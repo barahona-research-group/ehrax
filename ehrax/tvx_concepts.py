@@ -9,9 +9,9 @@ import jax.numpy as jnp
 import numpy as np
 import scipy
 
-from .base import AbstractConfig, AbstractVxData, np_module
+from .base import AbstractConfig, AbstractVxData
 from .coding_scheme import (CodesVector, NumericalTypeHint, NumericScheme)
-from .utils import Array
+from .utils import Array, np_module
 
 
 class InpatientObservables(AbstractVxData):

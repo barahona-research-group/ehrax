@@ -3,7 +3,7 @@ from typing import TypeVar, Mapping, Self, Iterator, ItemsView, Optional, Iterab
 
 import pandas as pd
 
-from ehrax.base import AbstractWithDataframeEquivalent
+from .base import AbstractWithDataframeEquivalent
 
 K = TypeVar('K')
 V = TypeVar('V')

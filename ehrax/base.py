@@ -6,7 +6,7 @@ import logging
 from abc import abstractmethod
 from pathlib import Path
 from types import MappingProxyType, NoneType
-from typing import Any, Callable, Self, TYPE_CHECKING, Collection, Mapping, Literal, Optional
+from typing import Any, Callable, Self, TYPE_CHECKING, Collection, Mapping, Literal, Optional, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import tables as tb
 
-from ehrax.utils import tree_hasnan, NumpyEncoder, ArrayTypes, np_module, load_config, write_config, equal_arrays, \
+from .utils import NumpyEncoder, ArrayTypes, load_config, write_config, equal_arrays, \
     path_from_getter, path_from_jax_keypath
 
 _factory_registry: dict[str, type[eqx.Module]] = {}
@@ -733,21 +733,6 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
         arrs = jtu.tree_map(lambda a: jnp.array(a), arrs)
         return eqx.combine(arrs, others)
 
-    def replace_nans(self):
-        arrs, others = eqx.partition(self, eqx.is_array)
-        arrs = jtu.tree_map(lambda a: np_module(a).nan_to_num(a), arrs)
-        return eqx.combine(arrs, others)
-
-    def has_nans(self):
-        return tree_hasnan(self)
-
-    #
-    # def __eq__(self, other: Self) -> bool:
-    #     return self.equals(other)
-
-
-HDFVirtualNodeGet = Callable[[AbstractHDFSerializable], HDFVirtualNode]
-
 
 def _match_child_parent_paths(ch: list[str], pt: list[str]):
     # E.g., if we hold a node representing the *patients*, and we want to fetch
@@ -760,8 +745,12 @@ def _match_child_parent_paths(ch: list[str], pt: list[str]):
     return ch[:-1] == pt[-(len(ch) - 1):]
 
 
-def fetch_at(where: HDFVirtualNodeGet | tuple[HDFVirtualNodeGet, ...], tree: AbstractVxData,
-             levels: Optional[int] | tuple[int, ...] = None) -> AbstractVxData:
+T = TypeVar('T')
+HDFVirtualNodeGet = Callable[[T], HDFVirtualNode]
+
+
+def fetch_at(where: HDFVirtualNodeGet[T] | tuple[HDFVirtualNodeGet[T], ...], tree: T,
+             levels: Optional[int] | tuple[int, ...] = None) -> T:
     # deal with a collection to avoid opening a file for each v_node fetch.
     if callable(where):
         where = (where,)
@@ -795,14 +784,14 @@ def fetch_at(where: HDFVirtualNodeGet | tuple[HDFVirtualNodeGet, ...], tree: Abs
     assert 0, "Unreachable."
 
 
-def fetch_one_level_at(where: HDFVirtualNodeGet | tuple[HDFVirtualNodeGet, ...],
-                       tree: AbstractVxData) -> AbstractVxData:
+def fetch_one_level_at(where: HDFVirtualNodeGet[T] | tuple[HDFVirtualNodeGet[T], ...],
+                       tree: T) -> T:
     # Useful to fetch dictionary keys with virtual nodes for values.
     # Or a collection of vitruals, or object with virtual nodes for attributes.
     return fetch_at(where, tree=tree, levels=1)
 
 
-def fetch_all(tree: AbstractVxData) -> AbstractVxData:
+def fetch_all(tree: T) -> T:
     # Note 1:
     # Preprocessing to catch any set in the pytree. JAX pytree does not
     # navigate into sets as it does with list/dicts/tuples.

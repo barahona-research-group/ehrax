@@ -6,9 +6,6 @@ import pandas as pd
 
 from ..coding_scheme import CodingScheme, resources_dir
 
-# from ehrax.coding_scheme import (CodingSchemeConfig, CodingScheme, CodingScheme,
-#                                    CodeMap, CodeMapConfig, resources_dir,
-#                                    SchemeWithMissing, Ethnicity, FileBasedOutcomeExtractor)
 
 _CPRD_LTC_FILE = resources_dir('CPRD_212_LTC_ALL.csv.gz')
 ETH16_CODE_CNAME = 'eth16'

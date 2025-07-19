@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 import ehrax as rx
-from test.common_setup import DATASET_CONFIG, DATASET_SCHEME_MANAGER, SCHEMES
+from ehrax.testing.common_setup import DATASET_CONFIG, DATASET_SCHEME_MANAGER, SCHEMES
 from .conftest import Dataset
 
 
