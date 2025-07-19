@@ -8,9 +8,10 @@ import pytest
 import tables as tb
 
 import ehrax as rx
+from common_setup import ADMISSION_CONCEPT_MAX_STAY_HOURS
 from ehrax.testing.common_setup import BINARY_OBSERVATION_CODE_INDEX, CATEGORICAL_OBSERVATION_CODE_INDEX, \
     NUMERIC_OBSERVATION_CODE_INDEX, ORDINAL_OBSERVATION_CODE_INDEX, \
-    inpatient_binary_input, LENGTH_OF_STAY, leading_observables_extractor, SCHEMES
+    inpatient_binary_input, leading_observables_extractor, SCHEMES
 
 
 class TestInpatientObservables:
@@ -410,7 +411,7 @@ class TestInpatientInput:
     @pytest.mark.parametrize("n", [0, 1, 100, 501])
     @pytest.mark.parametrize("p", [1, 100, 501])
     def test_hf5_group_serialization(self, n: int, p: int, hf5_group_writer: tb.Group):
-        input = inpatient_binary_input(n, p)
+        input = inpatient_binary_input(n, p, los_hours=ADMISSION_CONCEPT_MAX_STAY_HOURS)
         input.to_hdf_group(hf5_group_writer)
         loaded_input = rx.InpatientInput.from_hdf_group(hf5_group_writer)
         assert len(input) == len(loaded_input)
@@ -454,7 +455,8 @@ class TestSegmentedInpatientInterventions:
         schemes = {"hosp_procedures": SCHEMES['hosp_procedures'],
                    "icu_procedures": SCHEMES['icu_procedures'],
                    "icu_inputs": SCHEMES['icu_inputs']}
-        seg = rx.SegmentedInpatientInterventions.from_interventions(inpatient_interventions_with_a_none, LENGTH_OF_STAY,
+        seg = rx.SegmentedInpatientInterventions.from_interventions(inpatient_interventions_with_a_none,
+                                                                    ADMISSION_CONCEPT_MAX_STAY_HOURS,
                                                                     hosp_procedures_size=len(
                                                                         SCHEMES['hosp_procedures']),
                                                                     icu_procedures_size=len(SCHEMES['icu_procedures']),
@@ -545,7 +547,7 @@ class TestSegmentedAdmission:
         seg_interventions = segmented_admission.interventions
         timestamps = admission.interventions.timestamps
 
-        time = sorted(set([0.0] + timestamps + [LENGTH_OF_STAY]))
+        time = sorted(set([0.0] + timestamps + [ADMISSION_CONCEPT_MAX_STAY_HOURS]))
         for i, (start, end) in enumerate(zip(time[:-1], time[1:])):
             if interventions.hosp_procedures is not None:
                 assert seg_interventions is not None and seg_interventions.hosp_procedures is not None

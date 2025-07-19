@@ -7,7 +7,6 @@ import pandas as pd
 import ehrax as rx
 
 MAX_STAY_DAYS = 356
-LENGTH_OF_STAY = 5.0
 UOM = ['m', 's', 'g', 'mg', 'KG', 'ml']
 
 
@@ -43,16 +42,16 @@ def _dx_codes(dx_scheme: rx.CodingScheme):
     return rx.CodesVector(vec=v, scheme=dx_scheme.name)
 
 
-def inpatient_binary_input(n: int, p: int):
+def inpatient_binary_input(n: int, p: int, los_hours: float):
     starttime = np.array(
-        sorted(nr.choice(np.linspace(0, LENGTH_OF_STAY, max(1000, n)), replace=False, size=n)))
-    endtime = starttime + nr.uniform(0, LENGTH_OF_STAY - starttime, size=(n,))
+        sorted(nr.choice(np.linspace(0, los_hours, max(n + 1, 1000)), replace=False, size=n)))
+    endtime = starttime + nr.uniform(0, los_hours - starttime, size=(n,))
     code_index = nr.choice(p, size=n, replace=True)
     return rx.InpatientInput(starttime=starttime, endtime=endtime, code_index=code_index)
 
 
-def inpatient_rated_input(n: int, p: int):
-    bin_input = inpatient_binary_input(n, p)
+def inpatient_rated_input(n: int, p: int, los_hours: float):
+    bin_input = inpatient_binary_input(n, p, los_hours)
     return rx.InpatientInput(starttime=bin_input.starttime, endtime=bin_input.endtime, code_index=bin_input.code_index,
                              rate=nr.uniform(0, 1, size=(n,)))
 
@@ -61,12 +60,12 @@ def _singular_codevec(scheme: rx.CodingScheme) -> rx.CodesVector:
     return scheme.codeset2vec({random.choice(scheme.codes)})
 
 
-def _icu_inputs(icu_inputs_scheme: rx.CodingScheme, n_timestamps: int):
-    return inpatient_rated_input(n_timestamps, len(icu_inputs_scheme))
+def _icu_inputs(icu_inputs_scheme: rx.CodingScheme, n_timestamps: int, los_hours: float):
+    return inpatient_rated_input(n_timestamps, len(icu_inputs_scheme), los_hours=los_hours)
 
 
-def _proc(scheme: rx.CodingScheme, n_timestamps: int):
-    return inpatient_binary_input(n_timestamps, len(scheme))
+def _proc(scheme: rx.CodingScheme, n_timestamps: int, los_hours: float):
+    return inpatient_binary_input(n_timestamps, len(scheme), los_hours=los_hours)
 
 
 def demographic_vector_config() -> rx.DemographicVectorConfig:
@@ -111,13 +110,14 @@ def sample_subjects_dataframe(n: int, static_table_config: rx.dataset.StaticTabl
 
 def sample_admissions_dataframe(subjects_df: pd.DataFrame,
                                 n: int, static_table_config: rx.dataset.StaticTableConfig,
-                                admission_table_config: rx.dataset.AdmissionTableConfig) -> pd.DataFrame:
+                                admission_table_config: rx.dataset.AdmissionTableConfig,
+                                max_stay_days: int) -> pd.DataFrame:
     c_subject = static_table_config.subject_id_alias
     c_admission = admission_table_config.admission_id_alias
     c_admission_time = admission_table_config.admission_time_alias
     c_discharge_time = admission_table_config.discharge_time_alias
     admit_dates = pd.to_datetime(random.choices(pd.date_range(start='1/1/2000', end='1/1/2020', freq='D'), k=n))
-    disch_dates = admit_dates + pd.to_timedelta(random.choices(range(1, MAX_STAY_DAYS), k=n), unit='D')
+    disch_dates = admit_dates + pd.to_timedelta(random.choices(range(1, max_stay_days), k=n), unit='D')
 
     return pd.DataFrame({
         c_subject: random.choices(subjects_df[c_subject], k=n),
@@ -222,7 +222,7 @@ def sample_obs_dataframe(admissions_df: pd.DataFrame,
 def _dataset_tables(dataset_tables_config: rx.DatasetTablesConfig,
                     dataset_scheme_config: rx.DatasetSchemeConfig,
                     dataset_scheme_manager: rx.CodingSchemesManager,
-                    freqs: tuple[int, ...]) -> rx.DatasetTables:
+                    freqs: tuple[int, ...], max_stay_days: int) -> rx.DatasetTables:
     n_subjects, n_admission_per_subject, n_per_admission = freqs
     assert dataset_scheme_config.ethnicity is not None
     assert dataset_scheme_config.gender is not None
@@ -241,7 +241,7 @@ def _dataset_tables(dataset_tables_config: rx.DatasetTablesConfig,
                                             dataset_scheme_manager.scheme[dataset_scheme_config.gender])
     admissions_df = sample_admissions_dataframe(subjects_df, n_admission_per_subject * n_subjects,
                                                 dataset_tables_config.static,
-                                                dataset_tables_config.admissions)
+                                                dataset_tables_config.admissions, max_stay_days)
     dx_df = sample_dx_dataframe(admissions_df, dataset_tables_config.admissions,
                                 dataset_tables_config.dx_discharge,
                                 dataset_scheme_manager.scheme[dataset_scheme_config.dx_discharge],
@@ -277,8 +277,8 @@ def _dataset_tables(dataset_tables_config: rx.DatasetTablesConfig,
 
 
 def make_targets_schemes_with_maps(n_scheme_targets: dict[str, int], source_schemes: dict[str, rx.CodingScheme]) -> \
-tuple[
-    dict[str, rx.CodingScheme], dict[str, rx.CodeMap]]:
+        tuple[
+            dict[str, rx.CodingScheme], dict[str, rx.CodeMap]]:
     def make_target_scheme_with_map(size: int, space: str, source_scheme: rx.CodingScheme) -> tuple[
         str, rx.CodingScheme, rx.CodeMap]:
         assert size <= len(source_scheme)
@@ -450,9 +450,9 @@ def leading_observables_extractor(observation_scheme: rx.NumericScheme,
     return rx.LeadingObservableExtractor(config=config, observable_scheme=observation_scheme)
 
 
-def _inpatient_observables(observation_scheme: rx.CodingScheme, n_timestamps: int):
+def _inpatient_observables(observation_scheme: rx.CodingScheme, n_timestamps: int, los_hours: float):
     d = len(observation_scheme)
-    timestamps_grid = np.linspace(0, LENGTH_OF_STAY, 1000, dtype=np.float64)
+    timestamps_grid = np.linspace(0, los_hours, max(n_timestamps + 1, 1000), dtype=np.float64)
     t = np.array(sorted(nr.choice(timestamps_grid, replace=False, size=n_timestamps)))
     v = nr.randn(n_timestamps, d)
     mask = nr.binomial(1, 0.5, size=(n_timestamps, d)).astype(bool)
@@ -466,9 +466,10 @@ def _inpatient_interventions(hosp_proc, icu_proc, icu_inputs):
 def _segmented_inpatient_interventions(inpatient_interventions: rx.InpatientInterventions, hosp_proc_scheme,
                                        icu_proc_scheme,
                                        icu_inputs_scheme,
+                                       max_los_hours: float,
                                        maximum_padding: int = 1) -> rx.SegmentedInpatientInterventions:
     assert all(isinstance(s, rx.CodingScheme) for s in [hosp_proc_scheme, icu_proc_scheme, icu_inputs_scheme])
-    return rx.SegmentedInpatientInterventions.from_interventions(inpatient_interventions, LENGTH_OF_STAY,
+    return rx.SegmentedInpatientInterventions.from_interventions(inpatient_interventions, max_los_hours,
                                                                  hosp_procedures_size=len(hosp_proc_scheme),
                                                                  icu_procedures_size=len(icu_proc_scheme),
                                                                  icu_inputs_size=len(SCHEMES['icu_inputs']),
@@ -478,8 +479,9 @@ def _segmented_inpatient_interventions(inpatient_interventions: rx.InpatientInte
 def _admission(admission_id: str, admission_date: pd.Timestamp,
                dx_codes: rx.CodesVector,
                dx_codes_history: rx.CodesVector, outcome: rx.CodesVector, observables: rx.InpatientObservables,
-               interventions: rx.InpatientInterventions, leading_observable: rx.InpatientObservables) -> rx.Admission:
-    discharge_date = pd.to_datetime(admission_date + pd.to_timedelta(LENGTH_OF_STAY, unit='hours'))
+               interventions: rx.InpatientInterventions, leading_observable: rx.InpatientObservables,
+               los_days: int) -> rx.Admission:
+    discharge_date = pd.to_datetime(admission_date + pd.to_timedelta(los_days, unit='D'))
 
     return rx.Admission(admission_id=admission_id, admission_dates=rx.AdmissionDates(admission_date, discharge_date),
                         dx_codes=dx_codes,
@@ -491,21 +493,27 @@ def _admissions(n_admissions, dx_scheme: rx.CodingScheme,
                 outcome_extractor_: rx.OutcomeExtractor, observation_scheme: rx.NumericScheme,
                 icu_inputs_scheme: rx.CodingScheme, icu_proc_scheme: rx.CodingScheme,
                 hosp_proc_scheme: rx.CodingScheme,
-                dataset_scheme_manager: rx.CodingSchemesManager) -> list[rx.Admission]:
+                dataset_scheme_manager: rx.CodingSchemesManager, max_los_days: int,
+                max_n_timestamps_obs: int, max_n_inputs: int) -> list[rx.Admission]:
     admissions = []
-    for i in range(n_admissions):
-        dx_codes = _dx_codes(dx_scheme)
-        obs = _inpatient_observables(observation_scheme, n_timestamps=nr.randint(0, 100))
-        lead = leading_observables_extractor(observation_scheme=observation_scheme)(obs)
-        icu_proc = _proc(icu_proc_scheme, n_timestamps=nr.randint(0, 50))
-        hosp_proc = _proc(hosp_proc_scheme, n_timestamps=nr.randint(0, 50))
-        icu_inputs = _icu_inputs(icu_inputs_scheme, n_timestamps=nr.randint(0, 50))
 
-        admissions.append(_admission(admission_id=f'test_{i}', admission_date=pd.to_datetime('now'),
+    for i in range(n_admissions):
+        admission_date = pd.to_datetime('now') + pd.to_timedelta(n_admissions * random.choice(range(10)), unit="D")
+        los_days = random.choice(range(1, max_los_days))
+        los_h = los_days * 24.0
+        dx_codes = _dx_codes(dx_scheme)
+        obs = _inpatient_observables(observation_scheme, n_timestamps=nr.randint(0, max_n_timestamps_obs),
+                                     los_hours=los_h)
+        lead = leading_observables_extractor(observation_scheme=observation_scheme)(obs)
+        icu_proc = _proc(icu_proc_scheme, n_timestamps=nr.randint(0, max_n_inputs), los_hours=los_h)
+        hosp_proc = _proc(hosp_proc_scheme, n_timestamps=nr.randint(0, max_n_inputs), los_hours=los_h)
+        icu_inputs = _icu_inputs(icu_inputs_scheme, n_timestamps=nr.randint(0, max_n_inputs), los_hours=los_h)
+        admissions.append(_admission(admission_id=f'test_{i}', admission_date=admission_date,
                                      dx_codes=dx_codes,
                                      dx_codes_history=_dx_codes_history(dx_codes),
                                      outcome=_outcome(outcome_extractor_, dataset_scheme_manager, dx_codes),
                                      observables=obs,
+                                     los_days=los_days,
                                      interventions=_inpatient_interventions(hosp_proc=hosp_proc, icu_proc=icu_proc,
                                                                             icu_inputs=icu_inputs),
                                      leading_observable=lead))
