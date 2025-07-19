@@ -484,13 +484,15 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
             return _TYPE_ENUM_DICT[type(obj)]
         if type(obj) is _MyCustomList:
             return _TYPE_ENUM_DICT[type(list())]
+        elif isinstance(obj, SERIALIZABLE_FIELD.config.value):
+            return SERIALIZABLE_FIELD.config.name
         elif isinstance(obj,
                         SERIALIZABLE_FIELD.hdf_serializable.value):  ## Potentially a subclass of AbstractHDFSerializable
             return SERIALIZABLE_FIELD.hdf_serializable.name
-        elif isinstance(obj, SERIALIZABLE_FIELD.config.value):
-            return SERIALIZABLE_FIELD.config.name
         elif isinstance(obj, SERIALIZABLE_FIELD.pandas_dataframe.value):  ## This is for PipelineReportTable.
             return SERIALIZABLE_FIELD.pandas_dataframe.name
+        elif isinstance(obj, SERIALIZABLE_FIELD.numpy_array.value): ## This is for jax Array subclasses (e.g. jax.ArrayImpl)
+            return SERIALIZABLE_FIELD.numpy_array.name
         else:
             raise ValueError(f"Unsupported type {type(obj)}.")
 
