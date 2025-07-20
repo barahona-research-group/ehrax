@@ -818,12 +818,12 @@ AggregationLiteral = Literal['sum', 'or', 'w_sum']
 
 
 class GroupingData(AbstractVxData):
-    permute: Array
-    split: Array
-    size: Array
+    permute: tuple[int, ...]
+    split: tuple[int, ...]
+    size: tuple[int, ...]
     aggregation: tuple[AggregationLiteral, ...]
 
-    def __init__(self, permute: Array, split: Array, size: Array,
+    def __init__(self, permute: tuple[int, ...], split: tuple[int, ...], size: tuple[int, ...],
                  aggregation: tuple[AggregationLiteral, ...]):
         self.permute = permute
         self.split = split
@@ -832,7 +832,7 @@ class GroupingData(AbstractVxData):
 
     @property
     def scheme_size(self) -> tuple[int, int]:
-        return int(self.size.sum()), len(self.size)
+        return sum(self.size), len(self.size)
 
 
 class ReducedCodeMapN1(CodeMap):
@@ -907,9 +907,9 @@ class ReducedCodeMapN1(CodeMap):
             return permutes + tuple(set(source_index.values()) - set(permutes))
 
     def grouping_data(self, source_index: dict[str, int]) -> GroupingData:
-        return GroupingData(permute=np.array(self.groups_permute(source_index), dtype=int),
-                            split=np.array(self.groups_split(source_index), dtype=int),
-                            size=np.array(self.groups_size(source_index), dtype=int),
+        return GroupingData(permute=self.groups_permute(source_index),
+                            split=self.groups_split(source_index),
+                            size=self.groups_size(source_index),
                             aggregation=self.groups_aggregation)
 
 
