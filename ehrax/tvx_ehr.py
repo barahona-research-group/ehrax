@@ -9,7 +9,7 @@ import jax.tree_util as jtu
 import numpy as np
 import pandas as pd
 
-from .base import AbstractConfig, AbstractVxData, fetch_at
+from .base import AbstractConfig, AbstractVxData, fetch_at, HDFVirtualNode
 from .coding_scheme import CodesVector, CodingSchemesManager, CodeMap, ReducedCodeMapN1, GroupingData, OutcomeExtractor
 from .dataset import Dataset, DatasetSchemeProxy, DatasetSchemeConfig, ReportAttributes, \
     AbstractTransformation, AbstractDatasetPipeline, AbstractProcessedDataset, Report, SplitLiteral, PipelineReportTable
@@ -446,9 +446,9 @@ class TVxEHR(AbstractProcessedDataset):
         self.pipeline_report = PipelineReportTable(pipeline_report)
 
     @property
-    def subject_ids(self) -> list[str]:
+    def subject_ids(self) -> tuple[str, ...]:
         """Get the list of subject IDs."""
-        return sorted(self.subjects.keys()) if self.subjects is not None else []
+        return tuple(sorted(self.subjects.keys())) if self.subjects is not None else ()
 
     def fetch_subjects(self, subject_ids: Optional[tuple[str, ...]] = None) -> Self:
         if subject_ids is None:
@@ -456,6 +456,14 @@ class TVxEHR(AbstractProcessedDataset):
         # generating lambdas inside generators can lead to unexpected behaviour, e.g. all lambdas can be bounded
         # to one value of subject_id (the last one of the collection).
         # https://stackoverflow.com/a/452660
+        return fetch_at(tuple(map(lambda k: lambda x: x.subjects[k], subject_ids)), self)
+
+    def try_fetch_subjects(self, subject_ids: Optional[tuple[str, ...]] = None) -> Self:
+        if subject_ids is None:
+            subject_ids = self.subject_ids
+
+        # only fetch those not loaded already.
+        subject_ids = tuple(i for i in subject_ids if not isinstance(self.subjects[i], HDFVirtualNode))
         return fetch_at(tuple(map(lambda k: lambda x: x.subjects[k], subject_ids)), self)
 
     def scheme_proxy(self, schemes_context: CodingSchemesManager) -> TVxEHRSchemeProxy:
@@ -519,26 +527,21 @@ class TVxEHR(AbstractProcessedDataset):
         c_dischtime = self.dataset.config.tables.admissions.discharge_time_alias
         return admissions.apply(lambda x: AdmissionDates(x[c_admittime], x[c_dischtime]), axis=1).to_dict()
 
-    def device_batch(self, subject_ids: Optional[list[str]] = None):
-        """Load subjects and move them to the device. If subject_ids is None, load all subjects.
-
-        Args:
-            subject_ids (Optional[list[str]], optional): list of subject IDs to load. Defaults to None.
-
-        Returns:
-            TVxEHR: Patients object with subjects loaded and moved to the device.
-        """
+    def fetch_device_batch(self, subject_ids: Optional[tuple[str, ...]] = None) -> tuple[Self, Self]:
+        # 1. Fetch from disk if the subjects are lazy-loaded in a new tree `ehr`.
+        # 2. Load the subjects to the device in a new tree `device_ehr`.
+        # 3. return as a tuple (`ehr`, `device_ehr`) as `device_ehr` can be re-used avoiding disk reading.
         if subject_ids is None:
-            subject_ids = self.subjects.keys()
-
-        subjects = {
-            i: self.subjects[i].to_jax_arrays()
+            subject_ids = self.subject_ids
+        ehr = self.try_fetch_subjects(subject_ids)
+        device_subjects = {
+            i: ehr.subjects[i].to_jax_arrays()
             for i in tqdm_constructor(subject_ids,
                                       desc="Loading to device",
                                       unit='subject',
                                       leave=False)
         }
-        return eqx.tree_at(lambda x: x.subjects, self, subjects)
+        return ehr, eqx.tree_at(lambda x: x.subjects, self, device_subjects)
 
     def epoch_splits(self,
                      subject_ids: Optional[list[str]],
@@ -594,7 +597,7 @@ class TVxEHR(AbstractProcessedDataset):
         splits = self.epoch_splits(subject_ids, batch_n_admissions,
                                    ignore_first_admission)
         for split in splits:
-            yield self.device_batch(split)
+            yield self.fetch_device_batch(split)
 
     def n_admissions(self,
                      subject_ids=None,
