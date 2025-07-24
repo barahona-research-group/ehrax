@@ -555,7 +555,7 @@ class TVxEHR(AbstractProcessedDataset):
             discount_first_admission (bool, optional): whether to ignore the first admission from the counts. Defaults to False.
 
         Returns:
-            list[List[str]]: List of lists containing the split subject IDs.
+            list[list[str]]: list of lists containing the split subject IDs.
         """
         if subject_ids is None:
             subject_ids = list(self.subjects.keys())
@@ -795,7 +795,7 @@ class TVxEHR(AbstractProcessedDataset):
             subjects (list[str]): list of subject IDs.
 
         Returns:
-            list[List[int]]: list of outcome codes partitioned by frequency into `n_partitions` partitions.
+            list[list[int]]: list of outcome codes partitioned by frequency into `n_partitions` partitions.
         
         """
         frequency_vec = self.outcome_frequency_vec(subjects)

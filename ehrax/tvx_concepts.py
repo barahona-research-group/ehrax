@@ -3,7 +3,7 @@
 import functools
 from datetime import date
 from functools import cached_property
-from typing import (Optional, Callable, ClassVar, Iterator, Self, Union)
+from typing import Optional, Callable, ClassVar, Iterator, Self
 
 import jax.numpy as jnp
 import numpy as np

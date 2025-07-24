@@ -1,8 +1,7 @@
 """."""
-from __future__ import annotations
 
 #
-# def subject_info_extractor(self, subject_ids: List[int],
+# def subject_info_extractor(self, subject_ids: list[int],
 #                            target_scheme: DatasetScheme):
 #     """
 #     Important comment from MIMIC-III documentation at \

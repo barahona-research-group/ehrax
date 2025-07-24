@@ -5,16 +5,15 @@ import os
 import warnings
 from dataclasses import field
 from functools import cached_property
-from typing import Dict, List, Optional, Iterable, Tuple, Final
+from typing import Optional, Iterable, Final
 
 import pandas as pd
 import sqlalchemy
 from sqlalchemy import Engine
 
-from coding_scheme import ReducedCodeMapN1, NumericScheme
 from ..base import AbstractVxData, AbstractConfig
 from ..coding_scheme import (CodingScheme, resources_dir, CodingSchemesManager, FrozenDict11, NumericalTypeHint,
-                             CodingSchemeWithUOM)
+                             CodingSchemeWithUOM, ReducedCodeMapN1, NumericScheme)
 from ..dataset import SECONDS_TO_HOURS_SCALER
 from ..dataset import (StaticTableConfig,
                        AdmissionTimestampedMultiColumnTableConfig, AdmissionIntervalBasedCodedTableConfig,
@@ -24,8 +23,7 @@ from ..dataset import (StaticTableConfig,
                        DatasetTables, DatasetConfig, DatasetSchemeConfig, Dataset, AbstractDatasetPipelineConfig,
                        DatasetSchemeProxy)
 from ..example_schemes.icd import setup_standard_icd_ccs, CCSICDSchemeSelection, CCSICDOutcomeSelection
-from ..example_schemes.mimiciv_icd import MixedICDScheme, ObservableMIMICScheme, \
-    ICUInputsUOMNormalizer
+from ..example_schemes.mimiciv_icd import MixedICDScheme
 from ..utils import tqdm_constructor
 
 warnings.filterwarnings('error', category=RuntimeWarning, message=r'overflow encountered in cast')
@@ -384,7 +382,7 @@ class TimestampedMultiColumnSQLTable(SQLTable):
     def process_table_types(self, table):
         return self._coerce_value_to_real(self._coerce_code_to_str(self._coerce_id_to_str(table)))
 
-    def __call__(self, engine: Engine, attributes: List[str]) -> pd.DataFrame:
+    def __call__(self, engine: Engine, attributes: list[str]) -> pd.DataFrame:
         assert len(set(attributes)) == len(attributes), f"Duplicate attributes {attributes}"
         assert all(a in self.config.attributes for a in attributes), \
             f"Some attributes {attributes} not in {self.config.attributes}"
@@ -478,7 +476,7 @@ class MIMICIVDatasetSchemeConfig(DatasetSchemeConfig):
     map_subdir: str
     map_files: DatasetSchemeMapsFiles
     selection_files: DatasetSchemeSelectionFiles
-    icu_inputs_uom_normalization: Optional[Tuple[str]]
+    icu_inputs_uom_normalization: Optional[tuple[str]]
     icu_inputs_aggregation_column: Optional[str]
 
     def __init__(self, suffixes: MIMICIVDatasetSchemeSuffixes = MIMICIVDatasetSchemeSuffixes(),
@@ -486,7 +484,7 @@ class MIMICIVDatasetSchemeConfig(DatasetSchemeConfig):
                  selection_subdir: str = 'selection',
                  map_subdir: str = 'map', map_files: DatasetSchemeMapsFiles = DatasetSchemeMapsFiles(),
                  selection_files: DatasetSchemeSelectionFiles = DatasetSchemeSelectionFiles(),
-                 icu_inputs_uom_normalization: Optional[Tuple[str]] = ("uom_normalization", "icu_inputs.csv"),
+                 icu_inputs_uom_normalization: Optional[tuple[str]] = ("uom_normalization", "icu_inputs.csv"),
                  icu_inputs_aggregation_column: Optional[str] = "aggregation", ethnicity: Optional[str] = None,
                  gender: Optional[str] = None,
                  dx_discharge: Optional[str] = None, obs: Optional[str] = None,
@@ -667,7 +665,7 @@ class ObservablesSQLTable(SQLTable):
 
     config: AdmissionTimestampedCodedValueSQLTableConfig
 
-    def melted_table(self, engine: Engine, table_name: str, attribute2code: Dict[str, str]) -> pd.DataFrame:
+    def melted_table(self, engine: Engine, table_name: str, attribute2code: dict[str, str]) -> pd.DataFrame:
         c_code = self.config.code_alias
         c_value = self.config.value_alias
         attributes = list(attribute2code.keys())
