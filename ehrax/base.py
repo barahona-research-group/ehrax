@@ -6,7 +6,7 @@ import logging
 from abc import abstractmethod
 from pathlib import Path
 from types import MappingProxyType, NoneType
-from typing import Any, Callable, Self, TYPE_CHECKING, Collection, Mapping, Literal, Optional, TypeVar
+from typing import Any, Callable, Self, TYPE_CHECKING, Collection, Mapping, Optional, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import tables as tb
 
+from literals import CompressionLibLiteral
 from .utils import NumpyEncoder, ArrayTypes, load_config, write_config, equal_arrays, \
     path_from_getter, path_from_jax_keypath
 
@@ -692,7 +693,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
         classname = group.classname.read().decode('utf-8')
         return cls.__get_factory__(classname)._from_hdf_group(group, defer, levels=levels)
 
-    def save(self, store: str | Path | tb.Group, complib: Literal['blosc', 'zlib', 'lzo', 'bzip2'] = 'blosc',
+    def save(self, store: str | Path | tb.Group, complib: CompressionLibLiteral = 'blosc',
              complevel: int = 9, log_config_json: bool = True):
         # TODO: set BLOSC_NTHREADS in test and deployment
         # complib: Literal['blosc', 'zlib', 'lzo', 'bzip2'] = 'blosc', complevel: int = 9

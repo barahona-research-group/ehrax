@@ -7,14 +7,15 @@ from abc import abstractmethod, ABCMeta, ABC
 from dataclasses import field
 from datetime import datetime
 from functools import cached_property
-from typing import Optional, ClassVar, Literal, Final, Self, Iterator
+from typing import Optional, ClassVar, Final, Self, Iterator
 
 import equinox as eqx
 import numpy as np
 import pandas as pd
 
+from .literals import OverlappingAction, NumericalTypeHint, SplitLiteral
 from .base import AbstractConfig, AbstractVxData
-from .coding_scheme import (CodingScheme, NumericalTypeHint, CodingSchemesManager, NumericScheme, CodingSchemeWithUOM)
+from .coding_scheme import (CodingScheme, CodingSchemesManager, NumericScheme, CodingSchemeWithUOM)
 from .utils import tqdm_constructor
 
 SECONDS_TO_HOURS_SCALER: Final[float] = 1 / 3600.0  # convert seconds to hours
@@ -672,11 +673,11 @@ class AbstractProcessedDataset(AbstractDataset):
 class DatasetConfig(AbstractConfig):
     scheme: DatasetSchemeConfig
     tables: DatasetTablesConfig
-    overlapping_admissions: Literal["merge", "remove"]
+    overlapping_admissions: OverlappingAction
     filter_subjects_with_observation: Optional[str]
 
     def __init__(self, scheme: DatasetSchemeConfig, tables: DatasetTablesConfig,
-                 overlapping_admissions: Literal["merge", "remove"] = "merge",
+                 overlapping_admissions: OverlappingAction = "merge",
                  filter_subjects_with_observation: Optional[str] = None):
         self.scheme = scheme
         self.tables = tables
@@ -684,7 +685,6 @@ class DatasetConfig(AbstractConfig):
         self.filter_subjects_with_observation = filter_subjects_with_observation
 
 
-SplitLiteral = Literal['subjects', 'admissions', 'admissions_intervals']
 
 
 class Dataset(AbstractProcessedDataset):
