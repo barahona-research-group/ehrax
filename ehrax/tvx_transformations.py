@@ -9,9 +9,9 @@ import equinox as eqx
 import numpy as np
 import pandas as pd
 
+from .literals import SplitLiteral
 from .coding_scheme import CodeMap, CodingSchemesManager
-from .dataset import Dataset, AbstractTransformation, AdmissionIntervalBasedCodedTableConfig, \
-    Report, SplitLiteral
+from .dataset import Dataset, AbstractTransformation, AdmissionIntervalBasedCodedTableConfig, Report
 from .transformations import DatasetTransformation
 from .tvx_concepts import StaticInfo, CodesVector, InpatientInput, InpatientInterventions, InpatientObservables, \
     LeadingObservableExtractor, Admission, Patient

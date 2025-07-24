@@ -9,17 +9,17 @@ from abc import abstractmethod, ABCMeta
 from collections import defaultdict, OrderedDict
 from functools import cached_property
 from types import MappingProxyType
-from typing import Optional, ClassVar, Literal, Iterable, Mapping, Callable, Self
+from typing import Optional, ClassVar, Iterable, Mapping, Callable, Self
 
 import numpy as np
 import pandas as pd
 import tables as tbl  # type: ignore
 
+from .literals import AggregationLiteral, NumericalTypeHint
 from .base import AbstractVxData
 from .freezer import FrozenDict11, FrozenDict1N, FrozenDict1NM
 from .utils import load_config, tqdm_constructor, Array
 
-NumericalTypeHint = Literal['B', 'N', 'O', 'C']  # Binary, Numerical, Ordinal, Categorical
 
 
 def resources_dir(*subdir: str) -> str:
@@ -814,7 +814,6 @@ class CodeMap(AbstractVxData):
         return cls(*cls._kw_init_from_table(*args, **kwargs))
 
 
-AggregationLiteral = Literal['sum', 'or', 'w_sum']
 
 
 class GroupingData(AbstractVxData):

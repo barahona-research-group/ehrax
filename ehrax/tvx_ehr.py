@@ -9,10 +9,11 @@ import jax.tree_util as jtu
 import numpy as np
 import pandas as pd
 
+from .literals import SplitLiteral
 from .base import AbstractConfig, AbstractVxData, fetch_at, HDFVirtualNode
 from .coding_scheme import CodesVector, CodingSchemesManager, CodeMap, ReducedCodeMapN1, GroupingData, OutcomeExtractor
 from .dataset import Dataset, DatasetSchemeProxy, DatasetSchemeConfig, ReportAttributes, \
-    AbstractTransformation, AbstractDatasetPipeline, AbstractProcessedDataset, Report, SplitLiteral, PipelineReportTable
+    AbstractTransformation, AbstractDatasetPipeline, AbstractProcessedDataset, Report, PipelineReportTable
 from .tvx_concepts import (Admission, Patient, InpatientObservables,
                            InpatientInterventions, DemographicVectorConfig,
                            LeadingObservableExtractorConfig, SegmentedPatient, StaticInfo, InpatientInput,
