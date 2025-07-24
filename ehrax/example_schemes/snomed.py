@@ -1,8 +1,5 @@
-from __future__ import annotations
-
 import json
-from dataclasses import field
-from typing import Set, Self, Tuple, Optional, Dict
+from typing import Self, Optional
 
 import networkx as nx
 import pandas as pd
@@ -11,26 +8,32 @@ from ..coding_scheme import (HierarchicalScheme, FrozenDict11, FrozenDict1N)
 from ..utils import tqdm_constructor
 
 
-
-
 class SNOMEDCT(HierarchicalScheme):
-    cdb_df: pd.DataFrame = field(kw_only=True)
-    cdb_inactive_df: pd.DataFrame = field(kw_only=True)
-    active_terms: Set[str] = field(kw_only=True)
+    cdb_df: pd.DataFrame
+    cdb_inactive_df: pd.DataFrame
+    active_terms: set[str]
+
+    def __init__(self, name: str, codes: tuple[str, ...], desc: FrozenDict11, cdb_df: pd.DataFrame,
+                 cdb_inactive_df: pd.DataFrame,
+                 active_terms: set[str], ch2pt: FrozenDict1N) -> None:
+        super().__init__(name=name, codes=codes, desc=desc, ch2pt=ch2pt)
+        self.cdb_df = cdb_df
+        self.cdb_inactive_df = cdb_inactive_df
+        self.active_terms = active_terms
 
     @classmethod
     def from_files(cls, name: str, cdb_active_path: str, cdb_inactive_path: str, ch2pt_json_path: str) -> Self:
-        cdb_df = pd.read_csv(cdb_active_path, index_col=0)
-        active_terms = set(cdb_df.cui.unique())
-        _df1 = cdb_df[cdb_df.tty == 1].reset_index(drop=True)
-        _df1 = (_df1.groupby('cui', as_index=False).agg(name=('str', lambda x: x.values[0])))
+        def cdb_table(filename: str) -> tuple[pd.DataFrame, set[str], pd.DataFrame]:
+            df = pd.read_csv(filename, index_col=0)
+            terms = set(df.cui.unique())
+            desc_table = df[df.tty == 1].reset_index(drop=True)
+            desc_table = desc_table.groupby('cui').agg(name=('str', lambda x: x.values[0]))
+            return df, terms, desc_table
 
-        cdb_inactive_df = pd.read_csv(cdb_inactive_path, index_col=0)
-        inactive_terms = set(cdb_inactive_df.cui.unique())
-        _df2 = cdb_inactive_df[cdb_inactive_df.tty == 1].reset_index(drop=True)
-        _df2 = (_df2.groupby('cui', as_index=False).agg(name=('str', lambda x: x.values[0])))
-
-        desc = dict(zip(_df1.cui, _df1.name)) | dict(zip(_df2.cui, _df2.name))
+        cdb_df, active_terms, active_desc = cdb_table(cdb_active_path)
+        cdb_inactive_df, inactive_terms, inactive_desc = cdb_table(cdb_inactive_path)
+        # the active replaces inactive for any overlap
+        desc = inactive_desc['name'].to_dict() | active_desc['name'].to_dict()
 
         with open(ch2pt_json_path) as json_file:
             ch2pt = {ch: set(pts) for ch, pts in json.load(json_file).items()}
@@ -43,15 +46,15 @@ class SNOMEDCT(HierarchicalScheme):
             ch2pt=FrozenDict1N(ch2pt))
 
     def to_networkx(self,
-                    codes: Tuple[str, ...] = None,
-                    discard_set: Optional[Set[str]] = None,
-                    node_attrs: Optional[Dict[str, Dict[str, str]]] = None) -> nx.DiGraph:
+                    codes: tuple[str, ...] = None,
+                    discard_set: Optional[set[str]] = None,
+                    node_attrs: Optional[dict[str, dict[str, str]]] = None) -> nx.DiGraph:
         """
         Generate a networkx.DiGraph (Directed Graph) from a table of SNOMED-CT codes.
 
         Args:
-            codes (Tuple[str, ...]): The table of codes, must have a column `core_code` for the SNOMED-CT codes.
-            discard_set (Optional[Set[str]]): A set of codes, which, if provided, they are excluded from
+            codes (tuple[str, ...]): The table of codes, must have a column `core_code` for the SNOMED-CT codes.
+            discard_set (Optional[set[str]]): A set of codes, which, if provided, they are excluded from
                 the Graph object.
             node_attrs: A dictionary of node attributes, which, if provided, used to annotate nodes with additional
                 information, such as the frequency of the corresponding SNOMED-CT code in a particular dataset.

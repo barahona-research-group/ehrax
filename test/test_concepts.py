@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import List, Callable
+from typing import Callable
 from unittest import mock
 
 import equinox as eqx
@@ -197,7 +197,7 @@ class TestInpatientObservables:
 class TestLeadingObservableExtractor:
 
     @pytest.mark.parametrize("leading_hours", [[1.0], [2.0], [1.0, 2.0], [1.0, 2.0, 3.0]])
-    def test_len(self, leading_hours: List[float]):
+    def test_len(self, leading_hours: list[float]):
         extractor = leading_observables_extractor(observation_scheme=SCHEMES['obs'],
                                                   leading_hours=leading_hours)
         assert len(extractor) == len(leading_hours)
@@ -206,7 +206,7 @@ class TestLeadingObservableExtractor:
     @pytest.mark.parametrize("entry_neglect_window", [0.0, 1.0, 2.0])
     @pytest.mark.parametrize("recovery_window", [0.0, 1.0, 2.0])
     @pytest.mark.parametrize("minimum_acquisitions", [0, 1, 2, 3])
-    def test_init(self, leading_hours: List[float],
+    def test_init(self, leading_hours: list[float],
                   entry_neglect_window: float, recovery_window: float,
                   minimum_acquisitions: int):
         if len(leading_hours) < 2:
@@ -250,7 +250,7 @@ class TestLeadingObservableExtractor:
 
     @pytest.mark.parametrize("leading_hours", [[1.0], [2.0], [1.0, 2.0], [1.0, 2.0, 3.0]])
     @pytest.mark.parametrize("code_index", [BINARY_OBSERVATION_CODE_INDEX, ORDINAL_OBSERVATION_CODE_INDEX])
-    def test_empty(self, leading_hours: List[float], code_index: int):
+    def test_empty(self, leading_hours: list[float], code_index: int):
         extractor = leading_observables_extractor(observation_scheme=SCHEMES['obs'],
                                                   leading_hours=leading_hours,
                                                   code_index=code_index)

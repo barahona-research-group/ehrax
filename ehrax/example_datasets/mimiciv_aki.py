@@ -7,7 +7,7 @@ from ..dataset import AbstractDatasetPipeline
 from ..transformations import SetIndex, CastTimestamps, \
     SelectSubjectsWithObservation, ProcessOverlappingAdmissions, FilterSubjectsNegativeAdmissionLengths, \
     FilterClampTimestampsToAdmissionInterval, FilterUnsupportedCodes, ICUInputRateUnitConversion, \
-    FilterInvalidInputRatesSubjects, SetAdmissionRelativeTimes, ValidatedDatasetPipeline
+    FilterInvalidInputRatesSubjects, SetAdmissionRelativeTimes
 from ..tvx_ehr import TVxEHR, TVxEHRConfig, DemographicVectorConfig, LeadingObservableExtractorConfig
 from ..tvx_ehr import TVxEHRSchemeConfig, TVxEHRSampleConfig, TVxEHRSplitsConfig, \
     DatasetNumericalProcessorsConfig, AbstractTVxPipeline
@@ -51,7 +51,7 @@ class AKIMIMICIVDataset(MIMICIVDataset):
             FilterInvalidInputRatesSubjects(),
             SetAdmissionRelativeTimes()
         ]
-        return ValidatedDatasetPipeline(transformations=pipeline)
+        return AbstractDatasetPipeline(transformations=pipeline)
 
 
 DEFAULT_AKI_DEMOGRAPHIC: Final[DemographicVectorConfig] = DemographicVectorConfig(age=True,

@@ -1,6 +1,5 @@
-from __future__ import annotations
 
-from typing import Set, Dict, List
+from typing import   list
 
 import pandas as pd
 
@@ -16,12 +15,12 @@ ETH_SCHEME_FILE = 'cprd_eth.csv'
 
 
 class DxLTC212FlatCodes(CodingScheme):
-    _medcodes: Dict[str, Set[str]]
-    _system: Dict[str, str]
+    _medcodes: dict[str, set[str]]
+    _system: dict[str, str]
 
     def __init__(self, config: CodingSchemeConfig,
-                 codes: List[str], desc: Dict[str, str], system: Dict[str, str],
-                 medcodes: Dict[str, Set[str]]):
+                 codes: list[str], desc: dict[str, str], system: dict[str, str],
+                 medcodes: dict[str, set[str]]):
         super().__init__(config=config,
                          codes=codes,
                          desc=desc)
@@ -78,14 +77,14 @@ class DxLTC212FlatCodes(CodingScheme):
 
 
 class DxLTC9809FlatMedcodes(CodingScheme):
-    _diseases: Dict[str, List[str]]
-    _systems: Dict[str, List[str]]
-    _diseases_desc: Dict[str, str]
-    _systems_desc: Dict[str, str]
+    _diseases: dict[str, list[str]]
+    _systems: dict[str, list[str]]
+    _diseases_desc: dict[str, str]
+    _systems_desc: dict[str, str]
 
     def __init__(self, config: CodingSchemeConfig,
-                 codes: List[str], desc: Dict[str, str], diseases: Dict[str, List[str]],
-                 systems: Dict[str, List[str]], diseases_desc: Dict[str, str], systems_desc: Dict[str, str]):
+                 codes: list[str], desc: dict[str, str], diseases: dict[str, list[str]],
+                 systems: dict[str, list[str]], diseases_desc: dict[str, str], systems_desc: dict[str, str]):
         super().__init__(config=config,
                          codes=codes,
                          desc=desc)
