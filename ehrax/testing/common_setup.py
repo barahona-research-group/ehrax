@@ -496,8 +496,8 @@ def _admissions(n_admissions, dx_scheme: rx.CodingScheme,
                 dataset_scheme_manager: rx.CodingSchemesManager, max_los_days: int,
                 max_n_timestamps_obs: int, max_n_inputs: int) -> list[rx.Admission]:
     admissions = []
-    days = list(random.sample(range(max_los_days * n_admissions), k=n_admissions))
-    admission_dates = sorted(pd.to_datetime('now') + pd.to_timedelta(d, unit="D") for d in days)
+    multiplier = list(sorted(random.sample(range(10 * n_admissions), k=n_admissions)))
+    admission_dates = [pd.to_datetime('now') + pd.to_timedelta(max_los_days * m, unit="D") for m in multiplier]
     for i, admission_date in enumerate(admission_dates):
         los_days = random.uniform(0, max_los_days)
         los_h = los_days * 24.0
