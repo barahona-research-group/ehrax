@@ -39,4 +39,4 @@ classifiers = [
     "Topic :: Database",
     "Topic :: Scientific/Engineering :: Information Analysis"
 ]
-urls = {repository = ""}
+urls = {repository = "https://github.com/barahona-research-group/ehrax"}
