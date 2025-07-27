@@ -1,8 +1,8 @@
-select a.hadm_id as {admission_id_alias}
-    , pe.itemid as {code_alias}
-    , pe.starttime as {start_time_alias}
-    , pe.endtime as {end_time_alias}
-    , di.label as {description_alias}
+select a.hadm_id as {admission_id}
+    , pe.itemid as {code}
+    , pe.starttime as {start_time}
+    , pe.endtime as {end_time}
+    , di.label as {description}
 from mimiciv_hosp.admissions a
 inner join mimiciv_icu.icustays i
     on a.hadm_id = i.hadm_id

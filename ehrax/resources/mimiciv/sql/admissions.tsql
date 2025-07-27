@@ -1,5 +1,5 @@
-select hadm_id as {admission_id_alias},
-subject_id as {subject_id_alias},
-admittime as {admission_time_alias},
-dischtime as {discharge_time_alias}
+select hadm_id as {admission_id},
+subject_id as {subject_id},
+admittime as {start_time},
+dischtime as {end_time}
 from mimiciv_hosp.admissions

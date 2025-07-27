@@ -127,7 +127,7 @@ class SetAdmissionRelativeTimes(DatasetTransformation):
         time_cols = {k: v for k, v in dataset.config.tables.time_cols.items()
                      if dataset.config.tables.temporal_admission_linked_table(k)}
 
-        c_admittime = dataset.config.tables.admissions.admission_time_alias
+        c_admittime = dataset.config.tables.admissions.start_time
         c_admission_id = dataset.config.tables.admissions.admission_id_alias
         admissions = dataset.tables.admissions[[c_admittime]]
         tables_dict = dataset.tables.tables_dict
@@ -159,8 +159,8 @@ class FilterSubjectsNegativeAdmissionLengths(DatasetTransformation):
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         table_config = dataset.config.tables.admissions
         c_subject_id = table_config.subject_id_alias
-        c_dischtime = table_config.discharge_time_alias
-        c_admittime = table_config.admission_time_alias
+        c_dischtime = table_config.end_time
+        c_admittime = table_config.start_time
         admissions = dataset.tables.admissions
 
         # assert dtypes are datetime64[ns]
@@ -260,7 +260,7 @@ class ProcessOverlappingAdmissions(DatasetTransformation):
                                       sub2sup: dict[str, str], report: Report) -> tuple[Dataset, Report]:
         admissions = dataset.tables.admissions
         c_admission_id = dataset.config.tables.admissions.admission_id_alias
-        c_dischtime = dataset.config.tables.admissions.discharge_time_alias
+        c_dischtime = dataset.config.tables.admissions.end_time
 
         # Map from super-admissions to its sub-admissions.
         sup2sub = defaultdict(list)
@@ -291,9 +291,8 @@ class ProcessOverlappingAdmissions(DatasetTransformation):
         admissions = dataset.tables.admissions
         table_config = dataset.config.tables.admissions
         c_subject_id = table_config.subject_id_alias
-        c_dischtime = table_config.discharge_time_alias
-        c_admittime = table_config.admission_time_alias
-
+        c_dischtime = table_config.end_time
+        c_admittime = table_config.start_time
         # Step 1: Collect overlapping admissions
         # Map from sub-admissions to the new super-admissions.
         sub2sup = {adm_id: super_adm_id for _, subject_adms in admissions.groupby(c_subject_id)
@@ -330,9 +329,8 @@ class FilterClampTimestampsToAdmissionInterval(DatasetTransformation):
                               timestamped_tables_conf.keys()}
         table_config = dataset.config.tables.admissions
         c_admission_id = table_config.admission_id_alias
-        c_dischtime = table_config.discharge_time_alias
-        c_admittime = table_config.admission_time_alias
-
+        c_dischtime = table_config.end_time
+        c_admittime = table_config.start_time
         admissions = dataset.tables.admissions[[c_admittime, c_dischtime]]
 
         for name, table in timestamped_tables.items():
@@ -357,9 +355,8 @@ class FilterClampTimestampsToAdmissionInterval(DatasetTransformation):
                                                           interval_based_tables_conf.keys()}
         table_config = dataset.config.tables.admissions
         c_admission_id = table_config.admission_id_alias
-        c_dischtime = table_config.discharge_time_alias
-        c_admittime = table_config.admission_time_alias
-
+        c_dischtime = table_config.end_time
+        c_admittime = table_config.start_time
         admissions = dataset.tables.admissions[[c_admittime, c_dischtime]]
 
         for name, table in interval_based_tables.items():

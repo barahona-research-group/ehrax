@@ -1,9 +1,11 @@
 """."""
 
 import dataclasses
+import enum
 import logging
 import random
 from abc import abstractmethod, ABCMeta, ABC
+from collections import defaultdict
 from dataclasses import field
 from datetime import datetime
 from functools import cached_property
@@ -13,83 +15,171 @@ import equinox as eqx
 import numpy as np
 import pandas as pd
 
-from .literals import OverlappingAction, NumericalTypeHint, SplitLiteral
 from .base import AbstractConfig, AbstractVxData
 from .coding_scheme import (CodingScheme, CodingSchemesManager, NumericScheme, CodingSchemeWithUOM)
+from .literals import OverlappingAction, NumericalTypeHint, SplitLiteral
 from .utils import tqdm_constructor
 
 SECONDS_TO_HOURS_SCALER: Final[float] = 1 / 3600.0  # convert seconds to hours
 
 
-class TableConfig(AbstractConfig):
-
-    @staticmethod
-    def _alias_dict(data) -> dict[str, str]:
-        return {k: v for k, v in data.items() if k.endswith('_alias')}
+# This Enum will be used as a reference to ensure consistent column names
+# across the multiple (relational) tables representing a single dataset.
+class COLUMN(enum.StrEnum):
+    subject_id = enum.auto()
+    admission_id = enum.auto()
+    gender = enum.auto()
+    race = enum.auto()
+    date_of_birth = enum.auto()
+    anchor_year = enum.auto()
+    anchor_age = enum.auto()
+    code = enum.auto()
+    version = enum.auto()
+    description = enum.auto()
+    time = enum.auto()  # for singly timestamped events.
+    measurement = enum.auto()
+    start_time = enum.auto()  # for events defined by intervals rather than a single timestamp
+    end_time = enum.auto()  # ..
+    amount = enum.auto()
+    amount_unit = enum.auto()
+    derived_unit_normalization_factor = enum.auto()
+    derived_universal_unit = enum.auto()
+    derived_normalized_amount = enum.auto()
+    derived_normalized_amount_per_hour = enum.auto()
+    mapped_code = enum.auto()
+    mapped_description = enum.auto()
 
     @property
-    def alias_dict(self) -> dict[str, str]:
-        return self._alias_dict(self.as_dict())
-
-    @staticmethod
-    def _alias_id_dict(data) -> dict[str, str]:
-        return {k: v for k, v in data.items() if '_id_' in k}
+    def is_time(self):
+        return self in (COLUMN.time,
+                        COLUMN.start_time,
+                        COLUMN.end_time,
+                        COLUMN.date_of_birth,
+                        COLUMN.anchor_year,)
 
     @property
-    def alias_id_dict(self) -> dict[str, str]:
-        return self._alias_id_dict(self.as_dict())
+    def is_code(self):
+        return self in (COLUMN.code, COLUMN.mapped_code)
+
+    @property
+    def is_id(self):
+        return self in (COLUMN.subject_id, COLUMN.admission_id)
+
+    @staticmethod
+    def as_dict() -> dict[str, str]:
+        """
+        Returns a dictionary representation of the enum member.
+        """
+        return {str(c): c.value for c in COLUMN}
+
+
+class TableColumns(AbstractConfig):
+
+    def __check_init__(self):
+        assert all(k in COLUMN and k == v for k, v in self.as_dict().items()), f"Fields must be one of {COLUMN}."
+
+    @property
+    def id_dict(self) -> dict[str, str]:
+        return {k: v for k, v in self.as_dict() if COLUMN[k].is_id}
+
+    def __contains__(self, item: str | COLUMN):
+        if isinstance(item, str):
+            return item in self.as_dict()
+        elif isinstance(item, COLUMN):
+            return str(item) in self.as_dict()
+        else:
+            raise ValueError(f"Unsupported type {type(item)}")
+
+    def _index(self) -> Optional[str]:
+        return None
 
     @property
     def index(self) -> Optional[str]:
-        return None
-
-    @staticmethod
-    def _time_cols(data) -> tuple[str, ...]:
-        return tuple(v for k, v in data.items() if 'time' in k or 'date' in k)
+        return self._index()
 
     @property
     def time_cols(self) -> tuple[str, ...]:
-        return self._time_cols(self.alias_dict)
-
-    @staticmethod
-    def _coded_cols(data) -> tuple[str, ...]:
-        return tuple(v for k, v in data.items() if 'code' in k)
+        return tuple(v for k, v in self.as_dict().items() if COLUMN[k].is_time)
 
     @property
-    def coded_cols(self) -> tuple[str, ...]:
-        return self._coded_cols(self.alias_dict)
+    def code_cols(self) -> tuple[str, ...]:
+        return tuple(v for k, v in self.as_dict().items() if COLUMN[k].is_code)
 
 
-class AdmissionLinkedTableConfig(TableConfig):
-    admission_id_alias: str
+def include_cols(*cols: COLUMN, index: Optional[COLUMN] = None):
+    """Add the columns as attributes to the subclass and augment the annotations as appropriate."""
+    assert all(isinstance(c, COLUMN) for c in cols), f"Columns must be a set of {COLUMN}."
+    assert len(cols) == len(set(cols)), f"Columns must be unique."
+    assert index is None or isinstance(index, COLUMN), f"Index must be None or a {COLUMN}."
+    annotations = {str(c): str for c in cols}
+    defaults = {str(c): str(c) for c in cols}
 
-    def __init__(self, admission_id_alias: str):
-        self.admission_id_alias = admission_id_alias
+    def init(self, **kwargs):
+        assert kwargs == defaults, f"Expected {defaults}, got {kwargs}."
+        for c in cols:
+            setattr(self, str(c), c.value)
+
+    def decorator(subclass: type[TableColumns]) -> type[TableColumns]:
+        assert issubclass(subclass, TableColumns), f"Class must be a subclass of {TableColumns}."
+        # Update the subclass with the new annotations and defaults.
+        subclass.__annotations__.update(annotations)
+        init(subclass, **{str(c): c.value for c in cols})
+        subclass.__defaults__ = tuple(defaults[k] for k in subclass.__annotations__)
+        subclass._index = lambda self: str(index) if index is not None else None
+        subclass.__repr__ = lambda \
+                self: f"{subclass.__name__}({', '.join(f'{k}={v}' for k, v in self.as_dict().items())})"
+        return subclass
+
+    return decorator
 
 
-class SubjectLinkedTableConfig(TableConfig):
-    subject_id_alias: str
-
-    def __init__(self, subject_id_alias: str):
-        self.subject_id_alias = subject_id_alias
+@include_cols(COLUMN.subject_id, COLUMN.race, COLUMN.gender, COLUMN.date_of_birth, index=COLUMN.subject_id)
+class StaticTableColumns(TableColumns):
+    pass
 
 
-class TimestampedTableConfig(TableConfig):
-    time_alias: str
-
-    def __init__(self, time_alias: str):
-        self.time_alias = time_alias
+@include_cols(COLUMN.subject_id, COLUMN.admission_id, COLUMN.start_time, COLUMN.end_time, index=COLUMN.admission_id)
+class AdmissionTableColumns(TableColumns):
+    pass
 
 
-class TimestampedMultiColumnTableConfig(TimestampedTableConfig):
+@include_cols(COLUMN.admission_id, COLUMN.code, COLUMN.description)
+class AdmissionSummaryTableColumns(TableColumns):
+    pass
+
+
+@include_cols(COLUMN.admission_id, COLUMN.code, COLUMN.time, COLUMN.measurement, COLUMN.description)
+class AdmissionTimeSeriesTableColumns(TableColumns):
+    pass
+
+
+@include_cols(COLUMN.admission_id, COLUMN.code, COLUMN.start_time, COLUMN.end_time, COLUMN.description)
+class AdmissionIntervalEventsTableColumns(TableColumns):
+    pass
+
+
+@include_cols(COLUMN.admission_id, COLUMN.code, COLUMN.description,
+              COLUMN.start_time, COLUMN.end_time,
+              COLUMN.amount,
+              COLUMN.amount_unit,
+              COLUMN.derived_unit_normalization_factor,
+              COLUMN.derived_universal_unit,
+              COLUMN.derived_normalized_amount,
+              COLUMN.derived_normalized_amount_per_hour)
+class AdmissionIntervalRatesTableColumns(TableColumns):
+    pass
+
+
+class MultivariateTimeSeriesTableMeta(AbstractConfig):
+    name: str
     attributes: tuple[str, ...]
     type_hint: tuple[NumericalTypeHint, ...]
     default_type_hint: NumericalTypeHint
 
-    def __init__(self, time_alias: str, attributes: tuple[str, ...],
+    def __init__(self, name: str, attributes: tuple[str, ...],
                  type_hint: Optional[tuple[NumericalTypeHint, ...]] = None,
                  default_type_hint: NumericalTypeHint = 'N'):
-        super().__init__(time_alias)
+        self.name = name
         self.attributes = attributes
         self.default_type_hint = default_type_hint
         self.type_hint = type_hint or ((default_type_hint,) * len(attributes))
@@ -101,148 +191,21 @@ class TimestampedMultiColumnTableConfig(TimestampedTableConfig):
             f"type hint must be one of 'N', 'C', 'B', 'O'. Got {self.type_hint}."
 
 
-class CodedTableConfig(TableConfig):
-    code_alias: str
-    description_alias: str
-
-    def __init__(self, code_alias: str, description_alias: str):
-        self.code_alias = code_alias
-        self.description_alias = description_alias
-
-
-class TimestampedCodedTableConfig(CodedTableConfig, TimestampedTableConfig):
-    def __init__(self, code_alias: str, description_alias: str, time_alias: str):
-        CodedTableConfig.__init__(self, code_alias=code_alias, description_alias=description_alias)
-        TimestampedTableConfig.__init__(self, time_alias=time_alias)
-
-
-class TimestampedCodedValueTableConfig(TimestampedCodedTableConfig):
-    value_alias: str
-
-    def __init__(self, value_alias: str, code_alias: str, description_alias: str, time_alias: str):
-        super().__init__(code_alias=code_alias, description_alias=description_alias, time_alias=time_alias)
-        self.value_alias = value_alias
-
-
-class AdmissionLinkedCodedValueTableConfig(CodedTableConfig, AdmissionLinkedTableConfig):
-    def __init__(self, code_alias: str, description_alias: str, admission_id_alias: str):
-        CodedTableConfig.__init__(self, code_alias=code_alias, description_alias=description_alias)
-        AdmissionLinkedTableConfig.__init__(self, admission_id_alias=admission_id_alias)
-
-
-class IntervalBasedTableConfig(TableConfig):
-    start_time_alias: str
-    end_time_alias: str
-
-    def __init__(self, start_time_alias: str, end_time_alias: str):
-        self.start_time_alias = start_time_alias
-        self.end_time_alias = end_time_alias
-
-
-class AdmissionTableConfig(AdmissionLinkedTableConfig, SubjectLinkedTableConfig):
-    admission_time_alias: str
-    discharge_time_alias: str
-
-    def __init__(self, admission_id_alias: str, subject_id_alias: str, admission_time_alias: str,
-                 discharge_time_alias: str):
-        AdmissionLinkedTableConfig.__init__(self, admission_id_alias=admission_id_alias)
-        SubjectLinkedTableConfig.__init__(self, subject_id_alias=subject_id_alias)
-        self.admission_time_alias = admission_time_alias
-        self.discharge_time_alias = discharge_time_alias
-
-    @property
-    def index(self):
-        return self.admission_id_alias
-
-
-class StaticTableConfig(SubjectLinkedTableConfig):
-    gender_alias: str
-    race_alias: str
-    date_of_birth_alias: str
-
-    def __init__(self, subject_id_alias: str, gender_alias: str, race_alias: str, date_of_birth_alias: str):
-        super().__init__(subject_id_alias)
-        self.gender_alias = gender_alias
-        self.race_alias = race_alias
-        self.date_of_birth_alias = date_of_birth_alias
-
-    @property
-    def index(self):
-        return self.subject_id_alias
-
-
-class AdmissionTimestampedMultiColumnTableConfig(TimestampedMultiColumnTableConfig, AdmissionLinkedTableConfig):
-    name: str
-
-    def __init__(self, name: str, admission_id_alias: str, time_alias: str, attributes: tuple[str, ...],
-                 type_hint: Optional[tuple[NumericalTypeHint, ...]] = None,
-                 default_type_hint: NumericalTypeHint = 'N'):
-        TimestampedMultiColumnTableConfig.__init__(self, time_alias=time_alias, attributes=attributes,
-                                                   type_hint=type_hint, default_type_hint=default_type_hint)
-        AdmissionLinkedTableConfig.__init__(self, admission_id_alias=admission_id_alias)
-        self.name = name
-
-
-class AdmissionTimestampedCodedValueTableConfig(TimestampedCodedValueTableConfig, AdmissionLinkedTableConfig):
-
-    def __init__(self, admission_id_alias: str, value_alias: str, code_alias: str, description_alias: str,
-                 time_alias: str):
-        TimestampedCodedValueTableConfig.__init__(self, code_alias=code_alias, value_alias=value_alias,
-                                                  description_alias=description_alias,
-                                                  time_alias=time_alias)
-        AdmissionLinkedTableConfig.__init__(self, admission_id_alias=admission_id_alias)
-
-
-class AdmissionIntervalBasedCodedTableConfig(IntervalBasedTableConfig, CodedTableConfig,
-                                             AdmissionLinkedTableConfig):
-    def __init__(self, admission_id_alias: str, start_time_alias: str, end_time_alias: str,
-                 code_alias: str, description_alias: str, ):
-        IntervalBasedTableConfig.__init__(self, start_time_alias=start_time_alias, end_time_alias=end_time_alias)
-        CodedTableConfig.__init__(self, code_alias=code_alias, description_alias=description_alias)
-        AdmissionLinkedTableConfig.__init__(self, admission_id_alias=admission_id_alias)
-
-
-class RatedInputTableConfig(AdmissionIntervalBasedCodedTableConfig):
-    amount_alias: str
-    amount_unit_alias: str
-    derived_unit_normalization_factor: str
-    derived_universal_unit: str
-    derived_normalized_amount: str
-    derived_normalized_amount_per_hour: str
-
-    def __init__(self, admission_id_alias: str, start_time_alias: str, end_time_alias: str,
-                 code_alias: str, description_alias: str, amount_alias: str, amount_unit_alias: str,
-                 derived_unit_normalization_factor: str, derived_universal_unit: str,
-                 derived_normalized_amount: str,
-                 derived_normalized_amount_per_hour: str):
-        AdmissionIntervalBasedCodedTableConfig.__init__(self, admission_id_alias=admission_id_alias,
-                                                        start_time_alias=start_time_alias,
-                                                        end_time_alias=end_time_alias,
-                                                        code_alias=code_alias,
-                                                        description_alias=description_alias)
-        self.amount_alias = amount_alias
-        self.amount_unit_alias = amount_unit_alias
-        self.derived_unit_normalization_factor = derived_unit_normalization_factor
-        self.derived_universal_unit = derived_universal_unit
-        self.derived_normalized_amount = derived_normalized_amount
-        self.derived_normalized_amount_per_hour = derived_normalized_amount_per_hour
-
-
 class DatasetTablesConfig(AbstractConfig):
-    static: StaticTableConfig
-    admissions: AdmissionTableConfig
-    dx_discharge: Optional[AdmissionLinkedCodedValueTableConfig]
-    obs: Optional[AdmissionTimestampedCodedValueTableConfig]
-    icu_procedures: Optional[AdmissionIntervalBasedCodedTableConfig]
-    icu_inputs: Optional[RatedInputTableConfig]
-    hosp_procedures: Optional[AdmissionIntervalBasedCodedTableConfig]
+    static: StaticTableColumns
+    admissions: AdmissionTableColumns
+    dx_discharge: Optional[AdmissionSummaryTableColumns]
+    obs: Optional[AdmissionTimeSeriesTableColumns]
+    icu_procedures: Optional[AdmissionIntervalEventsTableColumns]
+    icu_inputs: Optional[AdmissionIntervalRatesTableColumns]
+    hosp_procedures: Optional[AdmissionIntervalEventsTableColumns]
 
-    def __init__(self, static: StaticTableConfig, admissions: AdmissionTableConfig,
-                 dx_discharge: Optional[AdmissionLinkedCodedValueTableConfig],
-                 obs: Optional[AdmissionTimestampedCodedValueTableConfig],
-                 icu_procedures: Optional[AdmissionIntervalBasedCodedTableConfig],
-                 icu_inputs: Optional[RatedInputTableConfig],
-                 hosp_procedures: Optional[AdmissionIntervalBasedCodedTableConfig]
+    def __init__(self, static: StaticTableColumns, admissions: AdmissionTableColumns,
+                 dx_discharge: Optional[AdmissionSummaryTableColumns],
+                 obs: Optional[AdmissionTimeSeriesTableColumns],
+                 icu_procedures: Optional[AdmissionIntervalEventsTableColumns],
+                 icu_inputs: Optional[AdmissionIntervalRatesTableColumns],
+                 hosp_procedures: Optional[AdmissionIntervalEventsTableColumns]
                  ):
         self.static = static
         self.admissions = admissions
@@ -253,71 +216,52 @@ class DatasetTablesConfig(AbstractConfig):
         self.hosp_procedures = hosp_procedures
 
     def __check_init__(self):
-        self._assert_consistent_aliases()
-
-    def _assert_consistent_aliases(self):
-        config_dict = self.table_config_dict
-
-        for k, v in config_dict.items():
-            if k == 'static' or not isinstance(v, SubjectLinkedTableConfig):
-                continue
-            assert v.subject_id_alias == self.static.subject_id_alias, \
-                f"Subject id alias for {k} must be the same as the one in static table. Got {v.subject_id_alias}." \
-                f"Expected {self.static.subject_id_alias}."
-
-        for k, v in config_dict.items():
-            if k == 'admissions' or not isinstance(v, AdmissionLinkedTableConfig):
-                continue
-            assert v.admission_id_alias == self.admissions.admission_id_alias, \
-                f"Admission id alias for {k} must be the same as the one in admissions table. Got {v.admission_id_alias}." \
-                f"Expected {self.admissions.admission_id_alias}."
+        assert all(isinstance(v, TableColumns) for v in self.as_dict().values())
+        column_names = defaultdict(set)
+        for v in self.as_dict().values():
+            for k, v in v.items():
+                assert k == v
+                column_names[k].add(v)
+        for k, v in column_names.items():
+            if len(v) > 1:
+                raise ValueError(f"Column {k} is present with different names: {v}")
 
     @property
-    def admission_id_alias(self):
+    def admission_id_alias(self) -> str:
         return self.admissions.admission_id_alias
 
     @property
-    def subject_id_alias(self):
+    def subject_id_alias(self) -> str:
         return self.static.subject_id_alias
 
     @property
-    def table_config_dict(self):
-        return {k: v for k, v in self.__dict__.items() if isinstance(v, TableConfig)}
-
-    @property
-    def timestamped_table_config_dict(self):
-        return {k: v for k, v in self.__dict__.items() if isinstance(v, TimestampedTableConfig)}
+    def timestamped_tables_config_dict(self):
+        return {k: v for k, v in self.as_dict().items()
+                if str(COLUMN.time) in v.as_dict().keys()}
 
     @property
     def interval_based_table_config_dict(self):
-        return {k: v for k, v in self.__dict__.items() if
-                isinstance(v, IntervalBasedTableConfig)}
+        return {k: v for k, v in self.as_dict().items()
+                if {str(COLUMN.start_time), str(COLUMN.end_time)}.issubset(set(v.as_dict().keys))}
 
     @property
     def indices(self) -> dict[str, str]:
         return {
             k: v.index
-            for k, v in self.__dict__.items()
-            if isinstance(v, TableConfig) and v.index is not None
+            for k, v in self.as_dict().items() if v.index is not None
         }
 
     @property
     def time_cols(self) -> dict[str, tuple[str, ...]]:
-        return {
-            k: v.time_cols
-            for k, v in self.__dict__.items()
-            if isinstance(v, TableConfig) and len(v.time_cols) > 0
-        }
+        return {k: v.time_cols for k, v in self.as_dict().items() if len(v.time_cols) > 0}
 
     @property
     def code_column(self) -> dict[str, str]:
-        return {k: v.code_alias for k, v in self.__dict__.items() if isinstance(v, CodedTableConfig)}
+        return {k: v.code_cols for k, v in self.as_dict().items() if len(v.code_cols) > 0}
 
     def temporal_admission_linked_table(self, table_name: str) -> bool:
         conf = getattr(self, table_name)
-        temporal = isinstance(conf, TimestampedTableConfig) or isinstance(conf, IntervalBasedTableConfig)
-        admission_linked = isinstance(conf, AdmissionLinkedTableConfig)
-        return temporal and admission_linked
+        return len(conf.time_cols) > 0 and COLUMN.admission_id in conf
 
 
 class DatasetTables(AbstractVxData):
@@ -361,8 +305,7 @@ class DatasetSchemeConfig(AbstractConfig):
     def __init__(self, ethnicity: Optional[str] = None, gender: Optional[str] = None,
                  dx_discharge: Optional[str] = None, obs: Optional[str] = None,
                  icu_procedures: Optional[str] = None, hosp_procedures: Optional[str] = None,
-                 icu_inputs: Optional[str] = None,
-                 icu_inputs_uom_normalizer: Optional[str] = None):
+                 icu_inputs: Optional[str] = None):
         self.ethnicity = ethnicity
         self.gender = gender
         self.dx_discharge = dx_discharge
@@ -685,8 +628,6 @@ class DatasetConfig(AbstractConfig):
         self.filter_subjects_with_observation = filter_subjects_with_observation
 
 
-
-
 class Dataset(AbstractProcessedDataset):
     """
     A class representing a dataset.
@@ -712,20 +653,11 @@ class Dataset(AbstractProcessedDataset):
 
     @classmethod
     @abstractmethod
-    def load_tables(cls, config: DatasetConfig, scheme: DatasetSchemeProxy) -> DatasetTables:
-        pass
-
-    @classmethod
-    @abstractmethod
     def make_default_pipeline(cls) -> AbstractDatasetPipeline:
         ...
 
     def scheme_proxy(self, coding_schemes_manger: CodingSchemesManager) -> DatasetSchemeProxy:  # type: ignore[override]
         return DatasetSchemeProxy(self.config.scheme, coding_schemes_manger)
-
-    @classmethod
-    def load_scheme_manager(cls, config: DatasetConfig) -> CodingSchemesManager:
-        raise NotImplementedError
 
     @cached_property
     def subject_ids(self):
@@ -735,8 +667,8 @@ class Dataset(AbstractProcessedDataset):
 
     @cached_property
     def subjects_intervals_sum(self) -> pd.Series:
-        c_admittime = self.config.tables.admissions.admission_time_alias
-        c_dischtime = self.config.tables.admissions.discharge_time_alias
+        c_admittime = self.config.tables.admissions.start_time
+        c_dischtime = self.config.tables.admissions.end_time
         c_subject_id = self.config.tables.admissions.subject_id_alias
         admissions = self.tables.admissions
         interval = (admissions[c_dischtime] - admissions[c_admittime]).dt.total_seconds()

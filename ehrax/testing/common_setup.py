@@ -114,8 +114,8 @@ def sample_admissions_dataframe(subjects_df: pd.DataFrame,
                                 max_stay_days: int) -> pd.DataFrame:
     c_subject = static_table_config.subject_id_alias
     c_admission = admission_table_config.admission_id_alias
-    c_admission_time = admission_table_config.admission_time_alias
-    c_discharge_time = admission_table_config.discharge_time_alias
+    c_admission_time = admission_table_config.start_time
+    c_discharge_time = admission_table_config.end_time
     admit_dates = pd.to_datetime(random.choices(pd.date_range(start='1/1/2000', end='1/1/2020', freq='D'), k=n))
     disch_dates = admit_dates + pd.to_timedelta(random.choices(range(1, max_stay_days), k=n), unit='D')
 
@@ -146,8 +146,8 @@ def _sample_proc_dataframe(admissions_df: pd.DataFrame,
                            scheme: rx.CodingScheme,
                            n: int) -> pd.DataFrame:
     c_admission = admission_table_config.admission_id_alias
-    c_admittime = admission_table_config.admission_time_alias
-    c_dischtime = admission_table_config.discharge_time_alias
+    c_admittime = admission_table_config.start_time
+    c_dischtime = admission_table_config.end_time
     c_code = table_config.code_alias
     c_start = table_config.start_time_alias
     c_end = table_config.end_time_alias
@@ -192,8 +192,8 @@ def sample_obs_dataframe(admissions_df: pd.DataFrame,
                          obs_scheme: rx.CodingScheme,
                          n: int) -> pd.DataFrame:
     c_admission = admission_table_config.admission_id_alias
-    c_admittime = admission_table_config.admission_time_alias
-    c_dischtime = admission_table_config.discharge_time_alias
+    c_admittime = admission_table_config.start_time
+    c_dischtime = admission_table_config.end_time
     c_obs = obs_table_config.code_alias
     c_time = obs_table_config.time_alias
     c_value = obs_table_config.value_alias
@@ -296,81 +296,14 @@ def make_targets_schemes_with_maps(n_scheme_targets: dict[str, int], source_sche
                                      for space, size in n_scheme_targets.items()))
     return dict(zip(space, schemes)), dict(zip(space, maps))
 
-
-ALIAS = {
-    'subject_id': 'SUBJECT_IDXYZ',
-    'race': 'race',
-    'gender': 'gender',
-    'date_of_birth': 'date_of_birth',
-    'admission_id': 'ADMISSION_IDX',
-    'admission_time': 'admission_time',
-    'discharge_time': 'discharge_time',
-    'obs_time': 'time_bin',
-    'obs_code': 'measurement',
-    'obs_code_desc': 'measurement description',
-    'obs_value': 'obs_val',
-    'dx_code': 'dx_code',
-    'dx_code_desc': 'dx_code description',
-    'hosp_proc_code': 'hosp_proc_code',
-    'hosp_proc_code_desc': 'hosp_proc_code description',
-    'hosp_proc_start_time': 'hosp_proc_start_time',
-    'hosp_proc_end_time': 'hosp_proc_end_time',
-    'icu_proc_code': 'icu_proc_code',
-    'icu_proc_code_desc': 'icu_proc_code description',
-    'icu_proc_start_time': 'icu_proc_start_time',
-    'icu_proc_end_time': 'icu_proc_end_time',
-    'icu_input_code': 'icu_input_code',
-    'icu_input_code_desc': 'icu_input_code description',
-    'icu_input_start_time': 'icu_input_start_time',
-    'icu_input_end_time': 'icu_input_end_time',
-    'icu_input_amount_alias': 'icu_input_amount_alias',
-    'icu_input_amount_unit_alias': 'icu_input_amount_unit_alias',
-    'icu_input_derived_normalized_amount': 'icu_input_derived_normalized_amount',
-    'icu_input_derived_normalized_amount_per_hour': 'icu_input_derived_normalized_amount_per_hour',
-    'icu_input_derived_unit_normalization_factor': 'icu_input_derived_unit_normalization_factor',
-    'icu_input_derived_universal_unit': 'icu_input_derived_universal_unit',
-}
 TABLE_CONF = dict(
-    static=rx.dataset.StaticTableConfig(subject_id_alias=ALIAS['subject_id'],
-                                        gender_alias=ALIAS['gender'], race_alias=ALIAS['race'],
-                                        date_of_birth_alias=ALIAS['date_of_birth']),
-    admissions=rx.dataset.AdmissionTableConfig(subject_id_alias=ALIAS['subject_id'],
-                                               admission_id_alias=ALIAS['admission_id'],
-                                               admission_time_alias=ALIAS['admission_time'],
-                                               discharge_time_alias=ALIAS['discharge_time']),
-
-    obs=rx.dataset.AdmissionTimestampedCodedValueTableConfig(admission_id_alias=ALIAS['admission_id'],
-                                                             time_alias=ALIAS['obs_time'],
-                                                             code_alias=ALIAS['obs_code'],
-                                                             description_alias=ALIAS['obs_code_desc'],
-                                                             value_alias=ALIAS['obs_value']),
-    dx_discharge=rx.dataset.AdmissionLinkedCodedValueTableConfig(admission_id_alias=ALIAS['admission_id'],
-                                                                 code_alias=ALIAS['dx_code'],
-                                                                 description_alias=ALIAS['dx_code_desc']),
-    hosp_procedures=rx.dataset.AdmissionIntervalBasedCodedTableConfig(admission_id_alias=ALIAS['admission_id'],
-                                                                      code_alias=ALIAS['hosp_proc_code'],
-                                                                      description_alias=ALIAS['hosp_proc_code_desc'],
-                                                                      start_time_alias=ALIAS['hosp_proc_start_time'],
-                                                                      end_time_alias=ALIAS['hosp_proc_end_time']),
-    icu_procedures=rx.dataset.AdmissionIntervalBasedCodedTableConfig(admission_id_alias=ALIAS['admission_id'],
-                                                                     code_alias=ALIAS['icu_proc_code'],
-                                                                     description_alias=ALIAS['icu_proc_code_desc'],
-                                                                     start_time_alias=ALIAS['icu_proc_start_time'],
-                                                                     end_time_alias=ALIAS['icu_proc_end_time']),
-    icu_inputs=rx.dataset.RatedInputTableConfig(admission_id_alias=ALIAS['admission_id'],
-                                                code_alias=ALIAS['icu_input_code'],
-                                                description_alias=ALIAS['icu_input_code_desc'],
-                                                start_time_alias=ALIAS['icu_input_start_time'],
-                                                end_time_alias=ALIAS['icu_input_end_time'],
-                                                amount_alias=ALIAS['icu_input_amount_alias'],
-                                                amount_unit_alias=ALIAS['icu_input_amount_unit_alias'],
-                                                derived_normalized_amount=ALIAS['icu_input_derived_normalized_amount'],
-                                                derived_normalized_amount_per_hour=ALIAS[
-                                                    'icu_input_derived_normalized_amount_per_hour'],
-                                                derived_unit_normalization_factor=ALIAS[
-                                                    'icu_input_derived_unit_normalization_factor'],
-                                                derived_universal_unit=ALIAS['icu_input_derived_universal_unit'])
-
+    static=rx.dataset.STATIC_TABLE_CONFIG,
+    admissions=rx.dataset.ADMISSION_TABLE_CONFIG,
+    obs=rx.dataset.ADMISSION_TIME_SERIES_TABLE_CONFIG,
+    dx_discharge=rx.dataset.ADMISSION_SUMMARY_TABLE_CONFIG,
+    hosp_procedures=rx.dataset.ADMISSION_INTERVAL_EVENTS_TABLE_CONFIG,
+    icu_procedures=rx.dataset.ADMISSION_INTERVAL_EVENTS_TABLE_CONFIG,
+    icu_inputs=rx.dataset.ADMISSION_INTERVAL_RATES_TABLE_CONFIG
 )
 DATASET_TABLES_CONF = rx.DatasetTablesConfig(**TABLE_CONF)  # type: ignore
 SCHEMES: dict[str, rx.CodingScheme] = dict(
