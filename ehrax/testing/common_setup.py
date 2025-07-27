@@ -219,7 +219,7 @@ def sample_obs_dataframe(admissions_df: pd.DataFrame,
     return df[[c_admission, c_obs, c_time, c_value]]
 
 
-def _dataset_tables(dataset_tables_config: rx.DatasetTablesConfig,
+def _dataset_tables(dataset_tables_config: rx.DatasetColumns,
                     dataset_scheme_config: rx.DatasetSchemeConfig,
                     dataset_scheme_manager: rx.CodingSchemesManager,
                     freqs: tuple[int, ...], max_stay_days: int) -> rx.DatasetTables:
@@ -305,7 +305,7 @@ TABLE_CONF = dict(
     icu_procedures=rx.dataset.ADMISSION_INTERVAL_EVENTS_TABLE_CONFIG,
     icu_inputs=rx.dataset.ADMISSION_INTERVAL_RATES_TABLE_CONFIG
 )
-DATASET_TABLES_CONF = rx.DatasetTablesConfig(**TABLE_CONF)  # type: ignore
+DATASET_TABLES_CONF = rx.DatasetColumns(**TABLE_CONF)  # type: ignore
 SCHEMES: dict[str, rx.CodingScheme] = dict(
     ethnicity=scheme('ethnicity', ['E1', 'E2', 'E3']),
     gender=scheme('genderrrr', ['M', 'F']),
@@ -355,7 +355,7 @@ DATASET_SCHEME_CONF = rx.DatasetSchemeConfig(ethnicity=SCHEMES['ethnicity'].name
                                              icu_inputs=SCHEMES['icu_inputs'].name,
                                              obs=SCHEMES['obs'].name,
                                              hosp_procedures=SCHEMES['hosp_procedures'].name)
-DATASET_CONFIG = rx.DatasetConfig(scheme=DATASET_SCHEME_CONF, tables=DATASET_TABLES_CONF)
+DATASET_CONFIG = rx.DatasetConfig(scheme=DATASET_SCHEME_CONF, columns=DATASET_TABLES_CONF)
 TVXEHR_SCHEME_CONF = rx.TVxEHRSchemeConfig(ethnicity=SCHEMES['ethnicity'].name,
                                            gender=SCHEMES['gender'].name,
                                            dx_discharge=TARGET_SCHEMES['dx_discharge'].name,

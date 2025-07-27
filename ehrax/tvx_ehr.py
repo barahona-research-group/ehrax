@@ -118,7 +118,7 @@ class CodedValueProcessor(AbstractVxData, ABC):
     def fit(self, dataset: Dataset, admission_ids: list[str],
             table_name: str, code_column: str, value_column: str) -> Self:
         df = getattr(dataset.tables, table_name)
-        c_adm_id = getattr(dataset.config.tables, table_name).admission_id_alias
+        c_adm_id = getattr(dataset.config.columns, table_name).admission_id_alias
         df = df[[code_column, value_column, c_adm_id]]
         df = df[df[c_adm_id].isin(admission_ids)]
 
@@ -496,8 +496,8 @@ class TVxEHR(AbstractProcessedDataset):
 
     @cached_property
     def subjects_sorted_admission_ids(self) -> dict[str, list[str]]:
-        c_admittime = self.dataset.config.tables.admissions.start_time
-        c_subject_id = self.dataset.config.tables.admissions.subject_id_alias
+        c_admittime = self.dataset.config.columns.admissions.start_time
+        c_subject_id = self.dataset.config.columns.admissions.subject_id_alias
 
         # For each subject get the list of adm sorted by admission date.
         return self.dataset.tables.admissions.groupby(c_subject_id).apply(
@@ -524,8 +524,8 @@ class TVxEHR(AbstractProcessedDataset):
     @cached_property
     def admission_dates(self) -> dict[str, AdmissionDates]:
         admissions = self.dataset.tables.admissions
-        c_admittime = self.dataset.config.tables.admissions.start_time
-        c_dischtime = self.dataset.config.tables.admissions.end_time
+        c_admittime = self.dataset.config.columns.admissions.start_time
+        c_dischtime = self.dataset.config.columns.admissions.end_time
         return admissions.apply(lambda x: AdmissionDates(x[c_admittime], x[c_dischtime]), axis=1).to_dict()
 
     def fetch_device_batch(self, subject_ids: Optional[tuple[str, ...]] = None) -> tuple[Self, Self]:

@@ -67,10 +67,10 @@ def large_dataset(large_dataset_tables: rx.DatasetTables) -> Dataset:
 @pytest.fixture(scope='session')
 def unit_converter_table(dataset_tables_with_records: rx.DatasetTables) -> Optional[pd.DataFrame]:
     assert 'icu_inputs' in dataset_tables_with_records.tables_dict or len(dataset_tables_with_records.icu_inputs) == 0
-    c_code = DATASET_CONFIG.tables.icu_inputs.code_alias
-    c_amount_unit = DATASET_CONFIG.tables.icu_inputs.amount_unit_alias
-    c_norm_factor = DATASET_CONFIG.tables.icu_inputs.derived_unit_normalization_factor
-    c_universal_unit = DATASET_CONFIG.tables.icu_inputs.derived_universal_unit
+    c_code = DATASET_CONFIG.columns.icu_inputs.code_alias
+    c_amount_unit = DATASET_CONFIG.columns.icu_inputs.amount_unit_alias
+    c_norm_factor = DATASET_CONFIG.columns.icu_inputs.derived_unit_normalization_factor
+    c_universal_unit = DATASET_CONFIG.columns.icu_inputs.derived_universal_unit
     icu_inputs = dataset_tables_with_records.icu_inputs
 
     table = pd.DataFrame(columns=[c_code, c_amount_unit],
@@ -103,13 +103,13 @@ def mimiciv_dataset_scheme_config() -> rx.DatasetSchemeConfig:
 
 @pytest.fixture(scope='session')
 def mimiciv_dataset_config(mimiciv_dataset_scheme_config: rx.DatasetSchemeConfig) -> rx.DatasetConfig:
-    return rx.DatasetConfig(scheme=mimiciv_dataset_scheme_config, tables=DATASET_TABLES_CONF)
+    return rx.DatasetConfig(scheme=mimiciv_dataset_scheme_config, columns=DATASET_TABLES_CONF)
 
 
 @pytest.fixture(scope='session')
 def mimiciv_dataset_without_records(mimiciv_dataset_config, dataset_tables_without_records) -> Dataset:
     ds = Dataset(tables=dataset_tables_without_records, config=mimiciv_dataset_config)
-    return eqx.tree_at(lambda x: x.tables, ds, dataset_tables_without_records,
+    return eqx.tree_at(lambda x: x.columns, ds, dataset_tables_without_records,
                        is_leaf=lambda x: x is None)._execute_pipeline([rx.SetIndex(), rx.SynchronizeSubjects(),
                                                                        rx.CastTimestamps(), rx.SetAdmissionRelativeTimes()],
                                                                       DATASET_SCHEME_MANAGER)

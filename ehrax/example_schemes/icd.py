@@ -80,7 +80,7 @@ class ICDOps:
     Class representing the ICD (International Classification of Diseases) coding scheme.
 
     This class provides additional methods
-    for loading conversion tables, analyzing conversions, and registering mappings.
+    for loading conversion columns, analyzing conversions, and registering mappings.
 
 
     Methods:

@@ -24,7 +24,7 @@ SECONDS_TO_HOURS_SCALER: Final[float] = 1 / 3600.0  # convert seconds to hours
 
 
 # This Enum will be used as a reference to ensure consistent column names
-# across the multiple (relational) tables representing a single dataset.
+# across the multiple (relational) columns representing a single dataset.
 class COLUMN(enum.StrEnum):
     subject_id = enum.auto()
     admission_id = enum.auto()
@@ -191,22 +191,22 @@ class MultivariateTimeSeriesTableMeta(AbstractConfig):
             f"type hint must be one of 'N', 'C', 'B', 'O'. Got {self.type_hint}."
 
 
-class DatasetTablesConfig(AbstractConfig):
+class DatasetColumns(AbstractConfig):
     static: StaticTableColumns
     admissions: AdmissionTableColumns
-    dx_discharge: Optional[AdmissionSummaryTableColumns]
-    obs: Optional[AdmissionTimeSeriesTableColumns]
-    icu_procedures: Optional[AdmissionIntervalEventsTableColumns]
-    icu_inputs: Optional[AdmissionIntervalRatesTableColumns]
-    hosp_procedures: Optional[AdmissionIntervalEventsTableColumns]
+    dx_discharge: AdmissionSummaryTableColumns
+    obs: AdmissionTimeSeriesTableColumns
+    icu_procedures: AdmissionIntervalEventsTableColumns
+    icu_inputs: AdmissionIntervalRatesTableColumns
+    hosp_procedures: AdmissionIntervalEventsTableColumns
 
-    def __init__(self, static: StaticTableColumns, admissions: AdmissionTableColumns,
-                 dx_discharge: Optional[AdmissionSummaryTableColumns],
-                 obs: Optional[AdmissionTimeSeriesTableColumns],
-                 icu_procedures: Optional[AdmissionIntervalEventsTableColumns],
-                 icu_inputs: Optional[AdmissionIntervalRatesTableColumns],
-                 hosp_procedures: Optional[AdmissionIntervalEventsTableColumns]
-                 ):
+    def __init__(self, static: StaticTableColumns = StaticTableColumns(),
+                 admissions: AdmissionTableColumns = AdmissionTableColumns(),
+                 dx_discharge: Optional[AdmissionSummaryTableColumns] = AdmissionSummaryTableColumns(),
+                 obs: Optional[AdmissionTimeSeriesTableColumns] = AdmissionTimeSeriesTableColumns(),
+                 icu_procedures: Optional[AdmissionIntervalEventsTableColumns] = AdmissionTimeSeriesTableColumns(),
+                 icu_inputs: Optional[AdmissionIntervalRatesTableColumns] = AdmissionTimeSeriesTableColumns(),
+                 hosp_procedures: Optional[AdmissionIntervalEventsTableColumns] = AdmissionTimeSeriesTableColumns()):
         self.static = static
         self.admissions = admissions
         self.dx_discharge = dx_discharge
@@ -228,11 +228,11 @@ class DatasetTablesConfig(AbstractConfig):
 
     @property
     def admission_id_alias(self) -> str:
-        return self.admissions.admission_id_alias
+        return self.admissions.admission_id
 
     @property
     def subject_id_alias(self) -> str:
-        return self.static.subject_id_alias
+        return self.static.subject_id
 
     @property
     def timestamped_tables_config_dict(self):
@@ -615,17 +615,17 @@ class AbstractProcessedDataset(AbstractDataset):
 
 class DatasetConfig(AbstractConfig):
     scheme: DatasetSchemeConfig
-    tables: DatasetTablesConfig
+    columns: DatasetColumns
     overlapping_admissions: OverlappingAction
-    filter_subjects_with_observation: Optional[str]
+    select_subjects_with_observation: Optional[str]
 
-    def __init__(self, scheme: DatasetSchemeConfig, tables: DatasetTablesConfig,
+    def __init__(self, scheme: DatasetSchemeConfig, columns: DatasetColumns = DatasetColumns(),
                  overlapping_admissions: OverlappingAction = "merge",
-                 filter_subjects_with_observation: Optional[str] = None):
+                 select_subjects_with_observation: Optional[str] = None):
         self.scheme = scheme
-        self.tables = tables
+        self.columns = columns
         self.overlapping_admissions = overlapping_admissions
-        self.filter_subjects_with_observation = filter_subjects_with_observation
+        self.select_subjects_with_observation = select_subjects_with_observation
 
 
 class Dataset(AbstractProcessedDataset):
@@ -661,15 +661,15 @@ class Dataset(AbstractProcessedDataset):
 
     @cached_property
     def subject_ids(self):
-        assert self.tables.static.index.name == self.config.tables.static.subject_id_alias, \
-            f"Index name of static table must be {self.config.tables.static.subject_id_alias}."
+        assert self.tables.static.index.name == self.config.columns.static.subject_id, \
+            f"Index name of static table must be {self.config.columns.static.subject_id}."
         return self.tables.static.index.unique()
 
     @cached_property
     def subjects_intervals_sum(self) -> pd.Series:
-        c_admittime = self.config.tables.admissions.start_time
-        c_dischtime = self.config.tables.admissions.end_time
-        c_subject_id = self.config.tables.admissions.subject_id_alias
+        c_admittime = self.config.columns.admissions.start_time
+        c_dischtime = self.config.columns.admissions.end_time
+        c_subject_id = self.config.columns.admissions.subject_id
         admissions = self.tables.admissions
         interval = (admissions[c_dischtime] - admissions[c_admittime]).dt.total_seconds()
         admissions = admissions.assign(interval=interval)
@@ -679,7 +679,7 @@ class Dataset(AbstractProcessedDataset):
 
     @cached_property
     def subjects_n_admissions(self) -> pd.Series:
-        c_subject_id = self.config.tables.admissions.subject_id_alias
+        c_subject_id = self.config.columns.admissions.subject_id
         admissions = self.tables.admissions
         missed_subjects = set(self.subject_ids).difference(set(admissions[c_subject_id]))
         return pd.concat([admissions.groupby(c_subject_id).size(),
@@ -704,7 +704,7 @@ class Dataset(AbstractProcessedDataset):
         random.Random(random_seed).shuffle(subject_ids)
         subject_ids = np.array(subject_ids)
 
-        c_subject_id = self.config.tables.static.subject_id_alias
+        c_subject_id = self.config.columns.static.subject_id
 
         admissions = self.tables.admissions[self.tables.admissions[c_subject_id].isin(subject_ids)]
 

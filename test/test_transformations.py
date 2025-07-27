@@ -24,7 +24,7 @@ def sample_subject_id(indexed_dataset: rx.Dataset) -> str:
 
 @pytest.fixture(scope='module')
 def sample_admission_id(indexed_dataset: rx.Dataset) -> str:
-    # Get an admission id that exists in all tables.
+    # Get an admission id that exists in all columns.
     candidates = set(indexed_dataset.tables.admissions.index)
     for _, table in indexed_dataset.tables.tables_dict.items():
         if str(COLUMN_NAME.admission_id) in table.columns:
@@ -38,7 +38,7 @@ class TestDatasetTransformation:
     def removed_subject_admissions_dataset(self, indexed_dataset: rx.Dataset, sample_subject_id: str):
         admissions = indexed_dataset.tables.admissions
         admissions = admissions[admissions[str(COLUMN_NAME.subject_id)] != sample_subject_id]
-        return eqx.tree_at(lambda x: x.tables.admissions, indexed_dataset, admissions)
+        return eqx.tree_at(lambda x: x.columns.admissions, indexed_dataset, admissions)
 
     @pytest.fixture(scope='class')
     def removed_no_admission_subjects_RESULTS(self, removed_subject_admissions_dataset: rx.Dataset):
@@ -58,13 +58,13 @@ class TestDatasetTransformation:
     def removed_subject_dataset_unsync(self, indexed_dataset: rx.Dataset, sample_subject_id: str):
         static = indexed_dataset.tables.static
         static = static.drop(index=sample_subject_id)
-        return eqx.tree_at(lambda x: x.tables.static, indexed_dataset, static)
+        return eqx.tree_at(lambda x: x.columns.static, indexed_dataset, static)
 
     @pytest.fixture(scope='class')
     def removed_admission_dataset_unsync(self, indexed_dataset: rx.Dataset, sample_admission_id: str):
         admissions = indexed_dataset.tables.admissions
         admissions = admissions.drop(index=sample_admission_id)
-        return eqx.tree_at(lambda x: x.tables.admissions, indexed_dataset, admissions)
+        return eqx.tree_at(lambda x: x.columns.admissions, indexed_dataset, admissions)
 
     @pytest.fixture(scope='class')
     def removed_subject_dataset_sync_RESULTS(self, removed_subject_dataset_unsync):
@@ -132,11 +132,11 @@ class TestCastTimestamps:
     @pytest.fixture(scope='class')
     def str_timestamps_dataset(self, indexed_dataset: rx.Dataset):
 
-        for table_name, time_cols in indexed_dataset.config.tables.time_cols.items():
+        for table_name, time_cols in indexed_dataset.config.columns.time_cols.items():
             table = indexed_dataset.tables.tables_dict[table_name].copy()
             for col in time_cols:
                 table[col] = table[col].astype(str)
-            indexed_dataset = eqx.tree_at(lambda x: getattr(x.tables, table_name), indexed_dataset, table)
+            indexed_dataset = eqx.tree_at(lambda x: getattr(x.columns, table_name), indexed_dataset, table)
         return indexed_dataset
 
     @pytest.fixture(scope='class')
@@ -145,7 +145,7 @@ class TestCastTimestamps:
 
     def test_cast_timestamps(self, str_timestamps_dataset: rx.Dataset,
                              casted_timestamps_dataset: rx.Dataset):
-        for table_name, time_cols in str_timestamps_dataset.config.tables.time_cols.items():
+        for table_name, time_cols in str_timestamps_dataset.config.columns.time_cols.items():
             table1 = str_timestamps_dataset.tables.tables_dict[table_name]
             table2 = casted_timestamps_dataset.tables.tables_dict[table_name]
             for col in time_cols:
@@ -157,12 +157,12 @@ class TestFilterUnsupportedCodes:
     @pytest.fixture(scope='class')
     def dataset_with_unsupported_codes(self, indexed_dataset: rx.Dataset) -> tuple[rx.Dataset, dict[str, set[str]]]:
         unsupported_codes = {}
-        for table_name, code_col in indexed_dataset.config.tables.code_column.items():
+        for table_name, code_col in indexed_dataset.config.columns.code_column.items():
             table = indexed_dataset.tables.tables_dict[table_name]
             unsupported_code = f'UNSUPPORTED_CODE_{"".join(random.choices(string.ascii_uppercase, k=5))}'
             table.loc[table.index[0], code_col] = unsupported_code
             unsupported_codes[table_name] = unsupported_code
-            indexed_dataset = eqx.tree_at(lambda x: getattr(x.tables, table_name), indexed_dataset, table)
+            indexed_dataset = eqx.tree_at(lambda x: getattr(x.columns, table_name), indexed_dataset, table)
         return indexed_dataset, unsupported_codes
 
     @pytest.fixture(scope='class')
@@ -173,7 +173,7 @@ class TestFilterUnsupportedCodes:
     def test_filter_unsupported_codes(self, dataset_with_unsupported_codes: tuple[rx.Dataset, dict[str, set[str]]],
                                       filtered_dataset: rx.Dataset):
         unfiltered_dataset, unsupported_codes = dataset_with_unsupported_codes
-        for table_name, code_col in filtered_dataset.config.tables.code_column.items():
+        for table_name, code_col in filtered_dataset.config.columns.code_column.items():
             assert unsupported_codes[table_name] in getattr(unfiltered_dataset.tables, table_name)[code_col].values
             assert unsupported_codes[table_name] not in getattr(filtered_dataset.tables, table_name)[code_col].values
 
@@ -195,7 +195,7 @@ class TestSetRelativeTimes:
                                 relative_times_dataset: rx.Dataset,
                                 admission_los_table: pd.DataFrame):
 
-        for table_name, time_cols in indexed_dataset.config.tables.time_cols.items():
+        for table_name, time_cols in indexed_dataset.config.columns.time_cols.items():
             if table_name in ('admissions', 'static'):
                 continue
             table = getattr(relative_times_dataset.tables, table_name)
@@ -218,13 +218,13 @@ class TestFilterSubjectsWithNegativeAdmissionInterval:
     def dataset_inverted_admission(self, dataset: rx.Dataset,
                                    sample_admission_id: str) -> rx.Dataset:
         admissions = dataset.tables.admissions.copy()
-        c_admittime = dataset.config.tables.admissions.start_time
-        c_dischtime = dataset.config.tables.admissions.end_time
+        c_admittime = dataset.config.columns.admissions.start_time
+        c_dischtime = dataset.config.columns.admissions.end_time
         admittime = admissions.loc[sample_admission_id, c_admittime]
         dischtime = admissions.loc[sample_admission_id, c_dischtime]
         admissions.loc[sample_admission_id, c_admittime] = dischtime
         admissions.loc[sample_admission_id, c_dischtime] = admittime
-        return eqx.tree_at(lambda x: x.tables.admissions, dataset, admissions)
+        return eqx.tree_at(lambda x: x.columns.admissions, dataset, admissions)
 
     @pytest.fixture(scope='class')
     def filtered_dataset(self, dataset_inverted_admission: rx.Dataset):
@@ -420,20 +420,20 @@ def test_select_subjects_with_observation(indexed_dataset: rx.Dataset):
 class TestClampTimestamps:
     @pytest.fixture(scope='class')
     def shifted_timestamps_dataset(self, indexed_dataset: rx.Dataset):
-        if any(len(getattr(indexed_dataset.tables, k)) == 0 for k in indexed_dataset.config.tables.time_cols.keys()):
+        if any(len(getattr(indexed_dataset.tables, k)) == 0 for k in indexed_dataset.config.columns.time_cols.keys()):
             raise pytest.skip("No temporal data in rx.Dataset.")
 
         admissions = indexed_dataset.tables.admissions
 
-        c_admission_id = indexed_dataset.config.tables.admissions.admission_id_alias
-        c_admittime = indexed_dataset.config.tables.admissions.start_time
-        c_dischtime = indexed_dataset.config.tables.admissions.end_time
+        c_admission_id = indexed_dataset.config.columns.admissions.admission_id_alias
+        c_admittime = indexed_dataset.config.columns.admissions.start_time
+        c_dischtime = indexed_dataset.config.columns.admissions.end_time
         admission_id = admissions.index[0]
         admittime = admissions.loc[admission_id, c_admittime]
         dischtime = admissions.loc[admission_id, c_dischtime]
         if 'obs' in indexed_dataset.tables.tables_dict:
-            assert indexed_dataset.config.tables.obs is not None
-            c_time = indexed_dataset.config.tables.obs.time_alias
+            assert indexed_dataset.config.columns.obs is not None
+            c_time = indexed_dataset.config.columns.obs.time_alias
 
             obs = indexed_dataset.tables.obs.copy()
             admission_obs = obs[obs[c_admission_id] == admission_id]
@@ -441,11 +441,11 @@ class TestClampTimestamps:
                 obs.loc[admission_obs.index[0], c_time] = dischtime + pd.Timedelta(days=1)
             if len(admission_obs) > 1:
                 obs.loc[admission_obs.index[1], c_time] = admittime + pd.Timedelta(days=-1)
-            indexed_dataset = eqx.tree_at(lambda x: x.tables.obs, indexed_dataset, obs)
+            indexed_dataset = eqx.tree_at(lambda x: x.columns.obs, indexed_dataset, obs)
         for k in ('hosp_procedures', 'icu_procedures', 'icu_inputs'):
             if k in indexed_dataset.tables.tables_dict:
-                c_starttime = getattr(indexed_dataset.config.tables, k).start_time_alias
-                c_endtime = getattr(indexed_dataset.config.tables, k).end_time_alias
+                c_starttime = getattr(indexed_dataset.config.columns, k).start_time_alias
+                c_endtime = getattr(indexed_dataset.config.columns, k).end_time_alias
                 procedures = getattr(indexed_dataset.tables, k).copy()
 
                 admission_procedures = procedures[procedures[c_admission_id] == admission_id]
@@ -461,7 +461,7 @@ class TestClampTimestamps:
                     procedures.loc[admission_procedures.index[2], c_starttime] = admittime + pd.Timedelta(days=-2)
                     procedures.loc[admission_procedures.index[2], c_endtime] = admittime + pd.Timedelta(days=-1)
 
-                indexed_dataset = eqx.tree_at(lambda x: getattr(x.tables, k), indexed_dataset, procedures)
+                indexed_dataset = eqx.tree_at(lambda x: getattr(x.columns, k), indexed_dataset, procedures)
 
         return indexed_dataset
 
@@ -479,9 +479,9 @@ class TestClampTimestamps:
         dischtime = admissions.loc[admission_id, str(COLUMN_NAME.end_time)]
 
         if 'obs' in shifted_timestamps_dataset.tables.tables_dict:
-            assert shifted_timestamps_dataset.config.tables.obs is not None
+            assert shifted_timestamps_dataset.config.columns.obs is not None
 
-            c_time = shifted_timestamps_dataset.config.tables.obs.time_alias
+            c_time = shifted_timestamps_dataset.config.columns.obs.time_alias
 
             obs0 = shifted_timestamps_dataset.tables.obs
             obs1 = fixed_dataset.tables.obs
@@ -497,8 +497,8 @@ class TestClampTimestamps:
 
         for k in ('hosp_procedures', 'icu_procedures', 'icu_inputs'):
             if k in shifted_timestamps_dataset.tables.tables_dict:
-                c_starttime = getattr(shifted_timestamps_dataset.config.tables, k).start_time_alias
-                c_endtime = getattr(shifted_timestamps_dataset.config.tables, k).end_time_alias
+                c_starttime = getattr(shifted_timestamps_dataset.config.columns, k).start_time_alias
+                c_endtime = getattr(shifted_timestamps_dataset.config.columns, k).end_time_alias
                 procedures0 = getattr(shifted_timestamps_dataset.tables, k)
                 procedures1 = getattr(fixed_dataset.tables, k)
 
