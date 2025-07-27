@@ -1,4 +1,3 @@
-
 import logging
 import random
 from abc import ABCMeta
@@ -9,9 +8,9 @@ import equinox as eqx
 import numpy as np
 import pandas as pd
 
-from .literals import SplitLiteral
 from .coding_scheme import CodeMap, CodingSchemesManager
-from .dataset import Dataset, AbstractTransformation, AdmissionIntervalBasedCodedTableConfig, Report
+from .dataset import Dataset, AbstractTransformation, Report
+from .literals import SplitLiteral
 from .transformations import DatasetTransformation
 from .tvx_concepts import StaticInfo, CodesVector, InpatientInput, InpatientInterventions, InpatientObservables, \
     LeadingObservableExtractor, Admission, Patient
@@ -36,8 +35,8 @@ class TrainableTransformation(TVxTransformation, metaclass=ABCMeta):
 
     @staticmethod
     def get_admission_ids(tvx_ehr: TVxEHR) -> list[str]:
-        c_subject_id = tvx_ehr.dataset.config.tables.static.subject_id_alias
-        c_admission_id = tvx_ehr.dataset.config.tables.admissions.admission_id_alias
+        c_subject_id = tvx_ehr.dataset.config.tables.static.subject_id
+        c_admission_id = tvx_ehr.dataset.config.tables.admissions.admission_id
         admissions = tvx_ehr.dataset.tables.admissions[[c_subject_id]]
         assert c_admission_id in admissions.index.names, f"Column {c_admission_id} not found in admissions table index."
         training_subject_ids = tvx_ehr.splits[0]
@@ -51,7 +50,7 @@ class SampleSubjects(TVxTransformation):
         TVxEHR, TVxReport]:
         static = tvx_ehr.dataset.tables.static
         # assert index name is subject_id
-        c_subject_id = tvx_ehr.dataset.config.tables.static.subject_id_alias
+        c_subject_id = tvx_ehr.dataset.config.tables.static.subject_id
         assert c_subject_id in static.index.names, f'Index name must be {c_subject_id}'
         config = tvx_ehr.config.sample
         if config is None:
@@ -101,7 +100,7 @@ class TrainingSplitGroups(TVxTransformation):
     @classmethod
     def sync_dataset(cls, dataset: Dataset, subject_ids: tuple[str, ...]) -> Dataset:
         static = dataset.tables.static
-        c_subject_id = dataset.config.tables.static.subject_id_alias
+        c_subject_id = dataset.config.tables.static.subject_id
         assert c_subject_id in static.index.names, f'Index name must be {c_subject_id}'
         static = static.loc[list(subject_ids)]
         dataset = eqx.tree_at(lambda x: x.tables.static, dataset, static)
@@ -412,7 +411,7 @@ class InputScaler(TrainableTransformation):
     @classmethod
     def apply(cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport) -> tuple[
         TVxEHR, TVxReport]:
-        code_column = tvx_ehr.dataset.config.tables.icu_inputs.code_alias
+        code_column = tvx_ehr.dataset.config.tables.icu_inputs.code
         value_column = tvx_ehr.dataset.config.tables.icu_inputs.derived_normalized_amount_per_hour
         config = tvx_ehr.config.numerical_processors.scalers.icu_inputs
 
@@ -565,9 +564,9 @@ class TVxConcepts(TVxTransformation):
         static = tvx_ehr.dataset.tables.static
         static_config = tvx_ehr.dataset.config.tables.static
         config = tvx_ehr.config.demographic
-        c_gender = static_config.gender_alias
-        c_date_of_birth = static_config.date_of_birth_alias
-        c_ethnicity = static_config.race_alias
+        c_gender = static_config.gender
+        c_date_of_birth = static_config.date_of_birth
+        c_ethnicity = static_config.race
 
         report = report.add(
             transformation=cls,
@@ -605,8 +604,8 @@ class TVxConcepts(TVxTransformation):
     def _dx_discharge(tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager) -> tuple[
         dict[str, CodesVector], dict[str, set[str]]]:
         tvx_scheme_proxy = tvx_ehr.scheme_proxy(schemes_context)
-        c_adm_id = tvx_ehr.dataset.config.tables.dx_discharge.admission_id_alias
-        c_code = tvx_ehr.dataset.config.tables.dx_discharge.code_alias
+        c_adm_id = tvx_ehr.dataset.config.tables.dx_discharge.admission_id
+        c_code = tvx_ehr.dataset.config.tables.dx_discharge.code
         dx_discharge = tvx_ehr.dataset.tables.dx_discharge
         dx_mapper = tvx_scheme_proxy.dx_mapper(tvx_ehr.dataset.config.scheme)
         target_scheme = tvx_scheme_proxy.dx_discharge
@@ -651,10 +650,10 @@ class TVxConcepts(TVxTransformation):
     def _icu_inputs(tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager) -> dict[str, InpatientInput]:
         table_config = tvx_ehr.dataset.config.tables.icu_inputs
         c_admission_id = table_config.admission_id_alias
-        c_code = table_config.code_alias
+        c_code = table_config.code
         c_rate = table_config.derived_normalized_amount_per_hour
-        c_start_time = table_config.start_time_alias
-        c_end_time = table_config.end_time_alias
+        c_start_time = table_config.start_time
+        c_end_time = table_config.end_time
 
         # Here we avoid deep copy, and we can still replace
         # a new column without affecting the original table.
@@ -679,12 +678,12 @@ class TVxConcepts(TVxTransformation):
 
     @staticmethod
     def _procedures(schemes_context: CodingSchemesManager,
-                    table: pd.DataFrame, config: AdmissionIntervalBasedCodedTableConfig,
+                    table: pd.DataFrame, config: AdmissionIntervalEventsTableColumns | AdmissionIntervalRatesTableColumns,
                     code_map: CodeMap) -> dict[str | Hashable, InpatientInput]:
-        c_admission_id = config.admission_id_alias
-        c_code = config.code_alias
-        c_start_time = config.start_time_alias
-        c_end_time = config.end_time_alias
+        c_admission_id = config.admission_id
+        c_code = config.code
+        c_start_time = config.start_time
+        c_end_time = config.end_time
 
         table = code_map.map_dataframe(table, c_code)
         target_index = code_map.target_index(schemes_context.scheme[code_map.target_name])
@@ -752,10 +751,10 @@ class TVxConcepts(TVxTransformation):
     @classmethod
     def _observables(cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport) -> tuple[
         dict[str, InpatientObservables], TVxReport]:
-        c_admission_id = tvx_ehr.dataset.config.tables.obs.admission_id_alias
-        c_code = tvx_ehr.dataset.config.tables.obs.code_alias
-        c_value = tvx_ehr.dataset.config.tables.obs.value_alias
-        c_timestamp = tvx_ehr.dataset.config.tables.obs.time_alias
+        c_admission_id = tvx_ehr.dataset.config.tables.obs.admission_id
+        c_code = tvx_ehr.dataset.config.tables.obs.code
+        c_value = tvx_ehr.dataset.config.tables.obs.measurement
+        c_timestamp = tvx_ehr.dataset.config.tables.obs.time
 
         obs_scheme = tvx_ehr.scheme_proxy(schemes_context).obs
         # For dasking, we index by admission.

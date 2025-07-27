@@ -9,11 +9,11 @@ import jax.tree_util as jtu
 import numpy as np
 import pandas as pd
 
-from .literals import SplitLiteral
 from .base import AbstractConfig, AbstractVxData, fetch_at, HDFVirtualNode
 from .coding_scheme import CodesVector, CodingSchemesManager, CodeMap, ReducedCodeMapN1, GroupingData, OutcomeExtractor
 from .dataset import Dataset, DatasetSchemeProxy, DatasetSchemeConfig, ReportAttributes, \
     AbstractTransformation, AbstractDatasetPipeline, AbstractProcessedDataset, Report, PipelineReportTable
+from .literals import SplitLiteral
 from .tvx_concepts import (Admission, Patient, InpatientObservables,
                            InpatientInterventions, DemographicVectorConfig,
                            LeadingObservableExtractorConfig, SegmentedPatient, StaticInfo, InpatientInput,
@@ -496,7 +496,7 @@ class TVxEHR(AbstractProcessedDataset):
 
     @cached_property
     def subjects_sorted_admission_ids(self) -> dict[str, list[str]]:
-        c_admittime = self.dataset.config.tables.admissions.admission_time_alias
+        c_admittime = self.dataset.config.tables.admissions.start_time
         c_subject_id = self.dataset.config.tables.admissions.subject_id_alias
 
         # For each subject get the list of adm sorted by admission date.
@@ -524,8 +524,8 @@ class TVxEHR(AbstractProcessedDataset):
     @cached_property
     def admission_dates(self) -> dict[str, AdmissionDates]:
         admissions = self.dataset.tables.admissions
-        c_admittime = self.dataset.config.tables.admissions.admission_time_alias
-        c_dischtime = self.dataset.config.tables.admissions.discharge_time_alias
+        c_admittime = self.dataset.config.tables.admissions.start_time
+        c_dischtime = self.dataset.config.tables.admissions.end_time
         return admissions.apply(lambda x: AdmissionDates(x[c_admittime], x[c_dischtime]), axis=1).to_dict()
 
     def fetch_device_batch(self, subject_ids: Optional[tuple[str, ...]] = None) -> tuple[Self, Self]:

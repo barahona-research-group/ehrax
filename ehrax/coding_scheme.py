@@ -15,11 +15,10 @@ import numpy as np
 import pandas as pd
 import tables as tbl  # type: ignore
 
-from .literals import AggregationLiteral, NumericalTypeHint
 from .base import AbstractVxData
 from .freezer import FrozenDict11, FrozenDict1N, FrozenDict1NM
+from .literals import AggregationLiteral, NumericalTypeHint
 from .utils import load_config, tqdm_constructor, Array
-
 
 
 def resources_dir(*subdir: str) -> str:
@@ -233,14 +232,15 @@ class NumericScheme(CodingScheme):
     Additional to `FlatScheme` attributes, it contains the following attributes to represent the coding scheme:
     - type_hint: dict mapping codes to their type hint (B: binary, N: numerical, O: ordinal, C: categorical)
     """
-
     type_hint: FrozenDict11[NumericalTypeHint]
     default_type_hint: NumericalTypeHint
 
     def __init__(self, name: str, codes: tuple[str, ...], desc: Optional[FrozenDict11[str]] = None,
+                 group: Optional[FrozenDict11[str]] = None,
                  type_hint: Optional[FrozenDict11[NumericalTypeHint]] = None,
                  default_type_hint: NumericalTypeHint = 'N'):
         super().__init__(name=name, codes=codes, desc=desc)
+        self.group = group or FrozenDict11({code: code for code in codes})
         self.type_hint = type_hint or FrozenDict11({code: default_type_hint for code in codes})
         self.default_type_hint = default_type_hint
 
@@ -258,6 +258,22 @@ class NumericScheme(CodingScheme):
         assert set(self.index[c] for c in self.codes) == set(range(len(self))), \
             f"The order of codes ({self.codes}) does not match the order of type hints ({self.type_hint.keys()})."
         return np.array([self.type_hint[code] for code in self.codes])
+
+    @cached_property
+    def index2group(self) -> dict[int, str]:
+        return {i: self.group[code] for i, code in enumerate(self.codes)}
+
+    def as_dataframe(self) -> pd.DataFrame:
+        index = list(range(len(self)))
+        return pd.DataFrame(
+            {
+                "code": self.index2code,
+                "desc": self.index2desc,
+                "type": self.type_array,
+                "group": self.index2group
+            },
+            index=index,
+        )
 
 
 class CodingSchemeWithUOM(CodingScheme):
@@ -811,9 +827,7 @@ class CodeMap(AbstractVxData):
 
     @classmethod
     def from_table(cls, *args, **kwargs):
-        return cls(*cls._kw_init_from_table(*args, **kwargs))
-
-
+        return cls(*cls._init_args_from_table(*args, **kwargs))
 
 
 class GroupingData(AbstractVxData):
@@ -1054,6 +1068,9 @@ class CodingSchemesManager(AbstractVxData):
         for u in (u for u in other.uom_normalizers if u.name not in updated.uom_normalizers):
             updated = updated.add_uom_normalizer(u)
         return updated
+
+    def __add__(self, other: Self) -> Self:
+        return self.union(other)
 
     @cached_property
     def scheme(self) -> Mapping[str, CodingScheme]:

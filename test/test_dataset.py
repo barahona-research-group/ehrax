@@ -27,10 +27,10 @@ def test_table_config(id_alias_attrs: tuple[str, ...], alias_attrs: tuple[str, .
 
     all_alias_dict = id_alias_dict | alias_dict | time_dict | coded_dict
     all_dict = all_alias_dict | other_dict
-    assert rx.dataset.TableConfig._alias_dict(all_dict) == all_alias_dict
-    assert rx.dataset.TableConfig._alias_id_dict(all_dict) == id_alias_dict
-    assert set(rx.dataset.TableConfig._time_cols(all_dict)) == set(time_dict.values())
-    assert set(rx.dataset.TableConfig._coded_cols(all_dict)) == set(coded_dict.values())
+    assert rx.dataset.TableColumnNames._alias_dict(all_dict) == all_alias_dict
+    assert rx.dataset.TableColumnNames._alias_id_dict(all_dict) == id_alias_dict
+    assert set(rx.dataset.TableColumnNames._time_cols(all_dict)) == set(time_dict.values())
+    assert set(rx.dataset.TableColumnNames._coded_cols(all_dict)) == set(coded_dict.values())
 
 
 def test_assert_consistent_aliases():

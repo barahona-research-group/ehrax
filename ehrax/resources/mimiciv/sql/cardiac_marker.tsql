@@ -5,7 +5,7 @@ with trop as
     where itemid = 51003
     group by specimen_id
 )
-select a.hadm_id {admission_id_alias}, {attributes}, charttime {time_alias}
+select a.hadm_id {admission_id}, {attributes}, charttime {time}
 from mimiciv_hosp.admissions a
 inner join mimiciv_derived.cardiac_marker c
   on a.hadm_id = c.hadm_id

@@ -9,9 +9,9 @@ import jax.numpy as jnp
 import numpy as np
 import scipy
 
-from .literals import NumericalTypeHint
 from .base import AbstractConfig, AbstractVxData
 from .coding_scheme import (CodesVector, NumericScheme)
+from .literals import NumericalTypeHint
 from .utils import Array, np_module
 
 

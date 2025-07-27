@@ -10,7 +10,6 @@ import jax.numpy as jnp
 import numpy as np
 from jax._src.tree_util import KeyEntry, GetAttrKey, SequenceKey, DictKey, FlattenedIndexKey
 from jaxlib._jax import ArrayImpl
-
 from tqdm import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
 
@@ -31,6 +30,7 @@ def _tqdm_backend():
 
 
 tqdm_constructor = _tqdm_backend()
+
 
 def translate_path(path: str, relative_to: Optional[str] = None):
     """Translate a filesystem path by replacing environment

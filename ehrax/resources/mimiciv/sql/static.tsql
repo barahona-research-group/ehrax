@@ -1,9 +1,9 @@
 select
-p.subject_id as {subject_id_alias},
-p.gender as {gender_alias},
-a.race as {race_alias},
-p.anchor_age as {anchor_age_alias},
-p.anchor_year as {anchor_year_alias}
+p.subject_id as {subject_id},
+p.gender as {gender},
+a.race as {race},
+p.anchor_age as {anchor_age},
+p.anchor_year as {anchor_year}
 from mimiciv_hosp.patients p
 left join
 (select subject_id, max(race) as race
