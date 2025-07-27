@@ -128,7 +128,7 @@ class AbstractTestDataset:
         assert isinstance(dataset_with_zero_pipeline, rx.Dataset)
         assert dataset.pipeline_report.equals(pd.DataFrame())
 
-        # Because we use identity pipeline, the dataset tables should be the same
+        # Because we use identity pipeline, the dataset columns should be the same
         # but the new dataset should have a different report (metadata).
         assert not dataset_with_zero_pipeline.equals(dataset)
         assert not dataset_with_zero_pipeline.pipeline_report.equals(dataset.pipeline_report)

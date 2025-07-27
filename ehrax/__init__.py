@@ -32,7 +32,7 @@ from .dataset import (
     DatasetSchemeConfig,
     DatasetSchemeProxy,
     DatasetTables,
-    DatasetTablesConfig,
+    DatasetColumns,
     Report,
     ReportAttributes,
     SplitLiteral,

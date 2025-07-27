@@ -663,7 +663,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
         # the dict with str(dict). Then later to restore it with ast.literal_eval(string)
         # which deemed relatively safe to unpickling (no code executions), but not immune
         # from DOS attacks: https://stackoverflow.com/a/7689085
-        # TODO: add tests to ensure pickle function are never invoked by tables library.
+        # TODO: add tests to ensure pickle function are never invoked by columns library.
         return str(x)
 
     @staticmethod
