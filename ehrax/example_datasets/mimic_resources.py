@@ -13,7 +13,7 @@ from ..coding_scheme import (CodingScheme, resources_dir, CodingSchemesManager, 
                              ReducedCodeMapN1, NumericScheme, CodeMap)
 from ..dataset import COLUMN, SECONDS_TO_HOURS_SCALER, AdmissionSummaryTableColumns, \
     AdmissionIntervalEventsTableColumns, AdmissionIntervalRatesTableColumns, AdmissionTimeSeriesTableColumns, \
-    include_cols, MultivariateTimeSeriesTableMeta, DatasetConfig
+    MultivariateTimeSeriesTableMeta, DatasetConfig
 from ..dataset import (StaticTableColumns,
                        TableColumns,
                        DatasetTables, DatasetSchemeConfig, Dataset, AbstractDatasetPipelineConfig)
@@ -44,7 +44,7 @@ class TableResource(AbstractConfig):
         Some of the integer ids in the database when downloaded are stored as floats.
         A fix is to coerce them to integers then fix as strings.
         """
-        return self._coerce_columns_to_str(df, self.columns.id_dict.values())
+        return self._coerce_columns_to_str(df, self.columns.id_cols)
 
     def _coerce_code_to_str(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -121,9 +121,11 @@ class StaticTableResource(TableResource):
         return self.load_ethnicity_space_table(data_connection)
 
 
-@include_cols(COLUMN.admission_id, COLUMN.code, COLUMN.version, COLUMN.description)
 class MixedVersionICDSummaryTableColumns(TableColumns):
-    pass
+    admission_id: str = str(COLUMN.admission_id)
+    code: str = str(COLUMN.code)
+    version: str = str(COLUMN.version)
+    description: str = str(COLUMN.description)
 
 
 class MixedICDTableResource(CodedTableResource):
@@ -524,7 +526,9 @@ class MIMICDatasetAuxiliaryResources(AbstractConfig):
         maps = ExternalMapResources(resources_dir(resources_root, map_subdir), filenames=map_files)
         selections = ExternalSelectionResources(resources_dir(resources_root, selection_subdir),
                                                 filenames=selection_files)
-        icu_inputs_uom_normalization = resources_dir(resources_root, *icu_inputs_uom_normalization)
+        if icu_inputs_uom_normalization is not None:
+            icu_inputs_uom_normalization = resources_dir(resources_root, *icu_inputs_uom_normalization)
+
         icu_inputs_aggregation_column = icu_inputs_aggregation_column
         return cls(scoped_names=scoped_names, maps=maps, selections=selections,
                    icu_inputs_uom_normalization=icu_inputs_uom_normalization,
