@@ -142,15 +142,19 @@ class HDFVirtualNode(AbstractHDFSerializable):
 class AbstractConfig(AbstractHDFSerializable):
 
     @classmethod
-    def _map_hierarchical_config(cls, unit_config_map: Callable[[Self], dict[str, Any]], x: Any) -> Any:
+    def _map_hierarchical_config(cls, unit_config_map: Callable[[Self], dict[str, Any]], x: Any,
+                                 levels: Optional[int] = None) -> Any:
+        if levels is not None and levels <= 0:
+            return x
+        next_level = levels if levels is None else levels - 1
         if isinstance(x, AbstractConfig):
             x = unit_config_map(x)
         if isinstance(x, dict):
-            return {k: AbstractConfig._map_hierarchical_config(unit_config_map, v) for k, v in x.items()}
+            return {k: AbstractConfig._map_hierarchical_config(unit_config_map, v, next_level) for k, v in x.items()}
         elif isinstance(x, list):
-            return [AbstractConfig._map_hierarchical_config(unit_config_map, v) for v in x]
+            return [AbstractConfig._map_hierarchical_config(unit_config_map, v, next_level) for v in x]
         elif isinstance(x, tuple):
-            return tuple(AbstractConfig._map_hierarchical_config(unit_config_map, v) for v in x)
+            return tuple(AbstractConfig._map_hierarchical_config(unit_config_map, v, next_level) for v in x)
         else:
             return x
 
@@ -167,11 +171,18 @@ class AbstractConfig(AbstractHDFSerializable):
         return isinstance(x, dict) and "_type" in x
 
     @staticmethod
-    def _map_config_to_dict(unit_map: Callable[[Any], dict[str, Any]], x) -> dict[str, Any]:
-        return json.loads(json.dumps(AbstractConfig._map_hierarchical_config(unit_map, x), cls=NumpyEncoder))
+    def _map_config_to_dict(unit_map: Callable[[Any], dict[str, Any]], x, levels: Optional[int] = None) -> dict[
+        str, Any]:
+        dictionary = AbstractConfig._map_hierarchical_config(unit_map, x, levels)
+        if levels is None:
+            return json.loads(json.dumps(dictionary, cls=NumpyEncoder))
+        return dictionary
 
     def as_dict(self) -> dict[str, Any]:
         return AbstractConfig._map_config_to_dict(AbstractConfig._as_normal_dict, self)
+
+    def as_one_level_dict(self) -> dict[str, Any]:
+        return AbstractConfig._map_config_to_dict(AbstractConfig._as_normal_dict, self, levels=1)
 
     def to_dict(self) -> dict[str, Any]:
         # Fully deserializable to a Config object.
@@ -368,6 +379,7 @@ class SERIALIZABLE_FIELD(enum.Enum):
     homogeneous_tuple = (tuple,)
     homogeneous_dict = (dict,)
     homogeneous_set = (set,)
+    homogeneous_frozenset = (frozenset,)
     homogeneous_mapping_proxy = (MappingProxyType,)
 
 
@@ -394,7 +406,7 @@ _TYPE_ENUM_DICT: MappingProxyType[type, str] = MappingProxyType({
 })
 SERIALIZABLE_FIELD_TYPES = tuple(_TYPE_ENUM_DICT.keys())
 SERIALIZABLE_FLAT_COLLECTION = (SERIALIZABLE_FIELD.homogeneous_set, SERIALIZABLE_FIELD.homogeneous_list,
-                                SERIALIZABLE_FIELD.homogeneous_tuple)
+                                SERIALIZABLE_FIELD.homogeneous_tuple, SERIALIZABLE_FIELD.homogeneous_frozenset)
 SERIALIZABLE_FLAT_DICT = (SERIALIZABLE_FIELD.homogeneous_dict, SERIALIZABLE_FIELD.homogeneous_mapping_proxy)
 SERIALIZABLE_FLAT_DICT_KEY = (SERIALIZABLE_FIELD.integer, SERIALIZABLE_FIELD.string)
 
@@ -415,15 +427,20 @@ SERIES_GROUPED_ELEMENT = (SERIALIZABLE_FIELD.float, SERIALIZABLE_FIELD.integer, 
 SERIES_GROUPED_ELEMENT_TYPES = sum((e.value for e in SERIES_GROUPED_ELEMENT), ())
 
 
-class _MyCustomList(list):
+class _MyCustomList_set(list):
     # a custom list used to deal with replacing sets with list, since sets are not considered a pytree
     # like lists/dicts/tuples, so we replace all sets with this type of list, so we can reverse the operation
     # (i.e. map back to a set) by identifying this type in the pytree. See `fetch_all` for more details.
-
     pass
 
 
-jtu.register_pytree_node(_MyCustomList, lambda x: (list(x), None), lambda _, x: _MyCustomList(x))
+class _MyCustomList_frozenset(list):
+    # same but for frozenset.
+    pass
+
+
+jtu.register_pytree_node(_MyCustomList_set, lambda x: (list(x), None), lambda _, x: _MyCustomList_set(x))
+jtu.register_pytree_node(_MyCustomList_frozenset, lambda x: (list(x), None), lambda _, x: _MyCustomList_frozenset(x))
 
 
 class AbstractVxData(AbstractHDFSerializable, eqx.Module):
@@ -483,7 +500,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
     def object_type_enum_name(cls, obj: Any) -> str:
         if type(obj) in _TYPE_ENUM_DICT:
             return _TYPE_ENUM_DICT[type(obj)]
-        if type(obj) is _MyCustomList:
+        if type(obj) in (_MyCustomList_set, _MyCustomList_frozenset):
             return _TYPE_ENUM_DICT[type(list())]
         elif isinstance(obj, SERIALIZABLE_FIELD.config.value):
             return SERIALIZABLE_FIELD.config.name
@@ -510,7 +527,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
                 return False
             type_enum_name = self_obj.object_type_enum_name(a)
             match SERIALIZABLE_FIELD[type_enum_name]:
-                case SERIALIZABLE_FIELD.boolean | SERIALIZABLE_FIELD.integer | SERIALIZABLE_FIELD.float | SERIALIZABLE_FIELD.timestamp | SERIALIZABLE_FIELD.none | SERIALIZABLE_FIELD.string:
+                case (SERIALIZABLE_FIELD.boolean | SERIALIZABLE_FIELD.integer | SERIALIZABLE_FIELD.float | SERIALIZABLE_FIELD.timestamp | SERIALIZABLE_FIELD.none | SERIALIZABLE_FIELD.string):
                     if a != b: return False
                 case SERIALIZABLE_FIELD.numpy_array:
                     if not equal_arrays(a, b): return False
@@ -521,7 +538,7 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
                 case SERIALIZABLE_FIELD.config | SERIALIZABLE_FIELD.hdf_serializable:
                     if not a.equals(b): return False
 
-                case SERIALIZABLE_FIELD.homogeneous_list | SERIALIZABLE_FIELD.homogeneous_tuple | SERIALIZABLE_FIELD.homogeneous_set:
+                case (SERIALIZABLE_FIELD.homogeneous_list | SERIALIZABLE_FIELD.homogeneous_tuple | SERIALIZABLE_FIELD.homogeneous_set | SERIALIZABLE_FIELD.homogeneous_frozenset):
                     if len(a) != len(b): return False
                     if isinstance(a, set):  # order is not guaranteed!.
                         a, b = sorted(a, key=hash), sorted(b, key=hash)
@@ -559,11 +576,11 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
             case SERIALIZABLE_FIELD.hdf_serializable | SERIALIZABLE_FIELD.config:
                 parent_group._v_attrs[attribute] = obj.__class_key__()
                 obj.to_hdf_group(group())
-            case SERIALIZABLE_FIELD.integer | SERIALIZABLE_FIELD.float | SERIALIZABLE_FIELD.boolean | SERIALIZABLE_FIELD.string | SERIALIZABLE_FIELD.none:
+            case (SERIALIZABLE_FIELD.integer | SERIALIZABLE_FIELD.float | SERIALIZABLE_FIELD.boolean | SERIALIZABLE_FIELD.string | SERIALIZABLE_FIELD.none):
                 parent_group._v_attrs[attribute] = obj
             case SERIALIZABLE_FIELD.timestamp:
                 hdf.create_array(parent_group, attribute, obj=obj.value)
-            case SERIALIZABLE_FIELD.homogeneous_list | SERIALIZABLE_FIELD.homogeneous_tuple | SERIALIZABLE_FIELD.homogeneous_set:
+            case (SERIALIZABLE_FIELD.homogeneous_list | SERIALIZABLE_FIELD.homogeneous_tuple | SERIALIZABLE_FIELD.homogeneous_set | SERIALIZABLE_FIELD.homogeneous_frozenset):
                 cls.serialize_collection(group(), list(obj))
             case SERIALIZABLE_FIELD.homogeneous_dict | SERIALIZABLE_FIELD.homogeneous_mapping_proxy:
                 cls.serialize_dict(group(), obj)
@@ -594,12 +611,12 @@ class AbstractVxData(AbstractHDFSerializable, eqx.Module):
                 return cls.from_hdf_group(node(), defer_next, next_level)
             case SERIALIZABLE_FIELD.none:
                 return None
-            case SERIALIZABLE_FIELD.integer | SERIALIZABLE_FIELD.float | SERIALIZABLE_FIELD.boolean | SERIALIZABLE_FIELD.string:
+            case (SERIALIZABLE_FIELD.integer | SERIALIZABLE_FIELD.float | SERIALIZABLE_FIELD.boolean | SERIALIZABLE_FIELD.string):
                 value = parent_group._v_attrs[attribute]
                 return value.item() if value is not None else None
             case SERIALIZABLE_FIELD.timestamp:
                 return pd.Timestamp(node().read())
-            case SERIALIZABLE_FIELD.homogeneous_list | SERIALIZABLE_FIELD.homogeneous_tuple | SERIALIZABLE_FIELD.homogeneous_set:
+            case (SERIALIZABLE_FIELD.homogeneous_list | SERIALIZABLE_FIELD.homogeneous_tuple | SERIALIZABLE_FIELD.homogeneous_set | SERIALIZABLE_FIELD.homogeneous_frozenset):
                 (collection_type,) = SERIALIZABLE_FIELD[attr_type_enum_name].value
                 return collection_type(cls.deserialize_collection(node(), defer_next, next_level))
             case SERIALIZABLE_FIELD.homogeneous_dict | SERIALIZABLE_FIELD.homogeneous_mapping_proxy:
@@ -803,7 +820,10 @@ def fetch_all(tree: T) -> T:
     # Maybe an alternative is to enforce a design where lazy loading is not allowed with sets involved.
 
     is_set = jtu.tree_map(lambda a: isinstance(a, set), tree)
-    tree = jtu.tree_map(lambda a, isset: _MyCustomList(a) if isset else a, tree, is_set)
+    is_frozenset = jtu.tree_map(lambda a: isinstance(a, frozenset), tree)
+    apply = lambda a, isset, isfrozenset: _MyCustomList_set(a) if isset else (
+        _MyCustomList_frozenset(a) if isfrozenset else a)
+    tree = jtu.tree_map(apply, tree, is_set, is_frozenset)
 
     _is_vnode = lambda x: isinstance(x, HDFVirtualNode)
     _is_leaf = lambda x: isinstance(x, HDFVirtualNode)
@@ -837,7 +857,8 @@ def fetch_all(tree: T) -> T:
         with_v_nodes = jtu.tree_unflatten(struct, fetched_nodes)
         tree = eqx.combine(without_v_nodes, with_v_nodes, is_leaf=_is_leaf)
         # return all transformed sets to lists back to sets (read Note 1 above).
-        return jtu.tree_map(lambda a: set(a) if isinstance(a, _MyCustomList) else a, tree,
-                            is_leaf=lambda a: isinstance(a, _MyCustomList))
+        apply = (lambda a: set(a) if isinstance(a, _MyCustomList_set) else (
+            frozenset(a) if isinstance(a, _MyCustomList_frozenset) else a))
+        return jtu.tree_map(apply, tree, is_leaf=lambda a: isinstance(a, (_MyCustomList_set, _MyCustomList_frozenset)))
 
-    assert 0, "Unreachable."
+        assert 0, "Unreachable."

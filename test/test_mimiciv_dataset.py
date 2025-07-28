@@ -52,12 +52,12 @@ class TestUnitConversionAndFilterInvalidInputRates:
 
         scheme: rx.CodingSchemeWithUOM = SCHEMES['icu_inputs']
         # For every (code, unit) pair, a unique normalization factor and universal unit is assigned.
-        for (code, unit), inputs_df in icu_inputs_fixed.groupby([c.code_alias, c.amount_unit_alias]):
+        for (code, unit), inputs_df in icu_inputs_fixed.groupby([c.code, c.amount_unit]):
             assert inputs_df[c.derived_universal_unit].unique() == scheme.universal_unit[code]
             assert inputs_df[c.derived_unit_normalization_factor].unique() == scheme.uom_normalization_factor[code][
                 unit]
             assert inputs_df[c.derived_normalized_amount].equals(
-                inputs_df[c.amount_alias] * scheme.uom_normalization_factor[code][unit])
+                inputs_df[c.amount] * scheme.uom_normalization_factor[code][unit])
 
     @pytest.fixture(scope='class')
     def nan_inputs_dataset(self, fixed_dataset: pd.DataFrame):
@@ -65,9 +65,9 @@ class TestUnitConversionAndFilterInvalidInputRates:
         assert DATASET_CONFIG.columns.icu_inputs is not None, \
             "Dataset configuration does not have icu_inputs table defined."
         c = DATASET_CONFIG.columns.icu_inputs
-        admission_id = icu_inputs.iloc[0][c.admission_id_alias]
+        admission_id = icu_inputs.iloc[0][c.admission_id]
         icu_inputs.loc[
-            icu_inputs[c.admission_id_alias] == admission_id, c.derived_normalized_amount_per_hour] = np.nan
+            icu_inputs[c.admission_id] == admission_id, c.derived_normalized_amount_per_hour] = np.nan
         return eqx.tree_at(lambda x: x.columns.icu_inputs, fixed_dataset, icu_inputs)
 
     @pytest.fixture(scope='class')
@@ -92,12 +92,12 @@ class TestUnitConversionAndFilterInvalidInputRates:
         cicu = DATASET_CONFIG.columns.icu_inputs
         cadm = DATASET_CONFIG.columns.admissions
 
-        admission_id = icu_inputs0.iloc[0][cicu.admission_id_alias]
-        subject_id = static0[static0.index == admissions0.loc[admission_id, cadm.subject_id_alias]].index[0]
-        subject_admissions = admissions0[admissions0[cadm.subject_id_alias] == subject_id]
+        admission_id = icu_inputs0.iloc[0][cicu.admission_id]
+        subject_id = static0[static0.index == admissions0.loc[admission_id, cadm.subject_id]].index[0]
+        subject_admissions = admissions0[admissions0[cadm.subject_id] == subject_id]
 
         assert subject_id not in static1.index
         assert not subject_admissions.index.isin(admissions1.index).all()
-        assert not subject_admissions.index.isin(icu_inputs1[cicu.admission_id_alias]).all()
+        assert not subject_admissions.index.isin(icu_inputs1[cicu.admission_id]).all()
         assert icu_inputs0[cicu.derived_normalized_amount_per_hour].isna().any()
         assert not icu_inputs1[cicu.derived_normalized_amount_per_hour].isna().any()

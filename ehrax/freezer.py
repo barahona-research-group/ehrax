@@ -1,5 +1,6 @@
+from collections.abc import Mapping, Iterator, ItemsView, Iterable
 from types import MappingProxyType
-from typing import TypeVar, Mapping, Self, Iterator, ItemsView, Optional, Iterable
+from typing import TypeVar, Self, Optional
 
 import pandas as pd
 
@@ -41,6 +42,7 @@ class AbstractFrozenDict(AbstractWithDataframeEquivalent, Mapping[K, V]):
 
 
 class FrozenDict11(AbstractFrozenDict[str, V]):
+
     def to_dataframe(self) -> pd.DataFrame:
         return pd.DataFrame(list(self.data.values()), columns=['value'], index=list(self.data.keys())).sort_index()
 
@@ -49,8 +51,11 @@ class FrozenDict11(AbstractFrozenDict[str, V]):
         return cls(df['value'].to_dict())
 
 
-class FrozenDict1N(AbstractFrozenDict[str, set[V]]):
-    data: MappingProxyType[str, set[V]]
+class FrozenDict1N(AbstractFrozenDict[str, frozenset[V]]):
+    data: MappingProxyType[str, frozenset[V]]
+
+    def __init__(self, data: Mapping[K, frozenset[V] | set[V]]):
+        super().__init__({k: frozenset(v) for k, v in data.items()})
 
     def to_dataframe(self) -> pd.DataFrame:
         return pd.DataFrame([(k, item) for k, v in self.data.items() for item in v],
@@ -58,7 +63,7 @@ class FrozenDict1N(AbstractFrozenDict[str, set[V]]):
 
     @classmethod
     def from_dataframe(cls, df: pd.DataFrame) -> Self:
-        return cls(df.groupby('key')['value'].apply(set).to_dict())
+        return cls(df.groupby('key')['value'].apply(frozenset).to_dict())
 
 
 class FrozenDict1NM(AbstractFrozenDict[str, AbstractFrozenDict[str, float]]):

@@ -3,7 +3,6 @@ from typing import Optional, Final
 
 import pandas as pd
 import sqlalchemy
-from sqlalchemy import Engine
 
 from .mimic_resources import DatasetTablesResources, MixedICDTableResource, CodedTableResource, TableResource, \
     CodedColumns, StaticTableResource, \
@@ -12,7 +11,7 @@ from .mimic_resources import DatasetTablesResources, MixedICDTableResource, Code
 from ..base import AbstractConfig
 from ..coding_scheme import resources_dir
 from ..dataset import COLUMN, StaticTableColumns, MultivariateTimeSeriesTableMeta, \
-    TableColumns, DatasetSchemeConfig, DatasetConfig
+    TableColumns, DatasetSchemeConfig, DatasetConfig, AdmissionsTableColumns
 from ..literals import NumericalTypeHint
 
 
@@ -29,7 +28,7 @@ class SQLTableInterface(AbstractConfig):
         assert self.query_template is not None, "Query template must be set."
         return open(resources_dir(self.query_template), "r").read()
 
-    def load_standard_columns_table(self, engine: Engine):
+    def load_standard_columns_table(self, engine: sqlalchemy.Engine):
         query = self.query.format(**COLUMN.as_dict())
         return pd.read_sql(query, engine, coerce_float=False)
 
@@ -47,7 +46,7 @@ class SQLCodedTableInterface(SQLTableInterface):
         assert self.space_query_template is not None, "Space query template must be set."
         return open(resources_dir(self.space_query_template), "r").read()
 
-    def load_space_table(self, engine: Engine) -> pd.DataFrame:
+    def load_space_table(self, engine: sqlalchemy.Engine) -> pd.DataFrame:
         """
         Load the space table for the coded table.
         """
@@ -74,11 +73,11 @@ class SQLStaticTableInterface(SQLTableInterface):
     def race_space_query(self) -> str:
         return open(resources_dir(self.race_space_query_template), "r").read()
 
-    def load_gender_space_table(self, engine: Engine):
+    def load_gender_space_table(self, engine: sqlalchemy.Engine):
         query = self.gender_space_query.format(**COLUMN.as_dict())
         return pd.read_sql(query, engine)
 
-    def load_ethnicity_space_table(self, engine: Engine):
+    def load_ethnicity_space_table(self, engine: sqlalchemy.Engine):
         query = self.race_space_query.format(**COLUMN.as_dict())
         return pd.read_sql(query, engine)
 
@@ -90,7 +89,7 @@ class SQLTableResource(TableResource):
         super().__init__(columns)
         self.sql_interface = SQLTableInterface(query_template=query_template)
 
-    def load_standard_columns_table(self, engine: Engine, *args, **kwargs) -> pd.DataFrame:
+    def load_standard_columns_table(self, engine: sqlalchemy.Engine, *args, **kwargs) -> pd.DataFrame:
         return self.sql_interface.load_standard_columns_table(engine)
 
 
@@ -104,10 +103,10 @@ class SQLCodedTableResource(CodedTableResource):
         self.sql_interface = SQLCodedTableInterface(query_template=query_template,
                                                     space_query_template=space_query_template)
 
-    def load_standard_columns_table(self, engine: Engine, *args, **kwargs) -> pd.DataFrame:
+    def load_standard_columns_table(self, engine: sqlalchemy.Engine, *args, **kwargs) -> pd.DataFrame:
         return self.sql_interface.load_standard_columns_table(engine)
 
-    def load_space_table(self, engine: Engine) -> pd.DataFrame:
+    def load_space_table(self, engine: sqlalchemy.Engine) -> pd.DataFrame:
         return self.sql_interface.load_space_table(engine)
 
 
@@ -123,13 +122,13 @@ class SQLStaticTableResource(StaticTableResource):
                                                      gender_space_query_template=gender_space_query_template,
                                                      race_space_query_template=race_space_query_template)
 
-    def load_standard_columns_table(self, engine: Engine, *args, **kwargs) -> pd.DataFrame:
+    def load_standard_columns_table(self, engine: sqlalchemy.Engine, *args, **kwargs) -> pd.DataFrame:
         return self.sql_interface.load_standard_columns_table(engine)
 
-    def load_gender_space_table(self, engine: Engine):
+    def load_gender_space_table(self, engine: sqlalchemy.Engine):
         return self.sql_interface.load_gender_space_table(engine)
 
-    def load_ethnicity_space_table(self, engine: Engine):
+    def load_ethnicity_space_table(self, engine: sqlalchemy.Engine):
         return self.sql_interface.load_ethnicity_space_table(engine)
 
 
@@ -142,10 +141,10 @@ class SQLMixedICDTableResource(MixedICDTableResource):
         self.sql_interface = SQLCodedTableInterface(query_template=query_template,
                                                     space_query_template=space_query_template)
 
-    def load_standard_columns_table(self, engine: Engine, *args, **kwargs) -> pd.DataFrame:
+    def load_standard_columns_table(self, engine: sqlalchemy.Engine, *args, **kwargs) -> pd.DataFrame:
         return self.sql_interface.load_standard_columns_table(engine)
 
-    def load_space_table(self, engine: Engine) -> pd.DataFrame:
+    def load_space_table(self, engine: sqlalchemy.Engine) -> pd.DataFrame:
         return self.sql_interface.load_space_table(engine)
 
 
@@ -161,7 +160,7 @@ class SQLMultivariateTimeSeriesResource(MultivariateTimeSeriesTableResource):
                                                          default_type_hint=default_type_hint))
         self.sql_interface = SQLCodedTableInterface(query_template=query_template)
 
-    def load_standard_columns_table(self, engine: Engine, *args, **kwargs) -> pd.DataFrame:
+    def load_standard_columns_table(self, engine: sqlalchemy.Engine, *args, **kwargs) -> pd.DataFrame:
         return self.sql_interface.load_standard_columns_table(engine)
 
 
@@ -169,7 +168,7 @@ class SQLGroupedMultivariateTimeSeriesTableResource(GroupedMultivariateTimeSerie
     groups: tuple[SQLMultivariateTimeSeriesResource, ...]
 
 
-ADMISSIONS_CONF = SQLTableResource(query_template="mimiciv/sql/admissions.tsql")
+ADMISSIONS_CONF = SQLTableResource(query_template="mimiciv/sql/admissions.tsql", columns=AdmissionsTableColumns())
 STATIC_CONF = SQLStaticTableResource(query_template="mimiciv/sql/static.tsql",
                                      gender_space_query_template="mimiciv/sql/static_gender_space.tsql",
                                      race_space_query_template="mimiciv/sql/static_race_space.tsql")

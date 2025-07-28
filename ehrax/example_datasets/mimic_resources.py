@@ -2,7 +2,8 @@
 
 import warnings
 from abc import abstractmethod
-from typing import Optional, Iterable, Any, Callable, Self
+from collections.abc import Iterable, Callable
+from typing import Optional, Any, Self, cast
 
 import equinox as eqx
 import pandas as pd
@@ -79,7 +80,7 @@ class CodedTableResource(TableResource):
 
     @property
     def pipeline(self) -> tuple[Callable[[pd.DataFrame], pd.DataFrame], ...]:
-        return (self._coerce_id_to_str, self._coerce_code_to_str)
+        return self._coerce_id_to_str, self._coerce_code_to_str
 
     def space(self, data_connection: Any) -> pd.DataFrame:
         return self.preprocess(self.load_space_table(data_connection))
@@ -103,7 +104,8 @@ class StaticTableResource(TableResource):
     def load_ethnicity_space_table(self, data_connection: Any) -> pd.DataFrame:
         raise NotImplementedError()
 
-    def _derive_data_of_birth(self, df: pd.DataFrame) -> pd.DataFrame:
+    @staticmethod
+    def _derive_data_of_birth(df: pd.DataFrame) -> pd.DataFrame:
         anchor_date = pd.to_datetime(df[str(COLUMN.anchor_year)], format='%Y').dt.normalize()
         anchor_age = df[str(COLUMN.anchor_age)].map(lambda y: pd.DateOffset(years=-y))
         df[str(COLUMN.date_of_birth)] = anchor_date + anchor_age
@@ -160,7 +162,7 @@ class MixedICDTableResource(CodedTableResource):
 
         manager = manager.add_scheme(MixedICDScheme.from_selection(manager, name, icd_version_selection,
                                                                    icd_version_schemes=icd_version_schemes))
-        scheme: MixedICDScheme = manager.scheme[name]
+        scheme = cast(MixedICDScheme, manager.scheme[name])
         return scheme.register_standard_icd_maps(manager)
 
     def register_scheme(self, manager: CodingSchemesManager,
@@ -175,7 +177,7 @@ class MixedICDTableResource(CodedTableResource):
                                         supported_space=space_table,
                                         icd_version_selection=icd_version_selection)
         if target_name is not None and mapping is not None:
-            mixed_icd_scheme: MixedICDScheme = manager.scheme[name]
+            mixed_icd_scheme = cast(MixedICDScheme, manager.scheme[name])
             manager = mixed_icd_scheme.register_map(manager=manager, target_name=target_name, mapping=mapping)
         return manager
 
@@ -186,7 +188,8 @@ class MixedICDTableResource(CodedTableResource):
         """
         return self._coerce_columns_to_str(df, (str(COLUMN.version),))
 
-    def _strip_icd_codes(self, df: pd.DataFrame) -> pd.DataFrame:
+    @staticmethod
+    def _strip_icd_codes(df: pd.DataFrame) -> pd.DataFrame:
         df[str(COLUMN.code)] = df[str(COLUMN.code)].str.strip()
         return df
 
@@ -194,10 +197,11 @@ class MixedICDTableResource(CodedTableResource):
     def pipeline(self) -> tuple[Callable[[pd.DataFrame], pd.DataFrame], ...]:
         return super().pipeline + (self._strip_icd_codes, self._coerce_version_to_str)
 
-    def __call__(self, data_connection: Any, schemes_manager: CodingSchemesManager, mixed_scheme_name: str, *args,
-                 **kwargs):
+    def __call__(self, data_connection: Any, *args, **kwargs, ):
+        mixed_scheme_name = kwargs.pop('mixed_scheme_name')
+        schemes_manager = kwargs.pop('schemes_manager')
         table = super()(data_connection, *args, **kwargs)
-        scheme: MixedICDScheme = schemes_manager.scheme[mixed_scheme_name]
+        scheme = cast(MixedICDScheme, schemes_manager.scheme[mixed_scheme_name])
         return scheme.mixedcode_format_table(schemes_manager, table)
 
 
@@ -225,9 +229,10 @@ class MultivariateTimeSeriesTableResource(CodedTableResource):
                                    var_name=str(COLUMN.code), value_name=str(COLUMN.measurement))
         return melted_obs_df[melted_obs_df[str(COLUMN.measurement)].notnull()]
 
-    def _coerce_value_to_real(self, df: pd.DataFrame) -> pd.DataFrame:
+    @staticmethod
+    def _coerce_value_to_real(df: pd.DataFrame) -> pd.DataFrame:
         """
-        Some of the values in the measurement column might be stored as strings.
+        Some values in the measurement column were found befoer to be stored and loaded as strings.
         """
         return df.astype({str(COLUMN.measurement): float})
 
@@ -300,8 +305,8 @@ class GroupedMultivariateTimeSeriesTableResource(CodedTableResource):
     def space(self, data_connection: None = None) -> pd.DataFrame:
         return self.load_space_table(None)
 
-    def register_scheme(self,
-                        name: str,
+    @staticmethod
+    def register_scheme(name: str,
                         space_table: pd.DataFrame,
                         attributes_selection: Optional[pd.DataFrame]) -> CodingSchemesManager:
         if attributes_selection is None:
@@ -318,13 +323,10 @@ class GroupedMultivariateTimeSeriesTableResource(CodedTableResource):
         df = attributes_selection.astype({'attribute': str, 'type_hint': str})
         codes = tuple(sorted(df.index + '.' + df['attribute'].tolist()))
         desc = FrozenDict11(dict(zip(codes, codes)))
-        group = FrozenDict11(dict(zip(codes, df.index)))
+        group = FrozenDict11(dict(zip(codes, df.index.astype(str).values)))
         type_hint = FrozenDict11(dict(zip(codes, df['type_hint'].tolist())))
-        return CodingSchemesManager().add_scheme(NumericScheme(name=name,
-                                                               codes=codes,
-                                                               group=group,
-                                                               desc=desc,
-                                                               type_hint=type_hint))
+        scheme = NumericScheme(name=name, codes=codes, group=group, desc=desc, type_hint=type_hint)  # type: ignore
+        return CodingSchemesManager().add_scheme(scheme)
 
 
 class DatasetSchemeMapsFileNames(AbstractConfig):
@@ -691,7 +693,7 @@ class MIMICResourceExploratory(AbstractConfig):
         return self.tables.obs.stats(data_connection)
 
     def supported_obs_variables(self, data_connection: None = None) -> pd.DataFrame:
-        return self.tables.obs.space(None)
+        return self.tables.obs.space(data_connection)
 
     def supported_icu_procedures(self, data_connection: Any) -> pd.DataFrame:
         return self.tables.icu_procedures.space(data_connection)

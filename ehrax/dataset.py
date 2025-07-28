@@ -76,26 +76,26 @@ class COLUMN(enum.StrEnum):
 class TableColumns(AbstractConfig):
 
     def __check_init__(self):
+        self.validate()
+
+    def validate(self):
         assert all(k in COLUMN and k == v for k, v in self.as_dict().items()), f"Fields must be one of {COLUMN}."
 
     @property
-    def id_dict(self) -> dict[str, str]:
-        return {k: v for k, v in self.as_dict() if COLUMN[k].is_id}
+    def id_cols(self) -> tuple[str, ...]:
+        return tuple(v for k, v in self.as_one_level_dict().items() if COLUMN[k].is_id)
 
     def __contains__(self, item: str | COLUMN):
         if isinstance(item, str):
-            return item in self.as_dict()
+            return item in self.as_one_level_dict()
         elif isinstance(item, COLUMN):
-            return str(item) in self.as_dict()
+            return str(item) in self.as_one_level_dict()
         else:
             raise ValueError(f"Unsupported type {type(item)}")
 
-    def _index(self) -> Optional[str]:
-        return None
-
     @property
-    def index(self) -> Optional[str]:
-        return self._index()
+    def index(self) -> tuple[str, ...]:
+        return tuple(f.name for f in dataclasses.fields(self) if f.metadata.get('index', False))
 
     @property
     def time_cols(self) -> tuple[str, ...]:
@@ -106,68 +106,54 @@ class TableColumns(AbstractConfig):
         return tuple(v for k, v in self.as_dict().items() if COLUMN[k].is_code)
 
 
-def include_cols(*cols: COLUMN, index: Optional[COLUMN] = None):
-    """Add the columns as attributes to the subclass and augment the annotations as appropriate."""
-    assert all(isinstance(c, COLUMN) for c in cols), f"Columns must be a set of {COLUMN}."
-    assert len(cols) == len(set(cols)), f"Columns must be unique."
-    assert index is None or isinstance(index, COLUMN), f"Index must be None or a {COLUMN}."
-    annotations = {str(c): str for c in cols}
-    defaults = {str(c): str(c) for c in cols}
-
-    def init(self, **kwargs):
-        assert kwargs == defaults, f"Expected {defaults}, got {kwargs}."
-        for c in cols:
-            setattr(self, str(c), c.value)
-
-    def decorator(subclass: type[TableColumns]) -> type[TableColumns]:
-        assert issubclass(subclass, TableColumns), f"Class must be a subclass of {TableColumns}."
-        # Update the subclass with the new annotations and defaults.
-        subclass.__annotations__.update(annotations)
-        init(subclass, **{str(c): c.value for c in cols})
-        subclass.__defaults__ = tuple(defaults[k] for k in subclass.__annotations__)
-        subclass._index = lambda self: str(index) if index is not None else None
-        subclass.__repr__ = lambda \
-                self: f"{subclass.__name__}({', '.join(f'{k}={v}' for k, v in self.as_dict().items())})"
-        return subclass
-
-    return decorator
-
-
-@include_cols(COLUMN.subject_id, COLUMN.race, COLUMN.gender, COLUMN.date_of_birth, index=COLUMN.subject_id)
 class StaticTableColumns(TableColumns):
-    pass
+    subject_id: str = field(default=str(COLUMN.subject_id), metadata={"index": True})
+    race: str = str(COLUMN.race)
+    gender: str = str(COLUMN.gender)
+    date_of_birth: str = str(COLUMN.date_of_birth)
 
 
-@include_cols(COLUMN.subject_id, COLUMN.admission_id, COLUMN.start_time, COLUMN.end_time, index=COLUMN.admission_id)
-class AdmissionTableColumns(TableColumns):
-    pass
+class AdmissionsTableColumns(TableColumns):
+    subject_id: str = str(COLUMN.subject_id)
+    admission_id: str = field(default=str(COLUMN.admission_id), metadata={"index": True})
+    start_time: str = str(COLUMN.start_time)
+    end_time: str = str(COLUMN.end_time)
 
 
-@include_cols(COLUMN.admission_id, COLUMN.code, COLUMN.description)
 class AdmissionSummaryTableColumns(TableColumns):
-    pass
+    admission_id: str = str(COLUMN.admission_id)
+    code: str = str(COLUMN.code)
+    description: str = str(COLUMN.description)
 
 
-@include_cols(COLUMN.admission_id, COLUMN.code, COLUMN.time, COLUMN.measurement, COLUMN.description)
 class AdmissionTimeSeriesTableColumns(TableColumns):
-    pass
+    admission_id: str = str(COLUMN.admission_id)
+    code: str = str(COLUMN.code)
+    time: str = str(COLUMN.time)
+    measurement: str = str(COLUMN.measurement)
+    description: str = str(COLUMN.description)
 
 
-@include_cols(COLUMN.admission_id, COLUMN.code, COLUMN.start_time, COLUMN.end_time, COLUMN.description)
 class AdmissionIntervalEventsTableColumns(TableColumns):
-    pass
+    admission_id: str = str(COLUMN.admission_id)
+    code: str = str(COLUMN.code)
+    description: str = str(COLUMN.description)
+    start_time: str = str(COLUMN.start_time)
+    end_time: str = str(COLUMN.end_time)
 
 
-@include_cols(COLUMN.admission_id, COLUMN.code, COLUMN.description,
-              COLUMN.start_time, COLUMN.end_time,
-              COLUMN.amount,
-              COLUMN.amount_unit,
-              COLUMN.derived_unit_normalization_factor,
-              COLUMN.derived_universal_unit,
-              COLUMN.derived_normalized_amount,
-              COLUMN.derived_normalized_amount_per_hour)
 class AdmissionIntervalRatesTableColumns(TableColumns):
-    pass
+    admission_id: str = str(COLUMN.admission_id)
+    code: str = str(COLUMN.code)
+    description: str = str(COLUMN.description)
+    start_time: str = str(COLUMN.start_time)
+    end_time: str = str(COLUMN.end_time)
+    amount: str = str(COLUMN.amount)
+    amount_unit: str = str(COLUMN.amount_unit)
+    derived_unit_normalization_factor: str = str(COLUMN.derived_unit_normalization_factor)
+    derived_universal_unit: str = str(COLUMN.derived_universal_unit)
+    derived_normalized_amount: str = str(COLUMN.derived_normalized_amount)
+    derived_normalized_amount_per_hour: str = str(COLUMN.derived_normalized_amount_per_hour)
 
 
 class MultivariateTimeSeriesTableMeta(AbstractConfig):
@@ -193,7 +179,7 @@ class MultivariateTimeSeriesTableMeta(AbstractConfig):
 
 class DatasetColumns(AbstractConfig):
     static: StaticTableColumns
-    admissions: AdmissionTableColumns
+    admissions: AdmissionsTableColumns
     dx_discharge: AdmissionSummaryTableColumns
     obs: AdmissionTimeSeriesTableColumns
     icu_procedures: AdmissionIntervalEventsTableColumns
@@ -201,12 +187,12 @@ class DatasetColumns(AbstractConfig):
     hosp_procedures: AdmissionIntervalEventsTableColumns
 
     def __init__(self, static: StaticTableColumns = StaticTableColumns(),
-                 admissions: AdmissionTableColumns = AdmissionTableColumns(),
-                 dx_discharge: Optional[AdmissionSummaryTableColumns] = AdmissionSummaryTableColumns(),
-                 obs: Optional[AdmissionTimeSeriesTableColumns] = AdmissionTimeSeriesTableColumns(),
-                 icu_procedures: Optional[AdmissionIntervalEventsTableColumns] = AdmissionTimeSeriesTableColumns(),
-                 icu_inputs: Optional[AdmissionIntervalRatesTableColumns] = AdmissionTimeSeriesTableColumns(),
-                 hosp_procedures: Optional[AdmissionIntervalEventsTableColumns] = AdmissionTimeSeriesTableColumns()):
+                 admissions: AdmissionsTableColumns = AdmissionsTableColumns(),
+                 dx_discharge: AdmissionSummaryTableColumns = AdmissionSummaryTableColumns(),
+                 obs: AdmissionTimeSeriesTableColumns = AdmissionTimeSeriesTableColumns(),
+                 icu_procedures: AdmissionIntervalEventsTableColumns = AdmissionIntervalEventsTableColumns(),
+                 icu_inputs: AdmissionIntervalRatesTableColumns = AdmissionIntervalRatesTableColumns(),
+                 hosp_procedures: AdmissionIntervalEventsTableColumns = AdmissionIntervalEventsTableColumns()):
         self.static = static
         self.admissions = admissions
         self.dx_discharge = dx_discharge
@@ -216,7 +202,12 @@ class DatasetColumns(AbstractConfig):
         self.hosp_procedures = hosp_procedures
 
     def __check_init__(self):
-        assert all(isinstance(v, TableColumns) for v in self.as_dict().values())
+        self.validate()
+
+    def validate(self):
+        assert all(isinstance(v, TableColumns) for v in self.as_one_level_dict().values())
+        for v in self.as_one_level_dict().values():
+            v.validate()
         column_names = defaultdict(set)
         for v in self.as_dict().values():
             for k, v in v.items():
@@ -227,41 +218,41 @@ class DatasetColumns(AbstractConfig):
                 raise ValueError(f"Column {k} is present with different names: {v}")
 
     @property
-    def admission_id_alias(self) -> str:
+    def admission_id(self) -> str:
         return self.admissions.admission_id
 
     @property
-    def subject_id_alias(self) -> str:
+    def subject_id(self) -> str:
         return self.static.subject_id
 
     @property
     def timestamped_tables_config_dict(self):
-        return {k: v for k, v in self.as_dict().items()
+        return {k: v for k, v in self.as_one_level_dict().items()
                 if str(COLUMN.time) in v.as_dict().keys()}
 
     @property
     def interval_based_table_config_dict(self):
-        return {k: v for k, v in self.as_dict().items()
+        return {k: v for k, v in self.as_one_level_dict().items()
                 if {str(COLUMN.start_time), str(COLUMN.end_time)}.issubset(set(v.as_dict().keys))}
 
     @property
     def indices(self) -> dict[str, str]:
         return {
             k: v.index
-            for k, v in self.as_dict().items() if v.index is not None
+            for k, v in self.as_one_level_dict().items() if len(v.index) > 0
         }
 
     @property
     def time_cols(self) -> dict[str, tuple[str, ...]]:
-        return {k: v.time_cols for k, v in self.as_dict().items() if len(v.time_cols) > 0}
+        return {k: v.time_cols for k, v in self.as_one_level_dict().items() if len(v.time_cols) > 0}
 
     @property
     def code_column(self) -> dict[str, str]:
-        return {k: v.code_cols for k, v in self.as_dict().items() if len(v.code_cols) > 0}
+        return {k: v.code_cols for k, v in self.as_one_level_dict().items() if len(v.code_cols) > 0}
 
     def temporal_admission_linked_table(self, table_name: str) -> bool:
         conf = getattr(self, table_name)
-        return len(conf.time_cols) > 0 and COLUMN.admission_id in conf
+        return len(conf.time_cols) > 0 and COLUMN.admission_id in conf and str(COLUMN.admission_id) not in conf.index
 
 
 class DatasetTables(AbstractVxData):
@@ -650,11 +641,6 @@ class Dataset(AbstractProcessedDataset):
         self.config = config
         self.tables = tables
         self.pipeline_report = PipelineReportTable(pipeline_report)
-
-    @classmethod
-    @abstractmethod
-    def make_default_pipeline(cls) -> AbstractDatasetPipeline:
-        ...
 
     def scheme_proxy(self, coding_schemes_manger: CodingSchemesManager) -> DatasetSchemeProxy:  # type: ignore[override]
         return DatasetSchemeProxy(self.config.scheme, coding_schemes_manger)
