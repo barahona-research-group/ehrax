@@ -185,6 +185,7 @@ class FilterUnsupportedCodes(DatasetTransformation):
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         tables_dict = dataset.tables.tables_dict
         for table_name, code_column in dataset.config.columns.code_column.items():
+            (code_column,) = code_column
             table = tables_dict[table_name]
             coding_scheme = getattr(dataset.scheme_proxy(schemes_context), table_name)
             n1 = len(table)

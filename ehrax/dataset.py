@@ -233,7 +233,7 @@ class DatasetColumns(AbstractConfig):
     @property
     def interval_based_table_config_dict(self):
         return {k: v for k, v in self.as_one_level_dict().items()
-                if {str(COLUMN.start_time), str(COLUMN.end_time)}.issubset(set(v.as_dict().keys))}
+                if {str(COLUMN.start_time), str(COLUMN.end_time)}.issubset(set(v.as_dict().keys()))}
 
     @property
     def indices(self) -> dict[str, str]:

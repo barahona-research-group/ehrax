@@ -173,6 +173,7 @@ class TestFilterUnsupportedCodes:
                                       filtered_dataset: rx.Dataset):
         unfiltered_dataset, unsupported_codes = dataset_with_unsupported_codes
         for table_name, code_col in filtered_dataset.config.columns.code_column.items():
+            (code_col,) = code_col
             assert unsupported_codes[table_name] in getattr(unfiltered_dataset.tables, table_name)[code_col].values
             assert unsupported_codes[table_name] not in getattr(filtered_dataset.tables, table_name)[code_col].values
 
