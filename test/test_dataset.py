@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Callable
+from typing import Callable, Optional
 from unittest import mock
 
 import equinox as eqx
@@ -8,73 +8,31 @@ import pytest
 import tables as tb
 
 import ehrax as rx
-from ehrax.testing.common_setup import DATASET_SCHEME_MANAGER, DATASET_TABLES_CONF, DATASET_SCHEME_CONF
+from ehrax.testing.common_setup import DATASET_SCHEME_MANAGER, DATASET_SCHEME_CONF
 
 
-@pytest.mark.parametrize('id_alias_attrs', [('x_id_alias', 'y_id_alias'), tuple()])
-@pytest.mark.parametrize('time_attrs', [('timex_alias', 'datex_alias'), tuple()])
-@pytest.mark.parametrize('coded_attrs', [('alpha_code_alias', 'beta_code_alias'), tuple()])
-@pytest.mark.parametrize('alias_attrs', [('a_alias', 'b_alias'), tuple()])
-@pytest.mark.parametrize('other_attrs', [('derived_lambda', 'derived_sigma'), tuple()])
-def test_table_config(id_alias_attrs: tuple[str, ...], alias_attrs: tuple[str, ...],
-                      time_attrs: tuple[str, ...], coded_attrs: tuple[str, ...],
-                      other_attrs: tuple[str, ...]):
-    id_alias_dict = {k: '_' for k in id_alias_attrs}
-    alias_dict = {k: '_' for k in alias_attrs}
-    time_dict = {k: f'{k}_t' for k in time_attrs}
-    coded_dict = {k: f'{k}_code' for k in coded_attrs}
-    other_dict = {k: '_' for k in other_attrs}
-
-    all_alias_dict = id_alias_dict | alias_dict | time_dict | coded_dict
-    all_dict = all_alias_dict | other_dict
-    assert rx.dataset.TableColumnNames._alias_dict(all_dict) == all_alias_dict
-    assert rx.dataset.TableColumnNames._alias_id_dict(all_dict) == id_alias_dict
-    assert set(rx.dataset.TableColumnNames._time_cols(all_dict)) == set(time_dict.values())
-    assert set(rx.dataset.TableColumnNames._coded_cols(all_dict)) == set(coded_dict.values())
+@pytest.mark.parametrize('columns, id_cols, code_cols, time_cols, index', [
+    [rx.dataset.StaticTableColumns(), ('subject_id',), (), ('date_of_birth',), ('subject_id',)],
+    [rx.dataset.AdmissionsTableColumns(), ('subject_id', 'admission_id'), (), ('start_time', 'end_time'),
+     ('admission_id',)],
+    [rx.dataset.AdmissionSummaryTableColumns(), ('admission_id',), ('code',), (), ()],
+    [rx.dataset.AdmissionTimeSeriesTableColumns(), ('admission_id',), ('code',), ('time',), ()],
+    [rx.dataset.AdmissionIntervalEventsTableColumns(), ('admission_id',), ('code',), ('start_time', 'end_time'), ()],
+    [rx.dataset.AdmissionIntervalRatesTableColumns(), ('admission_id',), ('code',), ('start_time', 'end_time'), ()],
+])
+def test_table_config(columns: rx.dataset.TableColumns, id_cols: tuple[str, ...],
+                      code_cols: tuple[str, ...], time_cols: tuple[str, ...], index: Optional[str]):
+    assert sorted(columns.time_cols) == sorted(time_cols)
+    assert sorted(columns.code_cols) == sorted(code_cols)
+    assert sorted(columns.id_cols) == sorted(id_cols)
+    assert sorted(columns.index) == sorted(index)
 
 
-def test_assert_consistent_aliases():
-    DATASET_TABLES_CONF._assert_consistent_aliases()
-
-
-def test_assert_consistent_subject_alias_fail():
-    with pytest.raises(AssertionError):
-        updated = eqx.tree_at(lambda x: x.admissions.subject_id_alias,
-                              DATASET_TABLES_CONF,
-                              f'{DATASET_TABLES_CONF.subject_id_alias}_')
-        updated._assert_consistent_aliases()
-
-
-@pytest.mark.parametrize("table_name", ['dx_discharge', 'obs', 'icu_procedures', 'icu_inputs', 'hosp_procedures'])
-def test_assert_consistent_admission_alias_fail(table_name: str):
-    if getattr(DATASET_TABLES_CONF, table_name) is None:
-        raise pytest.skip(f'{table_name} is not in the dataset')
-
-    with pytest.raises(AssertionError):
-        updated = eqx.tree_at(lambda x: getattr(getattr(x, table_name), 'admission_id_alias'),
-                              DATASET_TABLES_CONF,
-                              f'{DATASET_TABLES_CONF.admission_id_alias}_')
-        updated._assert_consistent_aliases()
-
-
-def test_assert_consistent_subject_alias_pass():
-    all_tables_keys = ('static', 'admissions', 'dx_discharge', 'obs',
-                       'icu_procedures', 'icu_inputs', 'hosp_procedures')
-    timestamped_tables = ('obs',)
-    interval_tables = ('icu_procedures', 'icu_inputs', 'hosp_procedures')
-
-    assert set(DATASET_TABLES_CONF.table_config_dict.keys()) == set(k for k in all_tables_keys
-                                                                    if
-                                                                    getattr(DATASET_TABLES_CONF, k) is not None)
-    assert set(DATASET_TABLES_CONF.timestamped_table_config_dict.keys()) == set(k for k in timestamped_tables
-                                                                                if getattr(DATASET_TABLES_CONF,
-                                                                                           k) is not None)
-    assert set(DATASET_TABLES_CONF.interval_based_table_config_dict.keys()) == set(k for k in interval_tables
-                                                                                   if
-                                                                                   getattr(DATASET_TABLES_CONF,
-                                                                                           k) is not None)
-
-    assert set(DATASET_TABLES_CONF.indices.keys()) == {'static', 'admissions'}
+def test_assert_invalid_column_fail():
+    with pytest.raises(AssertionError, match="Fields must be one of"):
+        c = rx.dataset.DatasetColumns()
+        updated = eqx.tree_at(lambda x: x.admissions.subject_id, c, f'subject_id_')
+        updated.validate()
 
 
 def test_scheme_dict():

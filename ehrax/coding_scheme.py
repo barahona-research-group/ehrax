@@ -234,6 +234,7 @@ class NumericScheme(CodingScheme):
     """
     type_hint: FrozenDict11[NumericalTypeHint]
     default_type_hint: NumericalTypeHint
+    group: FrozenDict11[str]
 
     def __init__(self, name: str, codes: tuple[str, ...], desc: Optional[FrozenDict11[str]] = None,
                  group: Optional[FrozenDict11[str]] = None,
@@ -344,7 +345,7 @@ class HierarchicalScheme(CodingScheme):
         assert isinstance(self.ch2pt, FrozenDict1N), f"{self}: ch2pt should be a dict."
         for collection in [self.dag_codes, self.dag_desc.values(), self.dag_desc.keys(), self.code2dag.keys(),
                            self.dag_desc.values(), self.code2dag.values(), self.ch2pt.keys(),
-                           set.union(*self.ch2pt.values())]:
+                           frozenset.union(*self.ch2pt.values())]:
             assert all(
                 isinstance(c, str) for c in collection
             ), f"{self}: All name types should be str."
@@ -683,7 +684,7 @@ class CodeMap(AbstractVxData):
             float: the range ratio of the CodeMap.
         """
         assert self.target_name == target_scheme.name, "The target scheme must be the same as the target name."
-        return len(set.union(*self.data.values()) & set(target_scheme.codes)) / len(target_scheme.codes)
+        return len(frozenset.union(*self.data.values()) & frozenset(target_scheme.codes)) / len(target_scheme.codes)
 
     def log_ratios(self, source_scheme: CodingScheme, target_scheme: CodingScheme) -> float:
         """

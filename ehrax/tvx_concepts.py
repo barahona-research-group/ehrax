@@ -686,6 +686,10 @@ class InpatientInterventions(AbstractVxData):
                 timestamps.extend(ii.endtime)
         return list(sorted(set(timestamps)))
 
+    @cached_property
+    def final_timestamp(self) -> float:
+        return max(self.timestamps)
+
 
 class SegmentedInpatientInterventions(AbstractVxData):
     time: Array

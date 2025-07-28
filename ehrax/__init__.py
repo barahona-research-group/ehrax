@@ -27,6 +27,7 @@ from .coding_scheme import (
 )
 
 from .dataset import (
+    COLUMN,
     Dataset,
     DatasetConfig,
     DatasetSchemeConfig,
