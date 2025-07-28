@@ -7,7 +7,6 @@ import pandas as pd
 import ehrax as rx
 from ehrax import CodingSchemeWithUOM
 
-MAX_STAY_DAYS = 356
 UOM = ['m', 's', 'g', 'mg', 'KG', 'ml']
 
 
@@ -146,21 +145,25 @@ def _sample_proc_dataframe(admissions_df: pd.DataFrame,
     c_start = str(rx.COLUMN.start_time)
     c_end = str(rx.COLUMN.end_time)
     codes = sample_codes(scheme, n)
-    df = pd.DataFrame({
+    df_in = pd.DataFrame({
         c_admission: random.choices(admissions_df[c_admission], k=n),
-        c_code: codes
+        c_code: codes,
+        c_start: pd.Timestamp(0),
+        c_end: pd.Timestamp(0),
     })
-    df = pd.merge(df, admissions_df[[c_admission, c_admittime, c_dischtime]],
+    df = pd.merge(df_in, admissions_df[[c_admission, c_admittime, c_dischtime]],
                   on=c_admission,
-                  suffixes=(None, '_admission'))
-    df['los'] = (df[c_dischtime] - df[c_admittime]).dt.total_seconds() / 3600
+                  suffixes=(None, '_y'))
+    c_admittime = f'{c_admittime}_y' if c_admittime in df_in.columns else c_admittime
+    c_dischtime = f'{c_dischtime}_y'if c_dischtime in df_in.columns else c_dischtime
 
+    df['los'] = (df[c_dischtime] - df[c_admittime]).dt.total_seconds() / 3600
     relative_start = nr.uniform(0, df['los'].values.tolist(), size=n)
     df[c_start] = df[c_admittime] + pd.to_timedelta(relative_start, unit='hours')
-
     relative_end = nr.uniform(low=relative_start, high=df['los'].values.tolist(), size=n)
-
     df[c_end] = df[c_admittime] + pd.to_timedelta(relative_end, unit='hours')
+    assert df[c_start].between(df[c_admittime], df[c_dischtime]).all()
+    assert df[c_end].between(df[c_admittime], df[c_dischtime]).all()
     return df[[c_admission, c_code, c_start, c_end]]
 
 
@@ -190,12 +193,16 @@ def sample_obs_dataframe(admissions_df: pd.DataFrame,
     c_value = str(rx.COLUMN.measurement)
 
     codes = sample_codes(obs_scheme, n)
-    df = pd.DataFrame({
+    df_in = pd.DataFrame({
         c_admission: random.choices(admissions_df[c_admission], k=n),
-        c_obs: codes
+        c_obs: codes,
+        c_time: pd.Timestamp(0)
     })
-    df = pd.merge(df, admissions_df[[c_admission, c_admittime, c_dischtime]], on=c_admission,
+    df = pd.merge(df_in, admissions_df[[c_admission, c_admittime, c_dischtime]], on=c_admission,
                   suffixes=(None, '_y'))
+    c_admittime = f'{c_admittime}_y' if c_admittime in df_in.columns else c_admittime
+    c_dischtime = f'{c_dischtime}_y' if c_dischtime in df_in.columns else c_dischtime
+
     df['los'] = (df[c_dischtime] - df[c_admittime]).dt.total_seconds() / 3600
     relative_time = nr.uniform(0, df['los'].values.tolist(), size=n)
     df[c_time] = df[c_admittime] + pd.to_timedelta(relative_time, unit='hours')

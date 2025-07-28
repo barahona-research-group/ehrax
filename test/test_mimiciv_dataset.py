@@ -68,7 +68,7 @@ class TestUnitConversionAndFilterInvalidInputRates:
         admission_id = icu_inputs.iloc[0][c.admission_id]
         icu_inputs.loc[
             icu_inputs[c.admission_id] == admission_id, c.derived_normalized_amount_per_hour] = np.nan
-        return eqx.tree_at(lambda x: x.columns.icu_inputs, fixed_dataset, icu_inputs)
+        return eqx.tree_at(lambda x: x.tables.icu_inputs, fixed_dataset, icu_inputs)
 
     @pytest.fixture(scope='class')
     def filtered_dataset(self, nan_inputs_dataset: Dataset):
