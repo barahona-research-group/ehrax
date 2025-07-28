@@ -15,17 +15,17 @@ from ..tvx_transformations import SampleSubjects, ObsIQROutlierRemover, RandomSp
 OBSERVABLE_AKI_TARGET_CODE: Final[str] = 'renal_aki.aki_binary'
 AKI_STUDY_PREFIX: str = 'mimiciv.aki_study'
 AKI_STUDY_RESOURCES_ROOT: str = 'mimiciv/aki_study'
+SCOPED_NAMES = ScopedSchemeNames(name_separator='.', name_prefix=AKI_STUDY_PREFIX)
 
 
 def dataset_schemes_config():
-    names = ScopedSchemeNames(name_separator='.', name_prefix=AKI_STUDY_PREFIX)
-    return DatasetSchemeConfig(ethnicity=names.ethnicity,
-                               gender=names.gender,
-                               dx_discharge=names.dx_discharge,
-                               obs=names.obs,
-                               icu_procedures=names.icu_procedures,
-                               hosp_procedures=names.hosp_procedures,
-                               icu_inputs=names.icu_inputs)
+    return DatasetSchemeConfig(ethnicity=SCOPED_NAMES.ethnicity,
+                               gender=SCOPED_NAMES.gender,
+                               dx_discharge=SCOPED_NAMES.dx_discharge,
+                               obs=SCOPED_NAMES.obs,
+                               icu_procedures=SCOPED_NAMES.icu_procedures,
+                               hosp_procedures=SCOPED_NAMES.hosp_procedures,
+                               icu_inputs=SCOPED_NAMES.icu_inputs)
 
 
 def dataset_config():
@@ -53,7 +53,7 @@ def dataset_pipeline() -> AbstractDatasetPipeline:
 
 
 def tvx_schemes_config(config: DatasetSchemeConfig) -> TVxEHRSchemeConfig:
-    names = ScopedSchemeNames(name_separator='.', name_prefix='aki_study').target
+    names = SCOPED_NAMES.target
     return TVxEHRSchemeConfig(
         gender=config.gender,
         ethnicity=names.ethnicity,
@@ -66,7 +66,7 @@ def tvx_schemes_config(config: DatasetSchemeConfig) -> TVxEHRSchemeConfig:
 
 
 def tvx_ehr_config() -> TVxEHRConfig:
-    scheme = tvx_schemes_config()
+    scheme = tvx_schemes_config(dataset_schemes_config())
     return TVxEHRConfig(
         scheme=scheme,
         demographic=DemographicVectorConfig(age=True,
@@ -77,7 +77,7 @@ def tvx_ehr_config() -> TVxEHRConfig:
             scheme=scheme.obs,
             leading_hours=[6., 12., 24., 48., 72.],  # hours
             entry_neglect_window=6.,  # hours
-            minimum_acquisitions=2,  # number of observables acquisitions.
+            minimum_acquisitions=2,  # number of observable acquisitions.
             recovery_window=12.),  # hours
         sample=None,  # no subsetting now
         splits=TVxEHRSplitsConfig(split_quantiles=[0.6, 0.7, 0.8], seed=0,

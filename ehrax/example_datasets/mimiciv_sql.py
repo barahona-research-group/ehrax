@@ -35,6 +35,7 @@ class SQLTableInterface(AbstractConfig):
 
 class SQLCodedTableInterface(SQLTableInterface):
     query_template: Optional[str]
+    space_query_template: Optional[str]
 
     def __init__(self, query_template: Optional[str] = None,
                  space_query_template: Optional[str] = None):
@@ -99,7 +100,6 @@ class SQLCodedTableResource(CodedTableResource):
     def __init__(self, columns: CodedColumns, query_template: Optional[str] = None,
                  space_query_template: Optional[str] = None):
         super().__init__(columns)
-        self.columns = columns
         self.sql_interface = SQLCodedTableInterface(query_template=query_template,
                                                     space_query_template=space_query_template)
 
