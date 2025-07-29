@@ -2,12 +2,13 @@ from typing import Literal, cast
 
 import pandas as pd
 
-from .mimic_resources import TableResource, CodedTableResource, CodedColumns, StaticTableResource, \
-    MixedICDTableResource, DatasetTablesResources, MIMICDataset, MIMICDatasetAuxiliaryResources, ScopedSchemeNames, \
+from .mimic import TableResource, CodedTableResource, CodedColumns, StaticTableResource, \
+    MixedICDTableResource, DatasetTablesResources, MIMICDatasetAuxiliaryResources, ScopedSchemeNames, \
     ExternalMapResources, ExternalSelectionResources, MIMICDatasetSchemeSuffixes, DatasetSchemeMapsFileNames, \
-    DatasetSchemeSelectionFiles
+    DatasetSchemeSelectionFiles, StaticTableResource_MIMICIII, StaticTableResource_MIMICIV, \
+    MixedICDTableResource_MIMICIII, MixedICDTableResource_MIMICIV
 from ..base import AbstractVxData, AbstractConfig
-from ..dataset import COLUMN, TableColumns, StaticTableColumns, DatasetSchemeConfig, DatasetConfig
+from ..dataset import COLUMN, TableColumns, StaticTableColumns, AdmissionsTableColumns
 from ..freezer import FrozenDict11
 
 TableFileTitle = Literal['patients', 'admissions', 'diagnoses_icd', 'd_icd_diagnoses']
@@ -121,12 +122,11 @@ class InMemoryCodedTableResource(CodedTableResource):
         return self.interface.load_space_table(in_memory_tables)
 
 
-class InMemoryStaticTableResource(StaticTableResource):
+class InMemoryStaticTableResource:  # mixin
     columns: StaticTableColumns
     interface: StaticTableInterface
 
     def __init__(self, column_map: FrozenDict11[str], admissions_column_map: FrozenDict11[str]):
-        super().__init__()
         self.interface = StaticTableInterface(admissions_column_map=admissions_column_map, column_map=column_map)
 
     def load_standard_columns_table(self, in_memory_tables: InMemoryMIMICTableFiles, *args, **kwargs) -> pd.DataFrame:
@@ -139,7 +139,15 @@ class InMemoryStaticTableResource(StaticTableResource):
         return self.interface.load_ethnicity_space_table(in_memory_tables)
 
 
-class InMemoryMixedICDTableResource(MixedICDTableResource):
+class InMemoryStaticTableResource_MIMICIII(InMemoryStaticTableResource, StaticTableResource_MIMICIII):
+    pass
+
+
+class InMemoryStaticTableResource_MIMICIV(InMemoryStaticTableResource, StaticTableResource_MIMICIV):
+    pass
+
+
+class InMemoryMixedICDTableResource:  # mixin
     interface: CodedTableInterface
 
     def __init__(self, table_name: TableFileTitle, column_map: FrozenDict11[str], space_table_name: TableFileTitle,
@@ -153,6 +161,14 @@ class InMemoryMixedICDTableResource(MixedICDTableResource):
 
     def load_space_table(self, in_memory_tables: InMemoryMIMICTableFiles) -> pd.DataFrame:
         return self.interface.load_space_table(in_memory_tables)
+
+
+class InMemoryMixedICDTableResource_MIMICIII(InMemoryMixedICDTableResource, MixedICDTableResource_MIMICIII):
+    pass
+
+
+class InMemoryMixedICDTableResource_MIMICIV(InMemoryMixedICDTableResource, MixedICDTableResource_MIMICIV):
+    pass
 
 
 class InMemoryMIMICDatasetAuxiliaryResources(MIMICDatasetAuxiliaryResources):
@@ -190,3 +206,59 @@ class MIMICTablesResources(DatasetTablesResources):
         super().__init__(self, static=static, admissions=admissions, dx_discharge=dx_discharge,
                          obs=None, icu_procedures=None, icu_inputs=None,
                          hosp_procedures=None)
+
+# The configurations below adapt to MIMIC-III v1.4
+MIMICIII_STATIC_COLMAP = FrozenDict11({'DOB': str(COLUMN.date_of_birth),
+                                       'SUBJECT_ID': str(COLUMN.subject_id),
+                                       'GENDER': str(COLUMN.gender), })
+MIMICIII_ADMISSIONS_COLMAP = FrozenDict11({'HADM_ID': str(COLUMN.admission_id),
+                                           'SUBJECT_ID': str(COLUMN.subject_id),
+                                           'ADMITTIME': str(COLUMN.start_time),
+                                           'DISCHTIME': str(COLUMN.end_time),
+                                           'ETHNICITY': str(COLUMN.race)})
+MIMICIII_DIAGNOSES_ICD_COLMAP = FrozenDict11({'HADM_ID': str(COLUMN.admission_id),
+                                              'ICD9_CODE': str(COLUMN.code)})
+MIMICIII_D_ICD_DIAGNOSES_COLMAP = FrozenDict11({'ICD9_CODE': str(COLUMN.code),
+                                                'LONG_TITLE': str(COLUMN.description)})
+
+MIMICIII_STATIC_RESOURCES = InMemoryStaticTableResource_MIMICIII(MIMICIII_STATIC_COLMAP, MIMICIII_ADMISSIONS_COLMAP)
+
+MIMICIII_ADMISSIONS_RESOURCES = InMemoryTableResource(AdmissionsTableColumns(), 'admissions',
+                                                      MIMICIII_ADMISSIONS_COLMAP)
+MIMICIII_DX_DISCHARGE_RESOURCES = InMemoryMixedICDTableResource_MIMICIII('diagnoses_icd', MIMICIII_DIAGNOSES_ICD_COLMAP,
+                                                                         'd_icd_diagnoses',
+                                                                         MIMICIII_D_ICD_DIAGNOSES_COLMAP)
+MIMICIII_TABLES_RESOURCES = MIMICTablesResources(static=MIMICIII_STATIC_RESOURCES,
+                                                 admissions=MIMICIII_ADMISSIONS_RESOURCES,
+                                                 dx_discharge=MIMICIII_DX_DISCHARGE_RESOURCES)
+
+# The configurations below adapt to MIMIC-IV v3.1
+MIMICIV_STATIC_COLMAP = FrozenDict11({'subject_id': str(COLUMN.subject_id),
+                                      'gender': str(COLUMN.gender),
+                                      'anchor_age': str(COLUMN.anchor_age),
+                                      'anchor_year': str(COLUMN.anchor_year)})
+
+MIMICIV_ADMISSIONS_COLMAP = FrozenDict11({'hadm_id': str(COLUMN.admission_id),
+                                          'subject_id': str(COLUMN.subject_id),
+                                          'admittime': str(COLUMN.start_time),
+                                          'dischtime': str(COLUMN.end_time),
+                                          'race': str(COLUMN.race)})
+
+MIMICIV_DIAGNOSES_ICD_COLMAP = FrozenDict11({'hadm_ic': str(COLUMN.admission_id),
+                                             'icd_code': str(COLUMN.code),
+                                             'icd_version': str(COLUMN.version)})
+
+MIMICIV_D_ICD_DIAGNOSES_COLMAP = FrozenDict11({'icd_code': str(COLUMN.code),
+                                               'icd_version': str(COLUMN.version),
+                                               'long_title': str(COLUMN.description)})
+
+MIMICIV_STATIC_RESOURCES = InMemoryStaticTableResource_MIMICIV(MIMICIV_STATIC_COLMAP, MIMICIV_ADMISSIONS_COLMAP)
+
+MIMICIV_ADMISSIONS_RESOURCES = InMemoryTableResource(AdmissionsTableColumns(), 'admissions',
+                                                     MIMICIV_ADMISSIONS_COLMAP)
+MIMICIV_DX_DISCHARGE_RESOURCES = InMemoryMixedICDTableResource_MIMICIV('diagnoses_icd', MIMICIV_DIAGNOSES_ICD_COLMAP,
+                                                                       'd_icd_diagnoses',
+                                                                       MIMICIV_D_ICD_DIAGNOSES_COLMAP)
+MIMICIV_TABLES_RESOURCES = MIMICTablesResources(static=MIMICIV_STATIC_RESOURCES,
+                                                admissions=MIMICIV_ADMISSIONS_RESOURCES,
+                                                dx_discharge=MIMICIV_DX_DISCHARGE_RESOURCES)

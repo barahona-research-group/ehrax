@@ -4,10 +4,9 @@ from typing import Optional, Final
 import pandas as pd
 import sqlalchemy
 
-from .mimic_resources import DatasetTablesResources, MixedICDTableResource, CodedTableResource, TableResource, \
-    CodedColumns, StaticTableResource, \
-    MultivariateTimeSeriesTableResource, GroupedMultivariateTimeSeriesTableResource, MIMICDataset, \
-    MIMICDatasetAuxiliaryResources
+from .mimic import DatasetTablesResources, CodedTableResource, TableResource, \
+    CodedColumns, MultivariateTimeSeriesTableResource, GroupedMultivariateTimeSeriesTableResource, MIMICDataset, \
+    MIMICDatasetAuxiliaryResources, StaticTableResource_MIMICIV, MixedICDTableResource_MIMICIV
 from ..base import AbstractConfig
 from ..coding_scheme import resources_dir
 from ..dataset import COLUMN, StaticTableColumns, MultivariateTimeSeriesTableMeta, \
@@ -110,7 +109,7 @@ class SQLCodedTableResource(CodedTableResource):
         return self.sql_interface.load_space_table(engine)
 
 
-class SQLStaticTableResource(StaticTableResource):
+class SQLStaticTableResource(StaticTableResource_MIMICIV):
     columns: StaticTableColumns
     sql_interface: SQLStaticTableInterface
 
@@ -132,7 +131,7 @@ class SQLStaticTableResource(StaticTableResource):
         return self.sql_interface.load_ethnicity_space_table(engine)
 
 
-class SQLMixedICDTableResource(MixedICDTableResource):
+class SQLMixedICDTableResource(MixedICDTableResource_MIMICIV):
     sql_interface: SQLCodedTableInterface
 
     def __init__(self, query_template: str,
@@ -363,14 +362,3 @@ class SQLMIMICTablesResources(DatasetTablesResources):
     def url_from_credentials(user: str, password: str, host: str, port: str, dbname: str) -> str:
         return f'postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}'
 
-
-class SQLMIMICDataset(MIMICDataset):
-
-    @classmethod
-    def compile_from_env_sql(cls, dataset_scheme_config: DatasetSchemeConfig,
-                             dataset_tables_resources: SQLMIMICTablesResources = SQLMIMICTablesResources()):
-        engine = sqlalchemy.create_engine(dataset_tables_resources.url())
-        return cls.compile(config=DatasetConfig(scheme=dataset_scheme_config),
-                           tables=dataset_tables_resources,
-                           aux=MIMICDatasetAuxiliaryResources.make_resources(),
-                           data_connection=engine)
