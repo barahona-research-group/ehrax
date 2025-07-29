@@ -1,6 +1,9 @@
 from typing import Final
 
-from .mimic_resources import ScopedSchemeNames
+import sqlalchemy
+
+from .mimic import ScopedSchemeNames, MIMICDataset, MIMICDatasetAuxiliaryResources
+from .mimic_sql import SQLMIMICTablesResources
 from ..dataset import AbstractDatasetPipeline, DatasetSchemeConfig, DatasetConfig, DatasetColumns
 from ..transformations import SetIndex, CastTimestamps, \
     SelectSubjectsWithObservation, ProcessOverlappingAdmissions, FilterSubjectsNegativeAdmissionLengths, \
@@ -106,3 +109,13 @@ def tvx_ehr_pipeline() -> AbstractTVxPipeline:
         InterventionSegmentation(),
     ]
     return AbstractTVxPipeline(transformations=pipeline)
+
+
+def mimiciv_from_env_sql(dataset_tables_resources: SQLMIMICTablesResources = SQLMIMICTablesResources(),
+                         schemes_config: DatasetSchemeConfig = dataset_schemes_config(),
+                         aux_resources: MIMICDatasetAuxiliaryResources = MIMICDatasetAuxiliaryResources.make_resources()):
+    engine = sqlalchemy.create_engine(dataset_tables_resources.url())
+    return MIMICDataset.compile(config=DatasetConfig(scheme=schemes_config),
+                                tables=dataset_tables_resources,
+                                aux=aux_resources,
+                                data_connection=engine)

@@ -3,11 +3,10 @@ from typing import Self
 
 import pandas as pd
 
-from ..dataset import COLUMN
 from ..coding_scheme import FrozenDict11, FrozenDict1N, CodingScheme, CodingSchemesManager, \
     CodeMap
+from ..dataset import COLUMN
 from ..example_schemes.icd import ICDScheme
-
 
 
 class MixedICDScheme(CodingScheme):
@@ -26,7 +25,7 @@ class MixedICDScheme(CodingScheme):
         return {k: manager.scheme[v] for k, v in self.icd_version_schemes.items()}
 
     @staticmethod
-    def fix_dots(df: pd.DataFrame, 
+    def fix_dots(df: pd.DataFrame,
                  icd_schemes: dict[str, ICDScheme]) -> pd.DataFrame:
         df = df.copy()
         for version, icd_df in df.groupby(str(COLUMN.version)):
@@ -40,7 +39,8 @@ class MixedICDScheme(CodingScheme):
                        icd_version_schemes: FrozenDict11, sep: str = ':') -> Self:
         # TODO: test this method.
         icd_version_selection = icd_version_selection.sort_values([str(COLUMN.version), str(COLUMN.code)])
-        icd_version_selection = icd_version_selection.drop_duplicates([str(COLUMN.version), str(COLUMN.code)]).astype(str)
+        icd_version_selection = icd_version_selection.drop_duplicates([str(COLUMN.version), str(COLUMN.code)]).astype(
+            str)
         assert icd_version_selection[str(COLUMN.version)].isin(icd_version_schemes).all(), \
             f"Only {', '.join(map(lambda x: f'ICD-{x}', icd_version_schemes))} are expected."
 
@@ -57,10 +57,11 @@ class MixedICDScheme(CodingScheme):
         df[str(COLUMN.code)] = (df[str(COLUMN.version)] + sep + df[str(COLUMN.code)]).tolist()
         desc = df.set_index(str(COLUMN.code))[str(COLUMN.description)].to_dict()
 
-        return cls(name=name, codes=tuple(sorted(df[str(COLUMN.code)].tolist())), desc=FrozenDict11(desc), icd_version_schemes=icd_version_schemes, 
+        return cls(name=name, codes=tuple(sorted(df[str(COLUMN.code)].tolist())), desc=FrozenDict11(desc),
+                   icd_version_schemes=icd_version_schemes,
                    sep=sep)
 
-    def mixedcode_format_table(self, manager: CodingSchemesManager, table: pd.DataFrame) -> pd.DataFrame:
+    def mixed_code_format_table(self, manager: CodingSchemesManager, table: pd.DataFrame) -> pd.DataFrame:
         # TODO: test this method.
         """
         Format a table with mixed codes to the ICD version:icd_code format and filter out codes that are not in the scheme.
@@ -126,7 +127,8 @@ class MixedICDScheme(CodingScheme):
 
         return manager
 
-    def register_map(self, manager: CodingSchemesManager, target_name: str, mapping: pd.DataFrame) -> CodingSchemesManager:
+    def register_map(self, manager: CodingSchemesManager, target_name: str,
+                     mapping: pd.DataFrame) -> CodingSchemesManager:
         """
         Register a mapping between the current Mixed ICD scheme and a target scheme.
         """

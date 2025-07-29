@@ -18,7 +18,7 @@ from ..dataset import (StaticTableColumns,
                        TableColumns,
                        DatasetTables, DatasetSchemeConfig, Dataset, AbstractDatasetPipelineConfig)
 from ..example_schemes.icd import setup_standard_icd_ccs, CCSICDSchemeSelection, CCSICDOutcomeSelection
-from ..example_schemes.mimiciv_icd import MixedICDScheme
+from ..example_schemes.mixed_icd import MixedICDScheme
 
 warnings.filterwarnings('error', category=RuntimeWarning, message=r'overflow encountered in cast')
 
@@ -57,17 +57,18 @@ class TableResource(AbstractConfig):
     def pipeline(self) -> tuple[Callable[[pd.DataFrame], pd.DataFrame], ...]:
         return (self._coerce_id_to_str,)
 
-    def preprocess(self, table):
-        for f in self.pipeline:
+    @staticmethod
+    def preprocess(pipeline: tuple[Callable[[pd.DataFrame], pd.DataFrame], ...], table):
+        for f in pipeline:
             table = f(table)
         return table
 
     @abstractmethod
-    def load_standard_columns_table(self, data_connection: Any, *args, **kwargs) -> pd.DataFrame:
+    def load_standard_columns_table(self, data_connection: Any, **kwargs) -> pd.DataFrame:
         raise NotImplementedError()
 
-    def __call__(self, data_connection: Any, *args, **kwargs) -> pd.DataFrame:
-        return self.preprocess(self.load_standard_columns_table(data_connection, *args, **kwargs))
+    def __call__(self, data_connection: Any, **kwargs) -> pd.DataFrame:
+        return self.preprocess(self.pipeline, self.load_standard_columns_table(data_connection, **kwargs))
 
 
 CodedColumns = AdmissionSummaryTableColumns | AdmissionTimeSeriesTableColumns | AdmissionIntervalEventsTableColumns | AdmissionIntervalRatesTableColumns
@@ -83,7 +84,7 @@ class CodedTableResource(TableResource):
         return self._coerce_id_to_str, self._coerce_code_to_str
 
     def space(self, data_connection: Any) -> pd.DataFrame:
-        return self.preprocess(self.load_space_table(data_connection))
+        return self.preprocess(self.pipeline, self.load_space_table(data_connection))
 
     @abstractmethod
     def load_space_table(self, data_connection: Any):
@@ -104,21 +105,72 @@ class StaticTableResource(TableResource):
     def load_ethnicity_space_table(self, data_connection: Any) -> pd.DataFrame:
         raise NotImplementedError()
 
-    @staticmethod
-    def _derive_data_of_birth(df: pd.DataFrame) -> pd.DataFrame:
-        anchor_date = pd.to_datetime(df[str(COLUMN.anchor_year)], format='%Y').dt.normalize()
-        anchor_age = df[str(COLUMN.anchor_age)].map(lambda y: pd.DateOffset(years=-y))
-        df[str(COLUMN.date_of_birth)] = anchor_date + anchor_age
-        return df
+    @abstractmethod
+    @classmethod
+    def derive_shifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        # Different procedures to implement for MIMIC-III and MIMIC-IV
+        raise NotImplementedError()
 
-    def pipeline(self) -> tuple[Callable[[pd.DataFrame], pd.DataFrame], ...]:
-        return (self._coerce_id_to_str, self._derive_data_of_birth)
+    @classmethod
+    def _add_shifted_date_of_birth(cls, admissions: pd.DataFrame) -> Callable[[pd.DataFrame], pd.DataFrame]:
+        def _add(df: pd.DataFrame) -> pd.DataFrame:
+            df[str(COLUMN.date_of_birth)] = cls.derive_shifted_date_of_birth(df, admissions=admissions)
+            return df
+
+        return _add
+
+    @property
+    def pipeline(self) -> None:
+        return None
 
     def gender_space(self, date_source: Any) -> pd.DataFrame:
         return self.load_gender_space_table(date_source)
 
     def ethnicity_space(self, data_connection: Any) -> pd.DataFrame:
         return self.load_ethnicity_space_table(data_connection)
+
+    def __call__(self, data_connection: Any, **kwargs) -> pd.DataFrame:
+        assert 'admissions' in kwargs, "Pass the processed admissions table."
+        admissions = kwargs.pop('admissions')
+        pipeline = (self._coerce_id_to_str, self._add_shifted_date_of_birth(admissions=admissions))
+        return self.preprocess(pipeline, self.load_standard_columns_table(data_connection, **kwargs))
+
+
+class StaticTableResource_MIMICIV(StaticTableResource):
+    @classmethod
+    def derive_shifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.Series:
+        anchor_date = pd.to_datetime(patients[str(COLUMN.anchor_year)], format='%Y').dt.normalize()
+        anchor_age = patients[str(COLUMN.anchor_age)].map(lambda y: pd.DateOffset(years=-y))
+        return anchor_date + anchor_age
+
+
+class StaticTableResource_MIMICIII(StaticTableResource):
+
+    @classmethod
+    def derive_shifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.Series:
+        """
+        Important comment from MIMIC-III documentation at \
+            https://mimic.mit.edu/docs/iii/tables/patients/
+        > DOB is the date of birth of the given patient. Patients who are \
+            older than 89 years old at any time in the database have had their\
+            date of birth shifted to obscure their age and comply with HIPAA.\
+            The shift process was as follows: the patient’s age at their \
+            first admission was determined. The date of birth was then set to\
+            exactly 300 years before their first admission.
+
+        # TODO: check https://mimic.mit.edu/docs/iii/about/time/
+        """
+        assert 'admissions' in kwargs, "Should pass the admissions table as keyword argument."
+        admissions = kwargs.pop('admissions')
+        dob = pd.to_datetime(patients[str(COLUMN.date_of_birth)])
+        last_disch_date = admissions.groupby(str(COLUMN.subject_id))[str(COLUMN.end_time)].max()
+        first_admit_date = admissions.groupby(str(COLUMN.subject_id))[str(COLUMN.start_time)].min()
+        last_disch_date = last_disch_date.loc[patients[str(COLUMN.subject_id)]]
+        first_admit_date = first_admit_date.loc[patients[str(COLUMN.subject_id)]]
+        uncertainty = (last_disch_date.dt.year - first_admit_date.dt.year) // 2
+        shift = (uncertainty + 89).astype('timedelta64[Y]')
+        dob = dob.mask((last_disch_date.dt.year - dob.dt.year) > 150, first_admit_date - shift)
+        return dob.dt.normalize()
 
 
 class MixedVersionICDSummaryTableColumns(TableColumns):
@@ -183,6 +235,12 @@ class MixedICDTableResource(CodedTableResource):
             manager = mixed_icd_scheme.register_map(manager=manager, target_name=target_name, mapping=mapping)
         return manager
 
+    @abstractmethod
+    @staticmethod
+    def _add_version_column_if_not_exists(df: pd.DataFrame) -> pd.DataFrame:
+        # This is specifically added for MIMIC-III, pure ICD-9 codes.
+        raise NotImplementedError('Override this method in subclass')
+
     def _coerce_version_to_str(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Some of the integer codes in the database when downloaded are stored as floats or integers.
@@ -195,16 +253,45 @@ class MixedICDTableResource(CodedTableResource):
         df[str(COLUMN.code)] = df[str(COLUMN.code)].str.strip()
         return df
 
-    @property
-    def pipeline(self) -> tuple[Callable[[pd.DataFrame], pd.DataFrame], ...]:
-        return super().pipeline + (self._strip_icd_codes, self._coerce_version_to_str)
+    @staticmethod
+    def _mixed_code_format(mixed_scheme_name: str, schemes_manager: CodingSchemesManager) -> Callable[
+        [pd.DataFrame], pd.DataFrame]:
+        scheme = cast(MixedICDScheme, schemes_manager.scheme[mixed_scheme_name])
 
-    def __call__(self, data_connection: Any, *args, **kwargs, ):
+        def _transform(df: pd.DataFrame) -> pd.DataFrame:
+            return scheme.mixed_code_format_table(schemes_manager, df)
+
+        return _transform
+
+    @property
+    def pipeline(self) -> None:
+        return None
+
+    def space(self, data_connection: Any) -> pd.DataFrame:
+        pipeline = (self._coerce_code_to_str, self._strip_icd_codes,
+                    self._add_version_column_if_not_exists, self._coerce_version_to_str)
+        return self.preprocess(pipeline, self.load_space_table(data_connection))
+
+    def __call__(self, data_connection: Any, **kwargs) -> pd.DataFrame:
         mixed_scheme_name = kwargs.pop('mixed_scheme_name')
         schemes_manager = kwargs.pop('schemes_manager')
-        table = super()(data_connection, *args, **kwargs)
-        scheme = cast(MixedICDScheme, schemes_manager.scheme[mixed_scheme_name])
-        return scheme.mixedcode_format_table(schemes_manager, table)
+        pipeline = (self._coerce_id_to_str, self._coerce_code_to_str, self._strip_icd_codes,
+                    self._add_version_column_if_not_exists, self._coerce_version_to_str,
+                    self._mixed_code_format(mixed_scheme_name, schemes_manager))
+        return self.preprocess(pipeline, self.load_standard_columns_table(data_connection, **kwargs))
+
+
+class MixedICDTableResource_MIMICIII(MixedICDTableResource):
+    def _add_version_column_if_not_exists(self, df: pd.DataFrame) -> pd.DataFrame:
+        assert str(COLUMN.version) not in df
+        df[str(COLUMN.version)] = "9"
+        return df
+
+
+class MixedICDTableResource_MIMICIV(MixedICDTableResource):
+    def _add_version_column_if_not_exists(self, df: pd.DataFrame) -> pd.DataFrame:
+        assert str(COLUMN.version) in df.columns
+        return df
 
 
 class MultivariateTimeSeriesTableResource(CodedTableResource):
@@ -288,8 +375,8 @@ class GroupedMultivariateTimeSeriesTableResource(CodedTableResource):
         stats[str(COLUMN.code)] = code
         return stats.set_index(str(COLUMN.code))
 
-    def load_standard_columns_table(self, data_connection: Any, *args, **kwargs) -> pd.DataFrame:
-        return pd.concat([g(data_connection, *args, **kwargs) for g in self.groups], axis=0)
+    def load_standard_columns_table(self, data_connection: Any, **kwargs) -> pd.DataFrame:
+        return pd.concat([g(data_connection, **kwargs) for g in self.groups], axis=0)
 
     def pipeline(self) -> tuple[Callable[[pd.DataFrame], pd.DataFrame], ...]:
         return (lambda df: df.reset_index(drop=True),)
@@ -720,8 +807,8 @@ class MIMICDatasetCompiler(AbstractConfig):
         self.tables = tables
         self.scheme = scheme
 
-    def load_static(self, data_connection: Any) -> pd.DataFrame:
-        return self.tables.static(data_connection)
+    def load_static(self, data_connection: Any, admissions: pd.DataFrame) -> pd.DataFrame:
+        return self.tables.static(data_connection, admissions=admissions)
 
     def load_admissions(self, data_connection: Any) -> pd.DataFrame:
         return self.tables.admissions(data_connection)
@@ -749,8 +836,8 @@ class MIMICDatasetCompiler(AbstractConfig):
         icu_procedures = self.load_icu_procedures(data_connection) if S.icu_procedures else None
         icu_inputs = self.load_icu_inputs(data_connection) if S.icu_inputs else None
         obs = self.load_obs(data_connection) if S.obs else None
-        static = self.load_static(data_connection)
         admissions = self.load_admissions(data_connection)
+        static = self.load_static(data_connection, admissions=admissions)
         dx_discharge = self.load_dx_discharge(data_connection, schemes_manager)
         return DatasetTables(static=static, admissions=admissions, dx_discharge=dx_discharge, obs=obs,
                              icu_procedures=icu_procedures, icu_inputs=icu_inputs, hosp_procedures=hosp_procedures)
