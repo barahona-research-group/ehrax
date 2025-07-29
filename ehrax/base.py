@@ -443,7 +443,7 @@ jtu.register_pytree_node(_MyCustomList_set, lambda x: (list(x), None), lambda _,
 jtu.register_pytree_node(_MyCustomList_frozenset, lambda x: (list(x), None), lambda _, x: _MyCustomList_frozenset(x))
 
 
-class AbstractVxData(AbstractHDFSerializable, eqx.Module):
+class AbstractVxData(AbstractHDFSerializable):
     """
     AbstractVxData class represents vectorized data object, which inherits from eqx.AbstractVxData.
 

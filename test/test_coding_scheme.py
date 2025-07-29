@@ -127,7 +127,7 @@ class TestFlatScheme:
 
     @pytest.fixture(scope="class")
     def icd_ccs_map_manager(self, scheme_pair_selection: CCSICDSchemeSelection) -> rx.CodingSchemesManager:
-        return setup_standard_icd_ccs(rx.CodingSchemesManager(), scheme_pair_selection, CCSICDOutcomeSelection())
+        return setup_standard_icd_ccs(scheme_pair_selection, CCSICDOutcomeSelection())
 
     @pytest.fixture
     def icd_ccs_outcome_manager(self, icd_ccs_outcome_manager_prerequisite: rx.CodingSchemesManager,

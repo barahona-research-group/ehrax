@@ -4,20 +4,21 @@ import dataclasses
 import enum
 import logging
 import random
-from abc import abstractmethod, ABCMeta, ABC
+from abc import ABC, ABCMeta, abstractmethod
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import field
 from datetime import datetime
 from functools import cached_property
-from typing import Optional, ClassVar, Final, Self, Iterator
+from typing import Optional, Final, Self, ClassVar
 
 import equinox as eqx
 import numpy as np
 import pandas as pd
 
-from .base import AbstractConfig, AbstractVxData
-from .coding_scheme import (CodingScheme, CodingSchemesManager, NumericScheme, CodingSchemeWithUOM)
-from .literals import OverlappingAction, NumericalTypeHint, SplitLiteral
+from .base import AbstractConfig, AbstractVxData, HDFVirtualNode
+from .coding_scheme import CodingSchemesManager, CodingScheme, CodingSchemeWithUOM, NumericScheme
+from .literals import NumericalTypeHint, SplitLiteral, OverlappingAction
 from .utils import tqdm_constructor
 
 SECONDS_TO_HOURS_SCALER: Final[float] = 1 / 3600.0  # convert seconds to hours
@@ -275,6 +276,29 @@ class DatasetTables(AbstractVxData):
         self.icu_inputs = icu_inputs
         self.hosp_procedures = hosp_procedures
 
+    def __check_init__(self):
+        if isinstance(self.admissions, HDFVirtualNode):
+            return
+        if COLUMN.admission_id in self.admissions.columns:
+            admission_id = self.admissions[COLUMN.admission_id]
+        elif self.admissions.index.name == str(COLUMN.admission_id):
+            admission_id = self.admissions.index
+        else:
+            raise ValueError(
+                f"Where is the admission_id? columns: {self.admissions.columns}. Index: {self.admissions.index.name}")
+
+        assert admission_id.nunique() == len(admission_id), (
+            "Admission IDs in MIMIC-III and MIMIC-IV were found to be globally unique, i.e. two patients cannot share "
+            "an admission ID. This allowed simpler dataset representation. Since we have the admissions table listing "
+            "both subject_id and admission_id (unique 1:1 relation), no need to include the subject_id in other tables."
+            "However, in the future there might be a need for an extension/adaptation to deal with non-unique "
+            "admission IDs, where both (subject_id, admission_id) are needed for identification. "
+            "In case you are getting this error message, you can either rewrite all admission_ids of your dataset "
+            "tables to be globally unique, or, if not an urgent request, you can post an Issue "
+            "at the repository of this code or email at: (asem.a.abdelaziz@proton.me). "
+            "TODO: fix this potential limitation."
+        )
+
     @property
     def tables_dict(self) -> dict[str, pd.DataFrame]:
         return {
@@ -404,7 +428,7 @@ class ReportAttributes(AbstractConfig):
 
 class PipelineReportTable(pd.DataFrame):
     # We need to exclude the timestamps of the steps from the equality tests.
-    def equals(self, other: Self):
+    def equals(self, other: Self) -> bool:
         # Exclude timestamps from comparison.
         report = self
         if all('timestamp' in r for r in (self.columns, other.columns)):

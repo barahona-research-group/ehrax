@@ -785,9 +785,9 @@ def setup_icd_maps(manager: CodingSchemesManager, scheme_selection: CCSICDScheme
     return manager
 
 
-def setup_standard_icd_ccs(manager: CodingSchemesManager, scheme_selection: CCSICDSchemeSelection,
-                           outcome_selection: CCSICDOutcomeSelection) -> CodingSchemesManager:
-    manager = setup_icd_schemes(manager, scheme_selection)
+def setup_standard_icd_ccs(scheme_selection: CCSICDSchemeSelection = CCSICDSchemeSelection.all(),
+                           outcome_selection: CCSICDOutcomeSelection = CCSICDOutcomeSelection.all()) -> CodingSchemesManager:
+    manager = setup_icd_schemes(CodingSchemesManager(), scheme_selection)
     manager = setup_icd_maps(manager, scheme_selection)
     manager = setup_icd_outcomes(manager, outcome_selection)
     return manager
