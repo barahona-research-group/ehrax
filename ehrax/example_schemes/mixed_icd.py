@@ -5,6 +5,7 @@ import pandas as pd
 
 from ..coding_scheme import FrozenDict11, FrozenDict1N, CodingScheme, CodingSchemesManager, \
     CodeMap
+from ..dataset import COLUMN
 from ..example_schemes.icd import ICDScheme
 
 
@@ -24,27 +25,27 @@ class MixedICDScheme(CodingScheme):
         return {k: manager.scheme[v] for k, v in self.icd_version_schemes.items()}
 
     @staticmethod
-    def fix_dots(df: pd.DataFrame, c_icd_code: str, c_icd_version: str,
+    def fix_dots(df: pd.DataFrame,
                  icd_schemes: dict[str, ICDScheme]) -> pd.DataFrame:
         df = df.copy()
-        for version, icd_df in df.groupby(c_icd_version):
-            scheme = icd_schemes[str(version)]
-            df.loc[icd_df.index, c_icd_code] = \
-                icd_df[c_icd_code].str.replace(' ', '').str.replace('.', '').map(scheme.ops.add_dots)
+        add_dots = {v: icd_scheme.ops.add_dots for v, icd_scheme in icd_schemes.items()}
+        codes = df[str(COLUMN.code)].str.strip().replace('.', '')
+        df[str(COLUMN.code)] = list(map(lambda c, v: add_dots[v](c), codes, df[str(COLUMN.version)]))
         return df
+
 
     @classmethod
     def from_selection(cls, manager: CodingSchemesManager, name: str, icd_version_selection: pd.DataFrame,
-                       icd_version_alias: str, icd_code_alias: str, description_alias: str,
                        icd_version_schemes: FrozenDict11, sep: str = ':') -> Self:
         # TODO: test this method.
-        icd_version_selection = icd_version_selection.sort_values([icd_version_alias, icd_code_alias])
-        icd_version_selection = icd_version_selection.drop_duplicates([icd_version_alias, icd_code_alias]).astype(str)
-        assert icd_version_selection[icd_version_alias].isin(icd_version_schemes).all(), \
+        icd_version_selection = icd_version_selection.sort_values([str(COLUMN.version), str(COLUMN.code)])
+        icd_version_selection = icd_version_selection.drop_duplicates([str(COLUMN.version), str(COLUMN.code)]).astype(
+            str)
+        assert icd_version_selection[str(COLUMN.version)].isin(icd_version_schemes).all(), \
             f"Only {', '.join(map(lambda x: f'ICD-{x}', icd_version_schemes))} are expected."
 
         # assert no duplicate (icd_code, icd_version)
-        assert icd_version_selection.groupby([icd_version_alias, icd_code_alias]).size().max() == 1, \
+        assert icd_version_selection.groupby([str(COLUMN.version), str(COLUMN.code)]).size().max() == 1, \
             "Duplicate (icd_code, icd_version) pairs are not allowed."
 
         icd_schemes_loaded: dict[str, ICDScheme] = {k: manager.scheme[v] for k, v in icd_version_schemes.items()}
@@ -52,36 +53,35 @@ class MixedICDScheme(CodingScheme):
         assert all(isinstance(s, ICDScheme) for s in icd_schemes_loaded.values()), \
             "Only ICD schemes are expected."
 
-        df = cls.fix_dots(icd_version_selection, icd_code_alias, icd_version_alias,
-                          icd_schemes_loaded)
-        df['code'] = (df[icd_version_alias] + sep + df[icd_code_alias]).tolist()
-        desc = df.set_index('code')[description_alias].to_dict()
+        df = cls.fix_dots(icd_version_selection, icd_schemes_loaded)
+        df[str(COLUMN.code)] = (df[str(COLUMN.version)] + sep + df[str(COLUMN.code)]).tolist()
+        desc = df.set_index(str(COLUMN.code))[str(COLUMN.description)].to_dict()
 
-        return MixedICDScheme(name=name,
-                              codes=tuple(sorted(df['code'].tolist())),
-                              desc=FrozenDict11(desc),
-                              icd_version_schemes=icd_version_schemes,
-                              sep=sep)
+        return cls(name=name, codes=tuple(sorted(df[str(COLUMN.code)].tolist())), desc=FrozenDict11(desc),
+                   icd_version_schemes=icd_version_schemes,
+                   sep=sep)
 
-    def mixedcode_format_table(self, manager: CodingSchemesManager, table: pd.DataFrame, icd_code_alias: str,
-                               icd_version_alias: str, code_alias: str) -> pd.DataFrame:
+    def mixed_code_format_table(self, manager: CodingSchemesManager, table: pd.DataFrame) -> pd.DataFrame:
         # TODO: test this method.
         """
         Format a table with mixed codes to the ICD version:icd_code format and filter out codes that are not in the scheme.
         """
-        assert icd_version_alias in table.columns, f"Column {icd_version_alias} not found."
-        assert icd_code_alias in table.columns, f"Column {icd_code_alias} not found."
+        c_code = str(COLUMN.code)
+        c_version = str(COLUMN.version)
+
+        assert c_version in table.columns, f"Column {c_version} not found."
+        assert c_code in table.columns, f"Column {c_code} not found."
         icd_schemes = self.icd_schemes(manager)
-        assert table[icd_version_alias].isin(icd_schemes).all(), \
+        assert table[c_version].isin(icd_schemes).all(), \
             f"Only ICD version {list(icd_schemes.keys())} are expected."
 
-        table = self.fix_dots(table, icd_code_alias, icd_version_alias, icd_schemes)
+        table = self.fix_dots(table, icd_schemes)
 
         # the version:icd_code format.
-        table[code_alias] = table[icd_version_alias] + self.sep + table[icd_code_alias]
+        table[c_code] = table[c_version] + self.sep + table[c_code]
 
         # filter out codes that are not in the scheme.
-        return table[table[code_alias].isin(self.codes)].reset_index(drop=True)
+        return table[table[c_code].isin(self.codes)].reset_index(drop=True)
 
     def register_standard_icd_maps(self, manager: CodingSchemesManager) -> CodingSchemesManager:
         """
@@ -127,15 +127,19 @@ class MixedICDScheme(CodingScheme):
 
         return manager
 
-    def register_map(self, manager: CodingSchemesManager, target_name: str, mapping: pd.DataFrame,
-                     c_code: str, c_icd_code: str, c_icd_version: str,
-                     c_target_code: str, c_target_desc: str) -> CodingSchemesManager:
+    def register_map(self, manager: CodingSchemesManager, target_name: str,
+                     mapping: pd.DataFrame) -> CodingSchemesManager:
         """
         Register a mapping between the current Mixed ICD scheme and a target scheme.
         """
         # TODO: test this method.
-        mapping = self.fix_dots(mapping.astype(str), c_icd_code, c_icd_version, self.icd_schemes(manager))
-        mapping[c_code] = (mapping[c_icd_version] + self.sep + mapping[c_icd_code]).tolist()
+        c_code = str(COLUMN.code)
+        c_version = str(COLUMN.version)
+        c_target_code = str(COLUMN.mapped_code)
+        c_target_desc = str(COLUMN.mapped_description)
+
+        mapping = self.fix_dots(mapping.astype(str), self.icd_schemes(manager))
+        mapping[c_code] = (mapping[c_version] + self.sep + mapping[c_code]).tolist()
         mapping = mapping[mapping[c_code].isin(self.codes)]
         assert len(mapping) > 0, "No mapping between the Mixed ICD scheme and the target scheme was found."
         target_codes = tuple(sorted(mapping[c_target_code].drop_duplicates().tolist()))

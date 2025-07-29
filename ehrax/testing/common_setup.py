@@ -1,12 +1,12 @@
 import random
-
+from typing import cast
 import numpy as np
 import numpy.random as nr
 import pandas as pd
 
 import ehrax as rx
+from ehrax import CodingSchemeWithUOM
 
-MAX_STAY_DAYS = 356
 UOM = ['m', 's', 'g', 'mg', 'KG', 'ml']
 
 
@@ -96,26 +96,25 @@ def _outcome(outcome_extractor_: rx.OutcomeExtractor, dataset_scheme_manager: rx
     return extractor(source_scheme.vec2codeset(dx_codes.vec))
 
 
-def sample_subjects_dataframe(n: int, static_table_config: rx.dataset.StaticTableConfig,
+def sample_subjects_dataframe(n: int,
                               ethnicity_scheme: rx.CodingScheme,
                               gender_scheme: rx.CodingScheme) -> pd.DataFrame:
     return pd.DataFrame({
-        static_table_config.subject_id_alias: list(str(i) for i in range(n)),
-        static_table_config.race_alias: random.choices(ethnicity_scheme.codes, k=n),
-        static_table_config.gender_alias: random.choices(gender_scheme.codes, k=n),
-        static_table_config.date_of_birth_alias: pd.to_datetime(
+        str(rx.COLUMN.subject_id): list(str(i) for i in range(n)),
+        str(rx.COLUMN.race): random.choices(ethnicity_scheme.codes, k=n),
+        str(rx.COLUMN.gender): random.choices(gender_scheme.codes, k=n),
+        str(rx.COLUMN.date_of_birth): pd.to_datetime(
             random.choices(pd.date_range(start='1/1/1900', end='1/1/2000', freq='D'), k=n))
     })
 
 
 def sample_admissions_dataframe(subjects_df: pd.DataFrame,
-                                n: int, static_table_config: rx.dataset.StaticTableConfig,
-                                admission_table_config: rx.dataset.AdmissionTableConfig,
+                                n: int,
                                 max_stay_days: int) -> pd.DataFrame:
-    c_subject = static_table_config.subject_id_alias
-    c_admission = admission_table_config.admission_id_alias
-    c_admission_time = admission_table_config.admission_time_alias
-    c_discharge_time = admission_table_config.discharge_time_alias
+    c_subject = str(rx.COLUMN.subject_id)
+    c_admission = str(rx.COLUMN.admission_id)
+    c_admission_time = str(rx.COLUMN.start_time)
+    c_discharge_time = str(rx.COLUMN.end_time)
     admit_dates = pd.to_datetime(random.choices(pd.date_range(start='1/1/2000', end='1/1/2020', freq='D'), k=n))
     disch_dates = admit_dates + pd.to_timedelta(random.choices(range(1, max_stay_days), k=n), unit='D')
 
@@ -128,83 +127,82 @@ def sample_admissions_dataframe(subjects_df: pd.DataFrame,
 
 
 def sample_dx_dataframe(admissions_df: pd.DataFrame,
-                        admission_table_config: rx.dataset.AdmissionTableConfig,
-                        dx_discharge_table_config: rx.dataset.AdmissionLinkedCodedValueTableConfig,
                         dx_scheme: rx.CodingScheme, n: int) -> pd.DataFrame:
-    c_admission = admission_table_config.admission_id_alias
-    c_dx = dx_discharge_table_config.code_alias
     dx_codes = sample_codes(dx_scheme, n)
     return pd.DataFrame({
-        c_admission: random.choices(admissions_df[c_admission], k=n),
-        c_dx: dx_codes
+        str(rx.COLUMN.admission_id): random.choices(admissions_df[str(rx.COLUMN.admission_id)], k=n),
+        str(rx.COLUMN.code): dx_codes
     })
 
 
 def _sample_proc_dataframe(admissions_df: pd.DataFrame,
-                           admission_table_config: rx.dataset.AdmissionTableConfig,
-                           table_config: rx.dataset.AdmissionIntervalBasedCodedTableConfig,
                            scheme: rx.CodingScheme,
                            n: int) -> pd.DataFrame:
-    c_admission = admission_table_config.admission_id_alias
-    c_admittime = admission_table_config.admission_time_alias
-    c_dischtime = admission_table_config.discharge_time_alias
-    c_code = table_config.code_alias
-    c_start = table_config.start_time_alias
-    c_end = table_config.end_time_alias
+    c_admission = str(rx.COLUMN.admission_id)
+    c_admittime = str(rx.COLUMN.start_time)
+    c_dischtime = str(rx.COLUMN.end_time)
+    c_code = str(rx.COLUMN.code)
+    c_start = str(rx.COLUMN.start_time)
+    c_end = str(rx.COLUMN.end_time)
     codes = sample_codes(scheme, n)
-    df = pd.DataFrame({
+    df_in = pd.DataFrame({
         c_admission: random.choices(admissions_df[c_admission], k=n),
-        c_code: codes
+        c_code: codes,
+        c_start: pd.Timestamp(0),
+        c_end: pd.Timestamp(0),
     })
-    df = pd.merge(df, admissions_df[[c_admission, c_admittime, c_dischtime]],
+    df = pd.merge(df_in, admissions_df[[c_admission, c_admittime, c_dischtime]],
                   on=c_admission,
-                  suffixes=(None, '_admission'))
-    df['los'] = (df[c_dischtime] - df[c_admittime]).dt.total_seconds() / 3600
+                  suffixes=(None, '_y'))
+    c_admittime = f'{c_admittime}_y' if c_admittime in df_in.columns else c_admittime
+    c_dischtime = f'{c_dischtime}_y'if c_dischtime in df_in.columns else c_dischtime
 
+    df['los'] = (df[c_dischtime] - df[c_admittime]).dt.total_seconds() / 3600
     relative_start = nr.uniform(0, df['los'].values.tolist(), size=n)
     df[c_start] = df[c_admittime] + pd.to_timedelta(relative_start, unit='hours')
-
     relative_end = nr.uniform(low=relative_start, high=df['los'].values.tolist(), size=n)
-
     df[c_end] = df[c_admittime] + pd.to_timedelta(relative_end, unit='hours')
+    assert df[c_start].between(df[c_admittime], df[c_dischtime]).all()
+    assert df[c_end].between(df[c_admittime], df[c_dischtime]).all()
     return df[[c_admission, c_code, c_start, c_end]]
 
 
 def sample_icu_inputs_dataframe(admissions_df: pd.DataFrame,
-                                admission_table_config: rx.dataset.AdmissionTableConfig,
-                                table_config: rx.dataset.RatedInputTableConfig,
                                 icu_input_scheme: rx.CodingScheme,
                                 n: int) -> pd.DataFrame:
-    df = _sample_proc_dataframe(admissions_df, admission_table_config, table_config, icu_input_scheme, n)
-    c_amount = table_config.amount_alias
-    c_unit = table_config.amount_unit_alias
-    c_code = table_config.code_alias
+    df = _sample_proc_dataframe(admissions_df, icu_input_scheme, n)
+    c_amount = str(rx.COLUMN.amount)
+    c_unit = str(rx.COLUMN.amount_unit)
+    c_code = str(rx.COLUMN.code)
     df[c_amount] = np.random.uniform(low=0, high=1000, size=n)
-    normalizer = SCHEMES['icu_inputs'].uom_normalization_factor
+    scheme = cast(CodingSchemeWithUOM, SCHEMES['icu_inputs'])
+    normalizer = scheme.uom_normalization_factor
     units_map = {c: list(d.keys()) for c, d in normalizer.items()}
     df[c_unit] = df[c_code].map(lambda c: random.choice(units_map[c]))
     return df
 
 
 def sample_obs_dataframe(admissions_df: pd.DataFrame,
-                         admission_table_config: rx.dataset.AdmissionTableConfig,
-                         obs_table_config: rx.dataset.AdmissionTimestampedCodedValueTableConfig,
                          obs_scheme: rx.CodingScheme,
                          n: int) -> pd.DataFrame:
-    c_admission = admission_table_config.admission_id_alias
-    c_admittime = admission_table_config.admission_time_alias
-    c_dischtime = admission_table_config.discharge_time_alias
-    c_obs = obs_table_config.code_alias
-    c_time = obs_table_config.time_alias
-    c_value = obs_table_config.value_alias
+    c_admission = str(rx.COLUMN.admission_id)
+    c_admittime = str(rx.COLUMN.start_time)
+    c_dischtime = str(rx.COLUMN.end_time)
+    c_obs = str(rx.COLUMN.code)
+    c_time = str(rx.COLUMN.time)
+    c_value = str(rx.COLUMN.measurement)
 
     codes = sample_codes(obs_scheme, n)
-    df = pd.DataFrame({
+    df_in = pd.DataFrame({
         c_admission: random.choices(admissions_df[c_admission], k=n),
-        c_obs: codes
+        c_obs: codes,
+        c_time: pd.Timestamp(0)
     })
-    df = pd.merge(df, admissions_df[[c_admission, c_admittime, c_dischtime]], on=c_admission,
+    df = pd.merge(df_in, admissions_df[[c_admission, c_admittime, c_dischtime]], on=c_admission,
                   suffixes=(None, '_y'))
+    c_admittime = f'{c_admittime}_y' if c_admittime in df_in.columns else c_admittime
+    c_dischtime = f'{c_dischtime}_y' if c_dischtime in df_in.columns else c_dischtime
+
     df['los'] = (df[c_dischtime] - df[c_admittime]).dt.total_seconds() / 3600
     relative_time = nr.uniform(0, df['los'].values.tolist(), size=n)
     df[c_time] = df[c_admittime] + pd.to_timedelta(relative_time, unit='hours')
@@ -219,8 +217,7 @@ def sample_obs_dataframe(admissions_df: pd.DataFrame,
     return df[[c_admission, c_obs, c_time, c_value]]
 
 
-def _dataset_tables(dataset_tables_config: rx.DatasetTablesConfig,
-                    dataset_scheme_config: rx.DatasetSchemeConfig,
+def _dataset_tables(dataset_scheme_config: rx.DatasetSchemeConfig,
                     dataset_scheme_manager: rx.CodingSchemesManager,
                     freqs: tuple[int, ...], max_stay_days: int) -> rx.DatasetTables:
     n_subjects, n_admission_per_subject, n_per_admission = freqs
@@ -231,39 +228,25 @@ def _dataset_tables(dataset_tables_config: rx.DatasetTablesConfig,
     assert dataset_scheme_config.icu_inputs is not None
     assert dataset_scheme_config.obs is not None
     assert dataset_scheme_config.hosp_procedures is not None
-    assert dataset_tables_config.dx_discharge is not None
-    assert dataset_tables_config.obs is not None
-    assert dataset_tables_config.icu_procedures is not None
-    assert dataset_tables_config.hosp_procedures is not None
-    assert dataset_tables_config.icu_inputs is not None
-    subjects_df = sample_subjects_dataframe(n_subjects, dataset_tables_config.static,
+    subjects_df = sample_subjects_dataframe(n_subjects,
                                             dataset_scheme_manager.scheme[dataset_scheme_config.ethnicity],
                                             dataset_scheme_manager.scheme[dataset_scheme_config.gender])
-    admissions_df = sample_admissions_dataframe(subjects_df, n_admission_per_subject * n_subjects,
-                                                dataset_tables_config.static,
-                                                dataset_tables_config.admissions, max_stay_days)
-    dx_df = sample_dx_dataframe(admissions_df, dataset_tables_config.admissions,
-                                dataset_tables_config.dx_discharge,
-                                dataset_scheme_manager.scheme[dataset_scheme_config.dx_discharge],
+    admissions_df = sample_admissions_dataframe(subjects_df, n_admission_per_subject * n_subjects, max_stay_days)
+    dx_df = sample_dx_dataframe(admissions_df, dataset_scheme_manager.scheme[dataset_scheme_config.dx_discharge],
                                 n_per_admission * n_subjects * n_admission_per_subject)
 
-    obs_df = sample_obs_dataframe(admissions_df, dataset_tables_config.admissions,
-                                  dataset_tables_config.obs,
-                                  dataset_scheme_manager.scheme[dataset_scheme_config.obs],
+    obs_df = sample_obs_dataframe(admissions_df, dataset_scheme_manager.scheme[dataset_scheme_config.obs],
                                   n_per_admission * n_subjects * n_admission_per_subject)
 
-    icu_proc_df = _sample_proc_dataframe(admissions_df, dataset_tables_config.admissions,
-                                         dataset_tables_config.icu_procedures,
+    icu_proc_df = _sample_proc_dataframe(admissions_df,
                                          dataset_scheme_manager.scheme[dataset_scheme_config.icu_procedures],
                                          n_per_admission * n_subjects * n_admission_per_subject)
 
-    hosp_proc_df = _sample_proc_dataframe(admissions_df, dataset_tables_config.admissions,
-                                          dataset_tables_config.hosp_procedures,
+    hosp_proc_df = _sample_proc_dataframe(admissions_df,
                                           dataset_scheme_manager.scheme[dataset_scheme_config.hosp_procedures],
                                           n_per_admission * n_subjects * n_admission_per_subject)
 
-    icu_inputs_df = sample_icu_inputs_dataframe(admissions_df, dataset_tables_config.admissions,
-                                                dataset_tables_config.icu_inputs,
+    icu_inputs_df = sample_icu_inputs_dataframe(admissions_df,
                                                 dataset_scheme_manager.scheme[dataset_scheme_config.icu_inputs],
                                                 n_per_admission * n_subjects * n_admission_per_subject)
 
@@ -297,82 +280,6 @@ def make_targets_schemes_with_maps(n_scheme_targets: dict[str, int], source_sche
     return dict(zip(space, schemes)), dict(zip(space, maps))
 
 
-ALIAS = {
-    'subject_id': 'SUBJECT_IDXYZ',
-    'race': 'race',
-    'gender': 'gender',
-    'date_of_birth': 'date_of_birth',
-    'admission_id': 'ADMISSION_IDX',
-    'admission_time': 'admission_time',
-    'discharge_time': 'discharge_time',
-    'obs_time': 'time_bin',
-    'obs_code': 'measurement',
-    'obs_code_desc': 'measurement description',
-    'obs_value': 'obs_val',
-    'dx_code': 'dx_code',
-    'dx_code_desc': 'dx_code description',
-    'hosp_proc_code': 'hosp_proc_code',
-    'hosp_proc_code_desc': 'hosp_proc_code description',
-    'hosp_proc_start_time': 'hosp_proc_start_time',
-    'hosp_proc_end_time': 'hosp_proc_end_time',
-    'icu_proc_code': 'icu_proc_code',
-    'icu_proc_code_desc': 'icu_proc_code description',
-    'icu_proc_start_time': 'icu_proc_start_time',
-    'icu_proc_end_time': 'icu_proc_end_time',
-    'icu_input_code': 'icu_input_code',
-    'icu_input_code_desc': 'icu_input_code description',
-    'icu_input_start_time': 'icu_input_start_time',
-    'icu_input_end_time': 'icu_input_end_time',
-    'icu_input_amount_alias': 'icu_input_amount_alias',
-    'icu_input_amount_unit_alias': 'icu_input_amount_unit_alias',
-    'icu_input_derived_normalized_amount': 'icu_input_derived_normalized_amount',
-    'icu_input_derived_normalized_amount_per_hour': 'icu_input_derived_normalized_amount_per_hour',
-    'icu_input_derived_unit_normalization_factor': 'icu_input_derived_unit_normalization_factor',
-    'icu_input_derived_universal_unit': 'icu_input_derived_universal_unit',
-}
-TABLE_CONF = dict(
-    static=rx.dataset.StaticTableConfig(subject_id_alias=ALIAS['subject_id'],
-                                        gender_alias=ALIAS['gender'], race_alias=ALIAS['race'],
-                                        date_of_birth_alias=ALIAS['date_of_birth']),
-    admissions=rx.dataset.AdmissionTableConfig(subject_id_alias=ALIAS['subject_id'],
-                                               admission_id_alias=ALIAS['admission_id'],
-                                               admission_time_alias=ALIAS['admission_time'],
-                                               discharge_time_alias=ALIAS['discharge_time']),
-
-    obs=rx.dataset.AdmissionTimestampedCodedValueTableConfig(admission_id_alias=ALIAS['admission_id'],
-                                                             time_alias=ALIAS['obs_time'],
-                                                             code_alias=ALIAS['obs_code'],
-                                                             description_alias=ALIAS['obs_code_desc'],
-                                                             value_alias=ALIAS['obs_value']),
-    dx_discharge=rx.dataset.AdmissionLinkedCodedValueTableConfig(admission_id_alias=ALIAS['admission_id'],
-                                                                 code_alias=ALIAS['dx_code'],
-                                                                 description_alias=ALIAS['dx_code_desc']),
-    hosp_procedures=rx.dataset.AdmissionIntervalBasedCodedTableConfig(admission_id_alias=ALIAS['admission_id'],
-                                                                      code_alias=ALIAS['hosp_proc_code'],
-                                                                      description_alias=ALIAS['hosp_proc_code_desc'],
-                                                                      start_time_alias=ALIAS['hosp_proc_start_time'],
-                                                                      end_time_alias=ALIAS['hosp_proc_end_time']),
-    icu_procedures=rx.dataset.AdmissionIntervalBasedCodedTableConfig(admission_id_alias=ALIAS['admission_id'],
-                                                                     code_alias=ALIAS['icu_proc_code'],
-                                                                     description_alias=ALIAS['icu_proc_code_desc'],
-                                                                     start_time_alias=ALIAS['icu_proc_start_time'],
-                                                                     end_time_alias=ALIAS['icu_proc_end_time']),
-    icu_inputs=rx.dataset.RatedInputTableConfig(admission_id_alias=ALIAS['admission_id'],
-                                                code_alias=ALIAS['icu_input_code'],
-                                                description_alias=ALIAS['icu_input_code_desc'],
-                                                start_time_alias=ALIAS['icu_input_start_time'],
-                                                end_time_alias=ALIAS['icu_input_end_time'],
-                                                amount_alias=ALIAS['icu_input_amount_alias'],
-                                                amount_unit_alias=ALIAS['icu_input_amount_unit_alias'],
-                                                derived_normalized_amount=ALIAS['icu_input_derived_normalized_amount'],
-                                                derived_normalized_amount_per_hour=ALIAS[
-                                                    'icu_input_derived_normalized_amount_per_hour'],
-                                                derived_unit_normalization_factor=ALIAS[
-                                                    'icu_input_derived_unit_normalization_factor'],
-                                                derived_universal_unit=ALIAS['icu_input_derived_universal_unit'])
-
-)
-DATASET_TABLES_CONF = rx.DatasetTablesConfig(**TABLE_CONF)  # type: ignore
 SCHEMES: dict[str, rx.CodingScheme] = dict(
     ethnicity=scheme('ethnicity', ['E1', 'E2', 'E3']),
     gender=scheme('genderrrr', ['M', 'F']),
@@ -422,7 +329,7 @@ DATASET_SCHEME_CONF = rx.DatasetSchemeConfig(ethnicity=SCHEMES['ethnicity'].name
                                              icu_inputs=SCHEMES['icu_inputs'].name,
                                              obs=SCHEMES['obs'].name,
                                              hosp_procedures=SCHEMES['hosp_procedures'].name)
-DATASET_CONFIG = rx.DatasetConfig(scheme=DATASET_SCHEME_CONF, tables=DATASET_TABLES_CONF)
+DATASET_CONFIG = rx.DatasetConfig(scheme=DATASET_SCHEME_CONF)
 TVXEHR_SCHEME_CONF = rx.TVxEHRSchemeConfig(ethnicity=SCHEMES['ethnicity'].name,
                                            gender=SCHEMES['gender'].name,
                                            dx_discharge=TARGET_SCHEMES['dx_discharge'].name,
@@ -480,8 +387,8 @@ def _admission(admission_id: str, admission_date: pd.Timestamp,
                dx_codes: rx.CodesVector,
                dx_codes_history: rx.CodesVector, outcome: rx.CodesVector, observables: rx.InpatientObservables,
                interventions: rx.InpatientInterventions, leading_observable: rx.InpatientObservables,
-               los_days: int) -> rx.Admission:
-    discharge_date = pd.to_datetime(admission_date + pd.to_timedelta(los_days, unit='D'))
+               los_days: float) -> rx.Admission:
+    discharge_date = pd.to_datetime(admission_date + pd.to_timedelta(los_days, unit='D') + pd.to_timedelta(1, unit='S'))
 
     return rx.Admission(admission_id=admission_id, admission_dates=rx.AdmissionDates(admission_date, discharge_date),
                         dx_codes=dx_codes,
@@ -496,10 +403,10 @@ def _admissions(n_admissions, dx_scheme: rx.CodingScheme,
                 dataset_scheme_manager: rx.CodingSchemesManager, max_los_days: int,
                 max_n_timestamps_obs: int, max_n_inputs: int) -> list[rx.Admission]:
     admissions = []
-
-    for i in range(n_admissions):
-        admission_date = pd.to_datetime('now') + pd.to_timedelta(n_admissions * random.choice(range(10)), unit="D")
-        los_days = random.choice(range(1, max_los_days))
+    multiplier = list(sorted(random.sample(range(10 * n_admissions), k=n_admissions)))
+    admission_dates = [pd.to_datetime('now') + pd.to_timedelta(max_los_days * m, unit="D") for m in multiplier]
+    for i, admission_date in enumerate(admission_dates):
+        los_days = random.uniform(0, max_los_days)
         los_h = los_days * 24.0
         dx_codes = _dx_codes(dx_scheme)
         obs = _inpatient_observables(observation_scheme, n_timestamps=nr.randint(0, max_n_timestamps_obs),

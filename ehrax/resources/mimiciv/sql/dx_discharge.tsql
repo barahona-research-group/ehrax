@@ -1,5 +1,5 @@
-select hadm_id as {admission_id_alias},
-        icd_code as {icd_code_alias},
-        icd_version as {icd_version_alias}
+select hadm_id as {admission_id},
+        icd_code as {code},
+        icd_version as {version}
 from mimiciv_hosp.diagnoses_icd
 where hadm_id is not null

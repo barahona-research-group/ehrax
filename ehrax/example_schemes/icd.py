@@ -1,11 +1,9 @@
-from __future__ import annotations
-
 import gzip
 import xml.etree.ElementTree as ET
 from abc import abstractmethod
 from collections import defaultdict
 from dataclasses import fields
-from typing import Set, Dict, List, Union, Any, ClassVar, Type, Tuple, Final, Iterable, Optional
+from typing import Any, ClassVar, Final, Iterable, Optional, Self
 
 import pandas as pd
 
@@ -15,12 +13,74 @@ from ..coding_scheme import (CodingScheme, HierarchicalScheme,
                              FrozenDict11, FrozenDict1N, ExcludingOutcomeExtractor)
 
 
+class Flags(AbstractConfig):
+    @property
+    def flag_set(self) -> tuple[str, ...]:
+        return tuple(f.name for f in fields(self) if isinstance(getattr(self, f.name), bool) and getattr(self, f.name))
+
+
+class CCSICDSchemeSelection(Flags):
+    dx_icd9: bool
+    dx_icd10: bool
+    pr_icd9: bool
+    dx_flat_icd10: bool
+    pr_flat_icd10: bool
+    dx_ccs: bool
+    pr_ccs: bool
+    dx_flat_ccs: bool
+    pr_flat_ccs: bool
+
+    def __init__(self, dx_icd9: bool = False, dx_icd10: bool = False, pr_icd9: bool = False,
+                 dx_flat_icd10: bool = False, pr_flat_icd10: bool = False, dx_ccs: bool = False,
+                 pr_ccs: bool = False, dx_flat_ccs: bool = False,
+                 pr_flat_ccs: bool = False):
+        self.dx_icd9 = dx_icd9
+        self.dx_icd10 = dx_icd10
+        self.pr_icd9 = pr_icd9
+        self.dx_flat_icd10 = dx_flat_icd10
+        self.pr_flat_icd10 = pr_flat_icd10
+        self.dx_ccs = dx_ccs
+        self.pr_ccs = pr_ccs
+        self.dx_flat_ccs = dx_flat_ccs
+        self.pr_flat_ccs = pr_flat_ccs
+        self.dx_ccs = dx_ccs
+        self.pr_ccs = pr_ccs
+
+    @classmethod
+    def all(cls) -> Self:
+        return cls(dx_icd9=True, dx_icd10=True, pr_icd9=True, dx_flat_icd10=True,
+                   pr_flat_icd10=True, dx_ccs=True, pr_ccs=True, dx_flat_ccs=True, pr_flat_ccs=True)
+
+
+class CCSICDOutcomeSelection(Flags):
+    dx_icd9_v1: bool
+    dx_icd9_v2_groups: bool
+    dx_icd9_v3_groups: bool
+    dx_flat_ccs_mlhc_groups: bool
+    dx_flat_ccs_v1: bool
+
+    def __init__(self, dx_icd9_v1: bool = False, dx_icd9_v2_groups: bool = False,
+                 dx_icd9_v3_groups: bool = False,
+                 dx_flat_ccs_mlhc_groups: bool = False,
+                 dx_flat_ccs_v1: bool = False):
+        self.dx_icd9_v1 = dx_icd9_v1
+        self.dx_icd9_v2_groups = dx_icd9_v2_groups
+        self.dx_icd9_v3_groups = dx_icd9_v3_groups
+        self.dx_flat_ccs_mlhc_groups = dx_flat_ccs_mlhc_groups
+        self.dx_flat_ccs_v1 = dx_flat_ccs_v1
+
+    @classmethod
+    def all(cls) -> Self:
+        return cls(dx_icd9_v1=True, dx_icd9_v2_groups=True, dx_icd9_v3_groups=True,
+                   dx_flat_ccs_mlhc_groups=True, dx_flat_ccs_v1=True)
+
+
 class ICDOps:
     """
     Class representing the ICD (International Classification of Diseases) coding scheme.
 
     This class provides additional methods
-    for loading conversion tables, analyzing conversions, and registering mappings.
+    for loading conversion columns, analyzing conversions, and registering mappings.
 
 
     Methods:
@@ -30,13 +90,13 @@ class ICDOps:
         create_scheme():
             abstract method for creating the ICD scheme.
 
-        _deselect_subtree(pt2ch: Dict[str, Set[str]], sub_root: str) -> Dict[str, Set[str]]:
+        _deselect_subtree(pt2ch: dict[str, set[str]], sub_root: str) -> dict[str, set[str]]:
             deselects a subtree from the given parent-to-child dictionary.
 
-        _select_subtree(pt2ch: Dict[str, Set[str]], sub_root: str) -> Dict[str, Set[str]]:
+        _select_subtree(pt2ch: dict[str, set[str]], sub_root: str) -> dict[str, set[str]]:
             selects a subtree from the given parent-to-child dictionary.
 
-        load_conv_table(s_scheme: ICD, t_scheme: ICD, conv_fname: str) -> Dict[str, Union[pd.DataFrame, str, Set[str]]]:
+        load_conv_table(s_scheme: ICD, t_scheme: ICD, conv_fname: str) -> dict[str, Union[pd.DataFrame, str, set[str]]]:
             loads the conversion table from the specified file.
 
         analyse_conversions(s_scheme: ICD, t_scheme: ICD, conv_fname: str) -> pd.DataFrame:
@@ -52,7 +112,7 @@ class ICDOps:
         pass
 
     @staticmethod
-    def deselect_subtree(pt2ch: Dict[str, Set[str]], sub_root: str) -> Dict[str, Set[str]]:
+    def deselect_subtree(pt2ch: dict[str, set[str]], sub_root: str) -> dict[str, set[str]]:
         to_del = HierarchicalScheme._bfs_traversal(pt2ch, sub_root, True)
         pt2ch = pt2ch.copy()
         to_del = set(to_del) & set(pt2ch.keys())
@@ -61,14 +121,14 @@ class ICDOps:
         return pt2ch
 
     @staticmethod
-    def select_subtree(pt2ch: Dict[str, Set[str]], sub_root: str) -> Dict[str, Set[str]]:
+    def select_subtree(pt2ch: dict[str, set[str]], sub_root: str) -> dict[str, set[str]]:
         to_keep = HierarchicalScheme._bfs_traversal(pt2ch, sub_root, True)
         to_keep = set(to_keep) & set(pt2ch.keys())
         return {idx: pt2ch[idx] for idx in to_keep}
 
 
 class ICDScheme(CodingScheme):
-    ops: ClassVar[Type[ICDOps]] = ICDOps
+    ops: ClassVar[type[ICDOps]] = ICDOps
 
     @classmethod
     def create_scheme(cls, manager: CodingSchemesManager) -> CodingSchemesManager:
@@ -86,7 +146,7 @@ class ICDHierarchicalScheme(ICDScheme, HierarchicalScheme):
 class ICDMapOps:
     @staticmethod
     def load_conversion_table(source_scheme: ICDScheme, target_scheme: ICDScheme,
-                              conversion_filename: str) -> Tuple[pd.DataFrame, Dict[str, Union[str, Set[str]]]]:
+                              conversion_filename: str) -> tuple[pd.DataFrame, dict[str, str | set[str]]]:
         df = pd.read_csv(resources_dir("ICD", conversion_filename),
                          sep='\s+',
                          dtype=str,
@@ -109,7 +169,7 @@ class ICDMapOps:
                                   "unrecognised_source": set(df.loc[~valid_source, "source"])}
 
     @staticmethod
-    def conversion_status(conversion_table: pd.DataFrame) -> Dict[str, str]:
+    def conversion_status(conversion_table: pd.DataFrame) -> dict[str, str]:
         def _get_status(groupby_df: pd.DataFrame):
             if (groupby_df['no_map'] == '1').all():
                 return 'no_map'
@@ -160,8 +220,8 @@ class DxICD10Ops(ICDOps):
             return code
 
     @staticmethod
-    def distill_icd10_xml(filename: str, hierarchical: bool = True) -> Dict[str, Any]:
-        # https://www.cdc.gov/nchs/icd/Comprehensive-Listing-of-ICD-10-CM-Files.htm
+    def distill_icd10_xml(filename: str, hierarchical: bool = True) -> dict[str, Any]:
+        # https://www.cdc.gov/nchs/icd/Comprehensive-listing-of-ICD-10-CM-Files.htm
         _ICD10_FILE = resources_dir("ICD", filename)
         with gzip.open(_ICD10_FILE, 'r') as f:
             tree = ET.parse(f)
@@ -240,7 +300,7 @@ class PrICD10Ops(ICDOps):
         return code
 
     @staticmethod
-    def distill_icd10_xml(filename: str) -> Dict[str, Any]:
+    def distill_icd10_xml(filename: str) -> dict[str, Any]:
         _ICD10_FILE = resources_dir("ICD", filename)
 
         with gzip.open(_ICD10_FILE, 'rt') as f:
@@ -262,7 +322,7 @@ class ICD9Ops(ICDOps):
     DX_ROOT_CLASS_ID: Final[str] = 'MM_CLASS_21'
 
     @staticmethod
-    def icd9_columns() -> Dict[str, List[str]]:
+    def icd9_columns() -> dict[str, list[str]]:
         # https://bioportal.bioontology.org/ontologies/HOM-ICD9
         df = pd.read_csv(ICD9Ops.ICD9CM_FILE, dtype=str)
         df = df.fillna('')
@@ -290,7 +350,7 @@ class ICD9Ops(ICDOps):
         }
 
     @staticmethod
-    def parent_child_mappings(df: pd.DataFrame) -> Dict[str, Set[str]]:
+    def parent_child_mappings(df: pd.DataFrame) -> dict[str, set[str]]:
         pt2ch = {}
         for pt, ch_df in df.groupby('PARENT_IDX'):
             pt2ch[str(pt)] = set(ch_df['NODE_IDX'])
@@ -300,7 +360,7 @@ class ICD9Ops(ICDOps):
         return pt2ch
 
     @staticmethod
-    def generate_dictionaries(df: pd.DataFrame) -> Dict[str, Any]:
+    def generate_dictionaries(df: pd.DataFrame) -> dict[str, Any]:
         # df version for leaf nodes only (with non-empty ICD9 codes)
         df_leaves = df[df['ICD9'] != '']
 
@@ -357,7 +417,7 @@ class PrICD9Ops(DxICD9Ops):
 
 
 class DxHierarchicalICD10(ICDHierarchicalScheme):
-    ops: ClassVar[Type[DxICD10Ops]] = DxICD10Ops
+    ops: ClassVar[type[DxICD10Ops]] = DxICD10Ops
 
     @classmethod
     def create_scheme(cls, manager: CodingSchemesManager) -> CodingSchemesManager:
@@ -367,7 +427,7 @@ class DxHierarchicalICD10(ICDHierarchicalScheme):
 
 
 class DxFlatICD10(ICDFlatScheme):
-    ops: ClassVar[Type[DxICD10Ops]] = DxICD10Ops
+    ops: ClassVar[type[DxICD10Ops]] = DxICD10Ops
 
     @classmethod
     def create_scheme(cls, manager: CodingSchemesManager) -> CodingSchemesManager:
@@ -378,7 +438,7 @@ class DxFlatICD10(ICDFlatScheme):
 
 
 class PrFlatICD10(ICDFlatScheme):
-    ops: ClassVar[Type[PrICD10Ops]] = PrICD10Ops
+    ops: ClassVar[type[PrICD10Ops]] = PrICD10Ops
 
     @classmethod
     def create_scheme(cls, manager: CodingSchemesManager) -> CodingSchemesManager:
@@ -388,7 +448,7 @@ class PrFlatICD10(ICDFlatScheme):
 
 
 class DxHierarchicalICD9(ICDHierarchicalScheme):
-    ops: ClassVar[Type[DxICD9Ops]] = DxICD9Ops
+    ops: ClassVar[type[DxICD9Ops]] = DxICD9Ops
 
     @classmethod
     def create_scheme(cls, manager: CodingSchemesManager) -> CodingSchemesManager:
@@ -410,7 +470,7 @@ class DxHierarchicalICD9(ICDHierarchicalScheme):
 
 
 class PrHierarchicalICD9(ICDHierarchicalScheme):
-    ops: ClassVar[Type[PrICD9Ops]] = PrICD9Ops
+    ops: ClassVar[type[PrICD9Ops]] = PrICD9Ops
 
     @classmethod
     def create_scheme(cls, manager: CodingSchemesManager) -> CodingSchemesManager:
@@ -436,7 +496,7 @@ class CCSMapOps:
     N_LEVELS: int = None
 
     @classmethod
-    def ccs_columns(cls, icd9_scheme: ICDHierarchicalScheme) -> Tuple[Dict[str, List[str]], Dict[str, Set[str] | str]]:
+    def ccs_columns(cls, icd9_scheme: ICDHierarchicalScheme) -> tuple[dict[str, list[str]], dict[str, set[str] | str]]:
         df = pd.read_csv(resources_dir("CCS", cls.SCHEME_FILE), dtype=str)
         icd_cname = '\'ICD-9-CM CODE\''
 
@@ -487,7 +547,7 @@ class CCSMapOps:
         return manager
 
     @classmethod
-    def parent_child_mappings(cls, df: pd.DataFrame) -> Dict[str, Set[str]]:
+    def parent_child_mappings(cls, df: pd.DataFrame) -> dict[str, set[str]]:
         """Make dictionary for parent-child connections."""
         pt2ch = {'root': set(df['I1'])}
         levels = list(map(lambda i: f'I{i}', range(1, cls.N_LEVELS + 1)))
@@ -500,7 +560,7 @@ class CCSMapOps:
         return pt2ch
 
     @classmethod
-    def desc_mappings(cls, df: pd.DataFrame) -> Dict[str, str]:
+    def desc_mappings(cls, df: pd.DataFrame) -> dict[str, str]:
         """Make a dictionary for CCS labels."""
         desc = {'root': 'root'}
         levels = list(map(lambda i: f'I{i}', range(1, cls.N_LEVELS + 1)))
@@ -513,7 +573,7 @@ class CCSMapOps:
         return desc
 
     @staticmethod
-    def code_ancestors_dots(code: str, include_itself: bool = True) -> Set[str]:
+    def code_ancestors_dots(code: str, include_itself: bool = True) -> set[str]:
 
         ancestors = {code} if include_itself else set()
         if code == 'root':
@@ -528,7 +588,7 @@ class CCSMapOps:
         return ancestors
 
     @classmethod
-    def code_ancestors(cls, code: str, include_itself: bool) -> Set[str]:
+    def code_ancestors(cls, code: str, include_itself: bool) -> set[str]:
         return cls.code_ancestors_dots(code, include_itself)
 
 
@@ -543,7 +603,7 @@ class PrCCSMapOps(CCSMapOps):
 
 
 class CCSHierarchicalScheme(HierarchicalScheme):
-    ops: ClassVar[Type[CCSMapOps]] = CCSMapOps
+    ops: ClassVar[type[CCSMapOps]] = CCSMapOps
     ICD9_SCHEME_NAME: str
     SCHEME_NAME: str
 
@@ -562,7 +622,7 @@ class CCSHierarchicalScheme(HierarchicalScheme):
 
 
 class DxCCS(CCSHierarchicalScheme):
-    ops: ClassVar[Type[DxCCSMapOps]] = DxCCSMapOps
+    ops: ClassVar[type[DxCCSMapOps]] = DxCCSMapOps
     ICD9_SCHEME_NAME: str = 'dx_icd9'
     SCHEME_NAME: str = 'dx_ccs'
 
@@ -577,7 +637,7 @@ class DxCCS(CCSHierarchicalScheme):
 
 
 class PrCCS(CCSHierarchicalScheme):
-    ops: ClassVar[Type[PrCCSMapOps]] = PrCCSMapOps
+    ops: ClassVar[type[PrCCSMapOps]] = PrCCSMapOps
     ICD9_SCHEME_NAME: str = 'pr_icd9'
     SCHEME_NAME: str = 'pr_ccs'
 
@@ -595,7 +655,7 @@ class FlatCCSMapOps:
     SCHEME_FILE = None
 
     @classmethod
-    def flat_ccs_columns(cls, icd9_scheme: ICDHierarchicalScheme) -> Tuple[pd.DataFrame, Dict[str, Set[str] | str]]:
+    def flat_ccs_columns(cls, icd9_scheme: ICDHierarchicalScheme) -> tuple[pd.DataFrame, dict[str, set[str] | str]]:
         filepath = resources_dir("CCS", cls.SCHEME_FILE)
         df = pd.read_csv(filepath, skiprows=[0, 2], dtype=str)
         icd9_cname = '\'ICD-9-CM CODE\''
@@ -642,7 +702,7 @@ class PrFlatCCSMapOps(FlatCCSMapOps):
 
 
 class FlatCCSScheme(CodingScheme):
-    ops: ClassVar[Type[FlatCCSMapOps]] = FlatCCSMapOps
+    ops: ClassVar[type[FlatCCSMapOps]] = FlatCCSMapOps
     ICD9_SCHEME_NAME: str = None
     SCHEME_NAME: str = None
 
@@ -657,7 +717,7 @@ class FlatCCSScheme(CodingScheme):
 
 
 class DxFlatCCS(FlatCCSScheme):
-    ops: ClassVar[Type[DxFlatCCSMapOps]] = DxFlatCCSMapOps
+    ops: ClassVar[type[DxFlatCCSMapOps]] = DxFlatCCSMapOps
     ICD9_SCHEME_NAME: str = 'dx_icd9'
     SCHEME_NAME: str = 'dx_flat_ccs'
 
@@ -669,7 +729,7 @@ class DxFlatCCS(FlatCCSScheme):
 
 
 class PrFlatCCS(FlatCCSScheme):
-    ops: ClassVar[Type[PrFlatCCSMapOps]] = PrFlatCCSMapOps
+    ops: ClassVar[type[PrFlatCCSMapOps]] = PrFlatCCSMapOps
     ICD9_SCHEME_NAME: str = 'pr_icd9'
     SCHEME_NAME: str = 'pr_flat_ccs'
 
@@ -678,81 +738,6 @@ class PrFlatCCS(FlatCCSScheme):
         super().__init__(name=name, codes=codes, desc=desc)
         self.ICD9_SCHEME_NAME = ICD9_SCHEME_NAME
         self.SCHEME_NAME = SCHEME_NAME
-
-
-class Flags(AbstractConfig):
-    @property
-    def flag_set(self) -> Tuple[str, ...]:
-        return tuple(f.name for f in fields(self) if isinstance(getattr(self, f.name), bool) and getattr(self, f.name))
-
-
-class CCSICDSchemeSelection(Flags):
-    dx_icd9: bool
-    dx_icd10: bool
-    pr_icd9: bool
-    dx_flat_icd10: bool
-    pr_flat_icd10: bool
-    dx_ccs: bool
-    pr_ccs: bool
-    dx_flat_ccs: bool
-    pr_flat_ccs: bool
-
-    def __init__(self, dx_icd9: bool = False, dx_icd10: bool = False, pr_icd9: bool = False,
-                 dx_flat_icd10: bool = False, pr_flat_icd10: bool = False, dx_ccs: bool = False,
-                 pr_ccs: bool = False, dx_flat_ccs: bool = False,
-                 pr_flat_ccs: bool = False):
-        self.dx_icd9 = dx_icd9
-        self.dx_icd10 = dx_icd10
-        self.pr_icd9 = pr_icd9
-        self.dx_flat_icd10 = dx_flat_icd10
-        self.pr_flat_icd10 = pr_flat_icd10
-        self.dx_ccs = dx_ccs
-        self.pr_ccs = pr_ccs
-        self.dx_flat_ccs = dx_flat_ccs
-        self.pr_flat_ccs = pr_flat_ccs
-        self.dx_ccs = dx_ccs
-        self.pr_ccs = pr_ccs
-
-    @staticmethod
-    def all() -> CCSICDSchemeSelection:
-        return CCSICDSchemeSelection(dx_icd9=True, dx_icd10=True, pr_icd9=True, dx_flat_icd10=True,
-                                     pr_flat_icd10=True, dx_ccs=True, pr_ccs=True, dx_flat_ccs=True, pr_flat_ccs=True)
-
-
-icd_ccs_schemes = {
-    'dx_icd9': DxHierarchicalICD9,
-    'dx_icd10': DxHierarchicalICD10,
-    'dx_flat_icd10': DxFlatICD10,
-    'dx_ccs': DxCCS,
-    'dx_flat_ccs': DxFlatCCS,
-    'pr_icd9': PrHierarchicalICD9,
-    'pr_flat_icd10': PrFlatICD10,
-    'pr_ccs': PrCCS,
-    'pr_flat_ccs': PrFlatCCS
-}
-
-
-class CCSICDOutcomeSelection(Flags):
-    dx_icd9_v1: bool
-    dx_icd9_v2_groups: bool
-    dx_icd9_v3_groups: bool
-    dx_flat_ccs_mlhc_groups: bool
-    dx_flat_ccs_v1: bool
-
-    def __init__(self, dx_icd9_v1: bool = False, dx_icd9_v2_groups: bool = False,
-                 dx_icd9_v3_groups: bool = False,
-                 dx_flat_ccs_mlhc_groups: bool = False,
-                 dx_flat_ccs_v1: bool = False):
-        self.dx_icd9_v1 = dx_icd9_v1
-        self.dx_icd9_v2_groups = dx_icd9_v2_groups
-        self.dx_icd9_v3_groups = dx_icd9_v3_groups
-        self.dx_flat_ccs_mlhc_groups = dx_flat_ccs_mlhc_groups
-        self.dx_flat_ccs_v1 = dx_flat_ccs_v1
-
-    @staticmethod
-    def all() -> CCSICDOutcomeSelection:
-        return CCSICDOutcomeSelection(dx_icd9_v1=True, dx_icd9_v2_groups=True, dx_icd9_v3_groups=True,
-                                      dx_flat_ccs_mlhc_groups=True, dx_flat_ccs_v1=True)
 
 
 def setup_icd_schemes(manager: CodingSchemesManager, scheme_selection: CCSICDSchemeSelection) -> CodingSchemesManager:
@@ -800,9 +785,22 @@ def setup_icd_maps(manager: CodingSchemesManager, scheme_selection: CCSICDScheme
     return manager
 
 
-def setup_standard_icd_ccs(manager: CodingSchemesManager, scheme_selection: CCSICDSchemeSelection,
-                           outcome_selection: CCSICDOutcomeSelection) -> CodingSchemesManager:
-    manager = setup_icd_schemes(manager, scheme_selection)
+def setup_standard_icd_ccs(scheme_selection: CCSICDSchemeSelection = CCSICDSchemeSelection.all(),
+                           outcome_selection: CCSICDOutcomeSelection = CCSICDOutcomeSelection.all()) -> CodingSchemesManager:
+    manager = setup_icd_schemes(CodingSchemesManager(), scheme_selection)
     manager = setup_icd_maps(manager, scheme_selection)
     manager = setup_icd_outcomes(manager, outcome_selection)
     return manager
+
+
+icd_ccs_schemes = {
+    'dx_icd9': DxHierarchicalICD9,
+    'dx_icd10': DxHierarchicalICD10,
+    'dx_flat_icd10': DxFlatICD10,
+    'dx_ccs': DxCCS,
+    'dx_flat_ccs': DxFlatCCS,
+    'pr_icd9': PrHierarchicalICD9,
+    'pr_flat_icd10': PrFlatICD10,
+    'pr_ccs': PrCCS,
+    'pr_flat_ccs': PrFlatCCS
+}

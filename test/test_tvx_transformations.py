@@ -7,7 +7,7 @@ import pytest
 import tables as tb
 
 import ehrax as rx
-from ehrax.testing.common_setup import BINARY_OBSERVATION_CODE_INDEX, DATASET_SCHEME_MANAGER, MAX_STAY_DAYS
+from ehrax.testing.common_setup import BINARY_OBSERVATION_CODE_INDEX, DATASET_SCHEME_MANAGER
 
 
 def test_serialization_multi_subjects(tvx_ehr: rx.TVxEHR, tmpdir: str):
@@ -220,7 +220,7 @@ class TestTVxConcepts:
         if len(tvx_ehr.dataset.tables.dx_discharge) == 0:
             raise pytest.skip("No diagnoses table found in dataset.")
         n = len(tvx_ehr.dataset.tables.admissions)
-        c_admission_id = tvx_ehr.dataset.config.tables.admissions.admission_id_alias
+        c_admission_id = tvx_ehr.dataset.config.columns.admissions.admission_id
         random_admission_id = tvx_ehr.dataset.tables.admissions.index[n // 2]
         dx_discharge = tvx_ehr.dataset.tables.dx_discharge
         dx_discharge = dx_discharge[dx_discharge[c_admission_id] != random_admission_id]
@@ -294,7 +294,7 @@ class TestTVxConcepts:
     def test_admission_icu_inputs(self, tvx_ehr_with_icu_inputs: rx.TVxEHR,
                                   admission_icu_inputs: dict[str, rx.InpatientInput]):
         icu_inputs = tvx_ehr_with_icu_inputs.dataset.tables.icu_inputs
-        c_admission_id = tvx_ehr_with_icu_inputs.dataset.config.tables.admissions.admission_id_alias
+        c_admission_id = tvx_ehr_with_icu_inputs.dataset.config.columns.admissions.admission_id
         assert set(admission_icu_inputs.keys()).issubset(set(tvx_ehr_with_icu_inputs.admission_ids))
         assert sum(len(inputs.starttime) for inputs in admission_icu_inputs.values()) == len(icu_inputs)
 
@@ -318,7 +318,7 @@ class TestTVxConcepts:
     def test_admission_obs(self, tvx_ehr_with_obs: rx.TVxEHR,
                            admission_obs: dict[str, rx.InpatientObservables]):
         obs_df = tvx_ehr_with_obs.dataset.tables.obs
-        c_admission_id = tvx_ehr_with_obs.dataset.config.tables.admissions.admission_id_alias
+        c_admission_id = tvx_ehr_with_obs.dataset.config.columns.admissions.admission_id
         assert set(admission_obs.keys()) == set(tvx_ehr_with_obs.admission_ids)
         assert sum(obs.mask.sum() for obs in admission_obs.values()) == len(obs_df)
 
@@ -340,7 +340,7 @@ class TestTVxConcepts:
     def test_admission_hosp_procedures(self, tvx_ehr_with_hosp_procedures: rx.TVxEHR,
                                        admission_hosp_procedures: dict[str, rx.InpatientInput]):
         hosp_procedures = tvx_ehr_with_hosp_procedures.dataset.tables.hosp_procedures
-        c_admission_id = tvx_ehr_with_hosp_procedures.dataset.config.tables.admissions.admission_id_alias
+        c_admission_id = tvx_ehr_with_hosp_procedures.dataset.config.columns.admissions.admission_id
         assert set(admission_hosp_procedures.keys()).issubset(set(tvx_ehr_with_hosp_procedures.admission_ids))
         assert sum(len(proc.starttime) for proc in admission_hosp_procedures.values() if proc is not None) == len(
             hosp_procedures)
@@ -364,7 +364,7 @@ class TestTVxConcepts:
     def test_admission_icu_procedures(self, tvx_ehr_with_icu_procedures: rx.TVxEHR,
                                       admission_icu_procedures: dict[str, rx.InpatientInput]):
         icu_procedures = tvx_ehr_with_icu_procedures.dataset.tables.icu_procedures
-        c_admission_id = tvx_ehr_with_icu_procedures.dataset.config.tables.admissions.admission_id_alias
+        c_admission_id = tvx_ehr_with_icu_procedures.dataset.config.columns.admissions.admission_id
         assert set(admission_icu_procedures.keys()).issubset(set(tvx_ehr_with_icu_procedures.admission_ids))
         assert sum(len(proc.starttime) for proc in admission_icu_procedures.values() if proc is not None) == len(
             icu_procedures)

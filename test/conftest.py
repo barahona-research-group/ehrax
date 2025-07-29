@@ -13,8 +13,9 @@ from ehrax.testing.common_setup import DATASET_SCHEME_CONF, TVXEHR_CONF, _datase
     DATASET_SCHEME_MANAGER, \
     _singular_codevec, _static_info, _dx_codes_history, _inpatient_observables, _icu_inputs, _proc, _outcome, \
     DATASET_CONFIG, _segmented_inpatient_interventions, _inpatient_interventions, leading_observables_extractor, \
-    _admission, _admissions, DATASET_TABLES_CONF, TARGET_SCHEMES
-from .common_setup import ADMISSION_CONCEPT_MAX_STAY_DAYS, ADMISSION_TABLES_MAX_STAY_DAYS, ADMISSION_CONCEPT_MAX_STAY_HOURS
+    _admission, _admissions, TARGET_SCHEMES
+from .common_setup import ADMISSION_CONCEPT_MAX_STAY_DAYS, ADMISSION_TABLES_MAX_STAY_DAYS, \
+    ADMISSION_CONCEPT_MAX_STAY_HOURS
 
 
 class Dataset(rx.Dataset):
@@ -31,7 +32,7 @@ class Dataset(rx.Dataset):
                 ids=lambda x: f"_{x[0]}_subjects_{x[0] * x[1]}_admissions_{x[0] * x[1] * x[2]}_records",
                 scope='session')
 def dataset_tables_without_records(request) -> rx.DatasetTables:
-    return _dataset_tables(DATASET_TABLES_CONF, DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER, request.param,
+    return _dataset_tables(DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER, request.param,
                            max_stay_days=ADMISSION_TABLES_MAX_STAY_DAYS)
 
 
@@ -44,7 +45,7 @@ def dataset_without_records(dataset_tables_without_records: rx.DatasetTables) ->
                 ids=lambda x: f"_{x[0]}_subjects_{x[0] * x[1]}_admissions_{x[0] * x[1] * x[2]}_records",
                 scope='session')
 def dataset_tables_with_records(request) -> rx.DatasetTables:
-    return _dataset_tables(DATASET_TABLES_CONF, DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER, request.param,
+    return _dataset_tables(DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER, request.param,
                            max_stay_days=ADMISSION_TABLES_MAX_STAY_DAYS)
 
 
@@ -55,7 +56,7 @@ def dataset_with_records(dataset_tables_with_records: rx.DatasetTables) -> Datas
 
 @pytest.fixture(scope='session')
 def large_dataset_tables():
-    return _dataset_tables(DATASET_TABLES_CONF, DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER, (1000, 5, 1),
+    return _dataset_tables(DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER, (1000, 5, 1),
                            max_stay_days=ADMISSION_TABLES_MAX_STAY_DAYS)
 
 
@@ -67,10 +68,10 @@ def large_dataset(large_dataset_tables: rx.DatasetTables) -> Dataset:
 @pytest.fixture(scope='session')
 def unit_converter_table(dataset_tables_with_records: rx.DatasetTables) -> Optional[pd.DataFrame]:
     assert 'icu_inputs' in dataset_tables_with_records.tables_dict or len(dataset_tables_with_records.icu_inputs) == 0
-    c_code = DATASET_CONFIG.tables.icu_inputs.code_alias
-    c_amount_unit = DATASET_CONFIG.tables.icu_inputs.amount_unit_alias
-    c_norm_factor = DATASET_CONFIG.tables.icu_inputs.derived_unit_normalization_factor
-    c_universal_unit = DATASET_CONFIG.tables.icu_inputs.derived_universal_unit
+    c_code = str(rx.COLUMN.code)
+    c_amount_unit = str(rx.COLUMN.amount_unit)
+    c_norm_factor = str(rx.COLUMN.derived_unit_normalization_factor)
+    c_universal_unit = str(rx.COLUMN.derived_universal_unit)
     icu_inputs = dataset_tables_with_records.icu_inputs
 
     table = pd.DataFrame(columns=[c_code, c_amount_unit],
@@ -103,15 +104,16 @@ def mimiciv_dataset_scheme_config() -> rx.DatasetSchemeConfig:
 
 @pytest.fixture(scope='session')
 def mimiciv_dataset_config(mimiciv_dataset_scheme_config: rx.DatasetSchemeConfig) -> rx.DatasetConfig:
-    return rx.DatasetConfig(scheme=mimiciv_dataset_scheme_config, tables=DATASET_TABLES_CONF)
+    return rx.DatasetConfig(scheme=mimiciv_dataset_scheme_config)
 
 
 @pytest.fixture(scope='session')
 def mimiciv_dataset_without_records(mimiciv_dataset_config, dataset_tables_without_records) -> Dataset:
     ds = Dataset(tables=dataset_tables_without_records, config=mimiciv_dataset_config)
-    return eqx.tree_at(lambda x: x.tables, ds, dataset_tables_without_records,
+    return eqx.tree_at(lambda x: x.columns, ds, dataset_tables_without_records,
                        is_leaf=lambda x: x is None)._execute_pipeline([rx.SetIndex(), rx.SynchronizeSubjects(),
-                                                                       rx.CastTimestamps(), rx.SetAdmissionRelativeTimes()],
+                                                                       rx.CastTimestamps(),
+                                                                       rx.SetAdmissionRelativeTimes()],
                                                                       DATASET_SCHEME_MANAGER)
 
 
@@ -121,8 +123,9 @@ def mimiciv_dataset(dataset_tables_with_records: rx.DatasetTables,
     config = eqx.tree_at(lambda x: x.scheme, DATASET_CONFIG,
                          rx.DatasetSchemeConfig(**DATASET_CONFIG.scheme.scheme_fields()))
     ds = Dataset(tables=dataset_tables_with_records, config=config)
-    return ds._execute_pipeline([rx.SetIndex(), rx.SynchronizeSubjects(), rx.CastTimestamps(), rx.ICUInputRateUnitConversion(),
-                                 rx.SetAdmissionRelativeTimes()], DATASET_SCHEME_MANAGER)
+    return ds._execute_pipeline(
+        [rx.SetIndex(), rx.SynchronizeSubjects(), rx.CastTimestamps(), rx.ICUInputRateUnitConversion(),
+         rx.SetAdmissionRelativeTimes()], DATASET_SCHEME_MANAGER)
 
 
 @pytest.fixture(scope='session')
@@ -185,7 +188,7 @@ def inpatient_observables(request):
 
 @pytest.fixture(params=[0, 1, 5], scope='session', ids=['0icuin', '1icuin', '5icuin'])
 def icu_inputs(request) -> rx.InpatientInput:
-    return _icu_inputs(SCHEMES['icu_inputs'], request.param, los_hours=ADMISSION_CONCEPT_MAX_STAY_HOURS )
+    return _icu_inputs(SCHEMES['icu_inputs'], request.param, los_hours=ADMISSION_CONCEPT_MAX_STAY_HOURS)
 
 
 @pytest.fixture(params=[0, 5], scope='session', ids=['0icuproc', '5icuproc'])
@@ -261,6 +264,7 @@ def patient(request, static_info: rx.StaticInfo) -> rx.Patient:
                              outcome_extractor_=OUTCOME_EXTRACTOR, observation_scheme=SCHEMES['obs'],
                              icu_inputs_scheme=SCHEMES['icu_inputs'], icu_proc_scheme=SCHEMES['icu_procedures'],
                              hosp_proc_scheme=SCHEMES['hosp_procedures'],
-                             dataset_scheme_manager=DATASET_SCHEME_MANAGER, max_los_days=ADMISSION_CONCEPT_MAX_STAY_DAYS,
+                             dataset_scheme_manager=DATASET_SCHEME_MANAGER,
+                             max_los_days=ADMISSION_CONCEPT_MAX_STAY_DAYS,
                              max_n_timestamps_obs=OBS_MAX_N_TIMESTAMPS, max_n_inputs=INTERVENTIONS_MAX_N_ITEMS)
     return rx.Patient(subject_id='test', admissions=admissions, static_info=static_info)

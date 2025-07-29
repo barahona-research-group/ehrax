@@ -27,12 +27,13 @@ from .coding_scheme import (
 )
 
 from .dataset import (
+    COLUMN,
     Dataset,
     DatasetConfig,
     DatasetSchemeConfig,
     DatasetSchemeProxy,
     DatasetTables,
-    DatasetTablesConfig,
+    DatasetColumns,
     Report,
     ReportAttributes,
     SplitLiteral,

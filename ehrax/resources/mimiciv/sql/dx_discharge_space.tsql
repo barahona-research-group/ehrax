@@ -1,4 +1,4 @@
-select icd_code as {icd_code_alias},
-        icd_version as {icd_version_alias},
-        long_title as {description_alias}
+select icd_code as {code},
+        icd_version as {version},
+        long_title as {description}
 from mimiciv_hosp.d_icd_diagnoses

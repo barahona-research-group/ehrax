@@ -18,7 +18,7 @@ class DatasetTransformation(AbstractTransformation, metaclass=ABCMeta):
                           index_name: str, report: Report) -> tuple[Dataset, Report]:
         tables_dict = dataset.tables.tables_dict
 
-        target_tables = {  # tables that have admission_id as column
+        target_tables = {  # columns that have admission_id as column
             k: v for k, v in
             tables_dict.items()
             if k != indexed_table_name and index_name in v.columns
@@ -40,7 +40,7 @@ class DatasetTransformation(AbstractTransformation, metaclass=ABCMeta):
     def filter_no_admission_subjects(dataset: Dataset, report: Report) -> tuple[Dataset, Report]:
         static = dataset.tables.static
         admissions = dataset.tables.admissions
-        c_subject = dataset.config.tables.static.subject_id_alias
+        c_subject = dataset.config.columns.static.subject_id
         no_admission_subjects = static[~static.index.isin(admissions[c_subject].unique())].index
         n1 = len(static)
         static = static.drop(no_admission_subjects, axis='index')
@@ -52,14 +52,14 @@ class DatasetTransformation(AbstractTransformation, metaclass=ABCMeta):
     @classmethod
     def synchronize_admissions(cls, dataset: Dataset, report: Report) -> tuple[Dataset, Report]:
         dataset, report = cls.synchronize_index(dataset, 'admissions',
-                                                dataset.config.tables.admissions.admission_id_alias, report)
+                                                dataset.config.columns.admissions.admission_id, report)
         return cls.filter_no_admission_subjects(dataset, report)
 
     @classmethod
     def synchronize_subjects(cls, dataset: Dataset, report: Report) -> tuple[Dataset, Report]:
         # Synchronizing subjects might entail synchronizing admissions, so we need to call it first
         dataset, report = cls.synchronize_index(dataset, 'static',
-                                                dataset.config.tables.static.subject_id_alias, report)
+                                                dataset.config.columns.static.subject_id, report)
         return cls.synchronize_admissions(dataset, report)
 
     @classmethod
@@ -84,7 +84,8 @@ class SetIndex(DatasetTransformation):
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         tables_dict = dataset.tables.tables_dict
-        for indexed_table_name, index_name in dataset.config.tables.indices.items():
+        for indexed_table_name, index_name in dataset.config.columns.indices.items():
+            (index_name,) = index_name
             table = tables_dict[indexed_table_name]
             index1 = table.index.name
             table = table.set_index(index_name)
@@ -101,7 +102,7 @@ class CastTimestamps(DatasetTransformation):
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         tables = dataset.tables
         tables_dict = tables.tables_dict
-        for table_name, time_cols in dataset.config.tables.time_cols.items():
+        for table_name, time_cols in dataset.config.columns.time_cols.items():
 
             table = tables_dict[table_name].iloc[:, :]
             for time_col in time_cols:
@@ -124,25 +125,25 @@ class CastTimestamps(DatasetTransformation):
 class SetAdmissionRelativeTimes(DatasetTransformation):
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
-        time_cols = {k: v for k, v in dataset.config.tables.time_cols.items()
-                     if dataset.config.tables.temporal_admission_linked_table(k)}
+        time_cols = {k: v for k, v in dataset.config.columns.time_cols.items()
+                     if dataset.config.columns.temporal_admission_linked_table(k)}
 
-        c_admittime = dataset.config.tables.admissions.admission_time_alias
-        c_admission_id = dataset.config.tables.admissions.admission_id_alias
+        c_admittime = dataset.config.columns.admissions.start_time
+        c_admission_id = dataset.config.columns.admissions.admission_id
         admissions = dataset.tables.admissions[[c_admittime]]
         tables_dict = dataset.tables.tables_dict
 
-        for table_name, time_cols in time_cols.items():
+        for table_name, table_time_cols in time_cols.items():
             table = tables_dict[table_name]
             df = pd.merge(table, admissions,
                           left_on=c_admission_id,
                           right_index=True,
-                          suffixes=('_x', '_admissions'),
+                          suffixes=(None, '_y'),
                           how='left')
-            for time_col in time_cols:
-                df = df.assign(
-                    **{time_col: (df[time_col] - df[c_admittime]).dt.total_seconds() * SECONDS_TO_HOURS_SCALER})
-
+            admittime_col = f'{c_admittime}_y' if c_admittime in table.columns else c_admittime
+            for time_col in table_time_cols:
+                update = {time_col: (df[time_col] - df[admittime_col]).dt.total_seconds() * SECONDS_TO_HOURS_SCALER}
+                df = df.assign(**update)
                 report = report.add(table=table_name, column=time_col, before=table[time_col].dtype,
                                     after=df[time_col].dtype,
                                     value_type='dtype', operation='set_admission_relative_times')
@@ -157,10 +158,10 @@ class FilterSubjectsNegativeAdmissionLengths(DatasetTransformation):
 
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
-        table_config = dataset.config.tables.admissions
-        c_subject_id = table_config.subject_id_alias
-        c_dischtime = table_config.discharge_time_alias
-        c_admittime = table_config.admission_time_alias
+        table_config = dataset.config.columns.admissions
+        c_subject_id = table_config.subject_id
+        c_dischtime = table_config.end_time
+        c_admittime = table_config.start_time
         admissions = dataset.tables.admissions
 
         # assert dtypes are datetime64[ns]
@@ -183,7 +184,8 @@ class FilterUnsupportedCodes(DatasetTransformation):
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         tables_dict = dataset.tables.tables_dict
-        for table_name, code_column in dataset.config.tables.code_column.items():
+        for table_name, code_column in dataset.config.columns.code_column.items():
+            (code_column,) = code_column
             table = tables_dict[table_name]
             coding_scheme = getattr(dataset.scheme_proxy(schemes_context), table_name)
             n1 = len(table)
@@ -200,9 +202,9 @@ class ProcessOverlappingAdmissions(DatasetTransformation):
     @staticmethod
     def map_admission_ids(dataset: Dataset, sub2sup: dict[str, str], report: Report) -> tuple[Dataset, Report]:
         tables_dict = dataset.tables.tables_dict
-        c_admission_id = dataset.config.tables.admissions.admission_id_alias
+        c_admission_id = dataset.config.columns.admissions.admission_id
 
-        target_tables = {  # tables that have admission_id as column
+        target_tables = {  # columns that have admission_id as column
             k: v for k, v in
             tables_dict.items()
             if k != 'admissions' and c_admission_id in v.columns
@@ -259,8 +261,8 @@ class ProcessOverlappingAdmissions(DatasetTransformation):
                                       dataset: Dataset,
                                       sub2sup: dict[str, str], report: Report) -> tuple[Dataset, Report]:
         admissions = dataset.tables.admissions
-        c_admission_id = dataset.config.tables.admissions.admission_id_alias
-        c_dischtime = dataset.config.tables.admissions.discharge_time_alias
+        c_admission_id = dataset.config.columns.admissions.admission_id
+        c_dischtime = dataset.config.columns.admissions.end_time
 
         # Map from super-admissions to its sub-admissions.
         sup2sub = defaultdict(list)
@@ -283,17 +285,16 @@ class ProcessOverlappingAdmissions(DatasetTransformation):
                             operation='merge_overlapping_admissions',
                             before=n1, after=n2)
 
-        # Step 4: update admission ids in other tables.
+        # Step 4: update admission ids in other columns.
         return cls.map_admission_ids(dataset, sub2sup, report)
 
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         admissions = dataset.tables.admissions
-        table_config = dataset.config.tables.admissions
-        c_subject_id = table_config.subject_id_alias
-        c_dischtime = table_config.discharge_time_alias
-        c_admittime = table_config.admission_time_alias
-
+        table_config = dataset.config.columns.admissions
+        c_subject_id = table_config.subject_id
+        c_dischtime = table_config.end_time
+        c_admittime = table_config.start_time
         # Step 1: Collect overlapping admissions
         # Map from sub-admissions to the new super-admissions.
         sub2sup = {adm_id: super_adm_id for _, subject_adms in admissions.groupby(c_subject_id)
@@ -302,7 +303,7 @@ class ProcessOverlappingAdmissions(DatasetTransformation):
         # Step 2: Apply action.
         if dataset.config.overlapping_admissions == "merge":
             # Step 3: Extend discharge time of super admissions, remove sub-admissions,
-            # and update admission ids in other tables.
+            # and update admission ids in other columns.
             return cls._merge_overlapping_admissions(dataset, sub2sup, report)
         elif dataset.config.overlapping_admissions == "remove":
             # Step 3: Collect subjects with at least one overlapping admission and remove them entirely.
@@ -325,22 +326,24 @@ class FilterClampTimestampsToAdmissionInterval(DatasetTransformation):
 
     @classmethod
     def _filter_timestamped_tables(cls, dataset: Dataset, report: Report) -> tuple[Dataset, Report]:
-        timestamped_tables_conf = dataset.config.tables.timestamped_table_config_dict
+        timestamped_tables_conf = dataset.config.columns.timestamped_tables_config_dict
         timestamped_tables = {name: getattr(dataset.tables, name) for name in
                               timestamped_tables_conf.keys()}
-        table_config = dataset.config.tables.admissions
-        c_admission_id = table_config.admission_id_alias
-        c_dischtime = table_config.discharge_time_alias
-        c_admittime = table_config.admission_time_alias
-
+        table_config = dataset.config.columns.admissions
+        c_admission_id = table_config.admission_id
+        c_dischtime = table_config.end_time
+        c_admittime = table_config.start_time
         admissions = dataset.tables.admissions[[c_admittime, c_dischtime]]
 
         for name, table in timestamped_tables.items():
-            c_time = timestamped_tables_conf[name].time_alias
+            c_time = timestamped_tables_conf[name].time
             df = pd.merge(table, admissions, how='left',
                           left_on=c_admission_id, right_index=True,
-                          suffixes=('_x', '_y'))
-            index = df[df[c_time].between(df[c_admittime], df[c_dischtime])].index
+                          suffixes=(None, '_y'))
+            admittime_col = f'{c_admittime}_y' if c_admittime in table.columns else c_admittime
+            dischtime_col = f'{c_dischtime}_y' if c_dischtime in table.columns else c_dischtime
+
+            index = df[df[c_time].between(df[admittime_col], df[dischtime_col])].index
             n1 = len(table)
             table = table.loc[index]
             n2 = len(table)
@@ -352,25 +355,26 @@ class FilterClampTimestampsToAdmissionInterval(DatasetTransformation):
 
     @classmethod
     def _filter_interval_based_tables(cls, dataset: Dataset, report: Report) -> tuple[Dataset, Report]:
-        interval_based_tables_conf = dataset.config.tables.interval_based_table_config_dict
+        interval_based_tables_conf = dataset.config.columns.interval_based_table_config_dict
         interval_based_tables: dict[str, pd.DataFrame] = {name: getattr(dataset.tables, name) for name in
                                                           interval_based_tables_conf.keys()}
-        table_config = dataset.config.tables.admissions
-        c_admission_id = table_config.admission_id_alias
-        c_dischtime = table_config.discharge_time_alias
-        c_admittime = table_config.admission_time_alias
-
+        table_config = dataset.config.columns.admissions
+        c_admission_id = table_config.admission_id
+        c_dischtime = table_config.end_time
+        c_admittime = table_config.start_time
         admissions = dataset.tables.admissions[[c_admittime, c_dischtime]]
 
         for name, table in interval_based_tables.items():
-            c_start_time = interval_based_tables_conf[name].start_time_alias
-            c_end_time = interval_based_tables_conf[name].end_time_alias
+            c_start_time = interval_based_tables_conf[name].start_time
+            c_end_time = interval_based_tables_conf[name].end_time
             df = pd.merge(table, admissions, how='left',
                           left_on=c_admission_id, right_index=True,
-                          suffixes=('_x', '_y'))
+                          suffixes=(None, '_y'))
+            admittime_col =  f'{c_admittime}_y'if c_admittime in table.columns else c_admittime
+            dischtime_col =  f'{c_dischtime}_y'if c_dischtime in table.columns else c_dischtime
             # Step 1: Filter out intervals that are entirely outside admission interval.
-            index = df[df[c_start_time].between(df[c_admittime], df[c_dischtime]) |
-                       df[c_end_time].between(df[c_admittime], df[c_dischtime])].index
+            index = df[df[c_start_time].between(df[admittime_col], df[dischtime_col]) |
+                       df[c_end_time].between(df[admittime_col], df[dischtime_col])].index
             n1 = len(df)
             df = df.loc[index]
             n2 = len(df)
@@ -379,12 +383,12 @@ class FilterClampTimestampsToAdmissionInterval(DatasetTransformation):
                                 before=n1, after=n2)
 
             # Step 2: Clamp intervals to admission interval if either side is outside.
-            n_to_clamp = np.sum((df[c_start_time] < df[c_admittime]) | (df[c_end_time] > df[c_dischtime]))
+            n_to_clamp = np.sum((df[c_start_time] < df[admittime_col]) | (df[c_end_time] > df[dischtime_col]))
             report = report.add(table=name, column=(c_start_time, c_end_time),
                                 value_type='count', operation='clamp',
                                 before=None, after=n_to_clamp)
-            df[c_start_time] = df[c_start_time].clip(lower=df[c_admittime], upper=df[c_dischtime])
-            df[c_end_time] = df[c_end_time].clip(lower=df[c_admittime], upper=df[c_dischtime])
+            df[c_start_time] = df[c_start_time].clip(lower=df[admittime_col], upper=df[dischtime_col])
+            df[c_end_time] = df[c_end_time].clip(lower=df[admittime_col], upper=df[dischtime_col])
             df = df[table.columns]
             dataset = eqx.tree_at(lambda x: getattr(x.tables, name), dataset, df)
 
@@ -400,12 +404,12 @@ class SelectSubjectsWithObservation(DatasetTransformation):
 
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
-        c_code = dataset.config.tables.obs.code_alias
-        c_admission_id = dataset.config.tables.obs.admission_id_alias
-        c_subject = dataset.config.tables.static.subject_id_alias
+        c_code = dataset.config.columns.obs.code
+        c_admission_id = dataset.config.columns.obs.admission_id
+        c_subject = dataset.config.columns.static.subject_id
         obs = dataset.tables.obs
 
-        code: Final[str] = dataset.config.filter_subjects_with_observation
+        code: Final[str] = dataset.config.select_subjects_with_observation
         assert code is not None, 'No code provided for filtering subjects'
 
         admission_ids = obs[obs[c_code] == code][c_admission_id].unique()
@@ -426,9 +430,9 @@ class SelectSubjectsWithObservation(DatasetTransformation):
 class FilterInvalidInputRatesSubjects(DatasetTransformation):
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
-        c_rate = dataset.config.tables.icu_inputs.derived_normalized_amount_per_hour
-        c_admission_id = dataset.config.tables.admissions.admission_id_alias
-        c_subject_id = dataset.config.tables.admissions.subject_id_alias
+        c_rate = dataset.config.columns.icu_inputs.derived_normalized_amount_per_hour
+        c_admission_id = dataset.config.columns.admissions.admission_id
+        c_subject_id = dataset.config.columns.admissions.subject_id
 
         icu_inputs = dataset.tables.icu_inputs
         static = dataset.tables.static
@@ -465,13 +469,13 @@ class ICUInputRateUnitConversion(DatasetTransformation):
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[
         Dataset, Report]:
         ds_config = dataset.config
-        tables_config = ds_config.tables
+        tables_config = ds_config.columns
         table_config = tables_config.icu_inputs
-        c_code = table_config.code_alias
-        c_amount = table_config.amount_alias
-        c_start_time = table_config.start_time_alias
-        c_end_time = table_config.end_time_alias
-        c_amount_unit = table_config.amount_unit_alias
+        c_code = table_config.code
+        c_amount = table_config.amount
+        c_start_time = table_config.start_time
+        c_end_time = table_config.end_time
+        c_amount_unit = table_config.amount_unit
         c_normalized_amount = table_config.derived_normalized_amount
         c_normalized_amount_per_hour = table_config.derived_normalized_amount_per_hour
         c_universal_unit = table_config.derived_universal_unit

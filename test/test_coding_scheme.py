@@ -1,5 +1,4 @@
 import os
-from typing import Dict, List, Tuple
 from unittest import mock
 
 import pytest
@@ -114,7 +113,7 @@ class TestFlatScheme:
         return name
 
     @pytest.fixture(scope="class")
-    def selection_names(self, scheme_selection: CCSICDSchemeSelection) -> Tuple[str, ...]:
+    def selection_names(self, scheme_selection: CCSICDSchemeSelection) -> tuple[str, ...]:
         return tuple(scheme_selection.flag_set)
 
     @pytest.fixture(scope="class")
@@ -128,7 +127,7 @@ class TestFlatScheme:
 
     @pytest.fixture(scope="class")
     def icd_ccs_map_manager(self, scheme_pair_selection: CCSICDSchemeSelection) -> rx.CodingSchemesManager:
-        return setup_standard_icd_ccs(rx.CodingSchemesManager(), scheme_pair_selection, CCSICDOutcomeSelection())
+        return setup_standard_icd_ccs(scheme_pair_selection, CCSICDOutcomeSelection())
 
     @pytest.fixture
     def icd_ccs_outcome_manager(self, icd_ccs_outcome_manager_prerequisite: rx.CodingSchemesManager,
@@ -221,7 +220,7 @@ class TestFlatScheme:
                              [('problematic_codes', [1], {'1': 'one'}),
                               ('problematic_desc', ['1'], {1: 'one'}),
                               ('problematic_desc', ['1'], {'1': 5})])
-    def test_type_error(self, name: str, codes: List[str], desc: Dict[str, str]):
+    def test_type_error(self, name: str, codes: list[str], desc: dict[str, str]):
         """
         Test for type error handling in the FlatScheme constructor.
 
@@ -237,7 +236,7 @@ class TestFlatScheme:
         ('problematic_desc', ['3'], {'3': 'three', '1': 'one'}),
         ('duplicate_codes', ['1', '2', '2'], {'1': 'one', '2': 'two'})
     ])
-    def test_sizes(self, name: str, codes: List[str], desc: Dict[str, str]):
+    def test_sizes(self, name: str, codes: list[str], desc: dict[str, str]):
         """
         Test the consistency between scheme components, in their size, and mapping correctness.
 

@@ -1,4 +1,4 @@
-select icu.hadm_id {admission_id_alias}, {attributes}, w.time_bin {time_alias}
+select icu.hadm_id {admission_id}, {attributes}, w.time_bin {time}
  from (
  (select stay_id, w.weight, w.starttime time_bin
   from mimiciv_derived.weight_durations as w)

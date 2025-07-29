@@ -3,14 +3,15 @@
 import functools
 from datetime import date
 from functools import cached_property
-from typing import (Optional, Callable, ClassVar, Iterator, Self, Union)
+from typing import Optional, Callable, ClassVar, Iterator, Self
 
 import jax.numpy as jnp
 import numpy as np
 import scipy
 
 from .base import AbstractConfig, AbstractVxData
-from .coding_scheme import (CodesVector, NumericalTypeHint, NumericScheme)
+from .coding_scheme import (CodesVector, NumericScheme)
+from .literals import NumericalTypeHint
 from .utils import Array, np_module
 
 
@@ -684,6 +685,10 @@ class InpatientInterventions(AbstractVxData):
                 timestamps.extend(ii.starttime)
                 timestamps.extend(ii.endtime)
         return list(sorted(set(timestamps)))
+
+    @cached_property
+    def final_timestamp(self) -> float:
+        return max(self.timestamps)
 
 
 class SegmentedInpatientInterventions(AbstractVxData):

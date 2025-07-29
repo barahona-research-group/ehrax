@@ -10,7 +10,6 @@ import jax.numpy as jnp
 import numpy as np
 from jax._src.tree_util import KeyEntry, GetAttrKey, SequenceKey, DictKey, FlattenedIndexKey
 from jaxlib._jax import ArrayImpl
-
 from tqdm import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
 
@@ -31,6 +30,7 @@ def _tqdm_backend():
 
 
 tqdm_constructor = _tqdm_backend()
+
 
 def translate_path(path: str, relative_to: Optional[str] = None):
     """Translate a filesystem path by replacing environment
@@ -144,10 +144,10 @@ class NumpyEncoder(json.JSONEncoder):
 
             return int(obj)
 
-        elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+        elif isinstance(obj, (np.float16, np.float32, np.float64)):
             return float(obj)
 
-        elif isinstance(obj, (np.complex_, np.complex64, np.complex128)):
+        elif isinstance(obj, (np.complex64, np.complex128)):
             return {'real': obj.real, 'imag': obj.imag}
 
         elif isinstance(obj, (np.ndarray,)):

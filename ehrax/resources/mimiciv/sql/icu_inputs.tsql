@@ -1,11 +1,11 @@
 select
-    a.hadm_id as {admission_id_alias}
-    , inp.itemid as {code_alias}
-    , inp.starttime as {start_time_alias}
-    , inp.endtime as {end_time_alias}
-    , di.label as {description_alias}
-    , inp.amount as {amount_alias}
-    , inp.amountuom as {amount_unit_alias}
+    a.hadm_id as {admission_id}
+    , inp.itemid as {code}
+    , inp.starttime as {start_time}
+    , inp.endtime as {end_time}
+    , di.label as {description}
+    , inp.amount as {amount}
+    , inp.amountuom as {amount_unit}
 from mimiciv_hosp.admissions a
 inner join mimiciv_icu.icustays i
     on a.hadm_id = i.hadm_id

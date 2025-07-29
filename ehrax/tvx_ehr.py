@@ -12,7 +12,8 @@ import pandas as pd
 from .base import AbstractConfig, AbstractVxData, fetch_at, HDFVirtualNode
 from .coding_scheme import CodesVector, CodingSchemesManager, CodeMap, ReducedCodeMapN1, GroupingData, OutcomeExtractor
 from .dataset import Dataset, DatasetSchemeProxy, DatasetSchemeConfig, ReportAttributes, \
-    AbstractTransformation, AbstractDatasetPipeline, AbstractProcessedDataset, Report, SplitLiteral, PipelineReportTable
+    AbstractTransformation, AbstractDatasetPipeline, AbstractProcessedDataset, Report, PipelineReportTable
+from .literals import SplitLiteral
 from .tvx_concepts import (Admission, Patient, InpatientObservables,
                            InpatientInterventions, DemographicVectorConfig,
                            LeadingObservableExtractorConfig, SegmentedPatient, StaticInfo, InpatientInput,
@@ -117,7 +118,7 @@ class CodedValueProcessor(AbstractVxData, ABC):
     def fit(self, dataset: Dataset, admission_ids: list[str],
             table_name: str, code_column: str, value_column: str) -> Self:
         df = getattr(dataset.tables, table_name)
-        c_adm_id = getattr(dataset.config.tables, table_name).admission_id_alias
+        c_adm_id = getattr(dataset.config.columns, table_name).admission_id
         df = df[[code_column, value_column, c_adm_id]]
         df = df[df[c_adm_id].isin(admission_ids)]
 
@@ -495,8 +496,8 @@ class TVxEHR(AbstractProcessedDataset):
 
     @cached_property
     def subjects_sorted_admission_ids(self) -> dict[str, list[str]]:
-        c_admittime = self.dataset.config.tables.admissions.admission_time_alias
-        c_subject_id = self.dataset.config.tables.admissions.subject_id_alias
+        c_admittime = self.dataset.config.columns.admissions.start_time
+        c_subject_id = self.dataset.config.columns.admissions.subject_id
 
         # For each subject get the list of adm sorted by admission date.
         return self.dataset.tables.admissions.groupby(c_subject_id).apply(
@@ -523,8 +524,8 @@ class TVxEHR(AbstractProcessedDataset):
     @cached_property
     def admission_dates(self) -> dict[str, AdmissionDates]:
         admissions = self.dataset.tables.admissions
-        c_admittime = self.dataset.config.tables.admissions.admission_time_alias
-        c_dischtime = self.dataset.config.tables.admissions.discharge_time_alias
+        c_admittime = self.dataset.config.columns.admissions.start_time
+        c_dischtime = self.dataset.config.columns.admissions.end_time
         return admissions.apply(lambda x: AdmissionDates(x[c_admittime], x[c_dischtime]), axis=1).to_dict()
 
     def fetch_device_batch(self, subject_ids: Optional[tuple[str, ...]] = None) -> tuple[Self, Self]:
@@ -555,7 +556,7 @@ class TVxEHR(AbstractProcessedDataset):
             discount_first_admission (bool, optional): whether to ignore the first admission from the counts. Defaults to False.
 
         Returns:
-            list[List[str]]: List of lists containing the split subject IDs.
+            list[list[str]]: list of lists containing the split subject IDs.
         """
         if subject_ids is None:
             subject_ids = list(self.subjects.keys())
@@ -795,7 +796,7 @@ class TVxEHR(AbstractProcessedDataset):
             subjects (list[str]): list of subject IDs.
 
         Returns:
-            list[List[int]]: list of outcome codes partitioned by frequency into `n_partitions` partitions.
+            list[list[int]]: list of outcome codes partitioned by frequency into `n_partitions` partitions.
         
         """
         frequency_vec = self.outcome_frequency_vec(subjects)
