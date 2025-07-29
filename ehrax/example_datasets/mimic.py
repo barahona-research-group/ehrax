@@ -17,7 +17,7 @@ from ..dataset import COLUMN, SECONDS_TO_HOURS_SCALER, AdmissionSummaryTableColu
 from ..dataset import (StaticTableColumns,
                        TableColumns,
                        DatasetTables, DatasetSchemeConfig, Dataset, AbstractDatasetPipelineConfig)
-from ..example_schemes.icd import setup_standard_icd_ccs, CCSICDSchemeSelection, CCSICDOutcomeSelection
+from ..example_schemes.icd import setup_standard_icd_ccs
 from ..example_schemes.mixed_icd import MixedICDScheme
 
 warnings.filterwarnings('error', category=RuntimeWarning, message=r'overflow encountered in cast')
@@ -58,7 +58,7 @@ class TableResource(AbstractConfig):
         return (self._coerce_id_to_str,)
 
     @staticmethod
-    def preprocess(pipeline: tuple[Callable[[pd.DataFrame], pd.DataFrame], ...], table):
+    def apply_pipeline(pipeline: tuple[Callable[[pd.DataFrame], pd.DataFrame], ...], table):
         for f in pipeline:
             table = f(table)
         return table
@@ -68,7 +68,7 @@ class TableResource(AbstractConfig):
         raise NotImplementedError()
 
     def __call__(self, data_connection: Any, **kwargs) -> pd.DataFrame:
-        return self.preprocess(self.pipeline, self.load_standard_columns_table(data_connection, **kwargs))
+        return self.apply_pipeline(self.pipeline, self.load_standard_columns_table(data_connection, **kwargs))
 
 
 CodedColumns = AdmissionSummaryTableColumns | AdmissionTimeSeriesTableColumns | AdmissionIntervalEventsTableColumns | AdmissionIntervalRatesTableColumns
@@ -84,7 +84,7 @@ class CodedTableResource(TableResource):
         return self._coerce_id_to_str, self._coerce_code_to_str
 
     def space(self, data_connection: Any) -> pd.DataFrame:
-        return self.preprocess(self.pipeline, self.load_space_table(data_connection))
+        return self.apply_pipeline(self.pipeline, self.load_space_table(data_connection))
 
     @abstractmethod
     def load_space_table(self, data_connection: Any):
@@ -105,8 +105,8 @@ class StaticTableResource(TableResource):
     def load_ethnicity_space_table(self, data_connection: Any) -> pd.DataFrame:
         raise NotImplementedError()
 
-    @abstractmethod
     @classmethod
+    @abstractmethod
     def derive_shifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.DataFrame:
         # Different procedures to implement for MIMIC-III and MIMIC-IV
         raise NotImplementedError()
@@ -133,7 +133,7 @@ class StaticTableResource(TableResource):
         assert 'admissions' in kwargs, "Pass the processed admissions table."
         admissions = kwargs.pop('admissions')
         pipeline = (self._coerce_id_to_str, self._add_shifted_date_of_birth(admissions=admissions))
-        return self.preprocess(pipeline, self.load_standard_columns_table(data_connection, **kwargs))
+        return self.apply_pipeline(pipeline, self.load_standard_columns_table(data_connection, **kwargs))
 
 
 class StaticTableResource_MIMICIV(StaticTableResource):
@@ -213,11 +213,9 @@ class MixedICDTableResource(CodedTableResource):
                 unsupported_codes = codes[~codes[c_code].isin(support_subset[c_code])]
 
                 assert len(unsupported_codes) == 0, f'Codes {unsupported_codes} are not supported for version {version}'
-
-        manager = manager.add_scheme(MixedICDScheme.from_selection(manager, name, icd_version_selection,
-                                                                   icd_version_schemes=icd_version_schemes))
-        scheme = cast(MixedICDScheme, manager.scheme[name])
-        return scheme.register_standard_icd_maps(manager)
+        scheme = MixedICDScheme.from_selection(manager, name, icd_version_selection,
+                                               icd_version_schemes=icd_version_schemes)
+        return scheme.register_standard_icd_maps(manager.add_scheme(scheme))
 
     def register_scheme(self, manager: CodingSchemesManager,
                         name: str,
@@ -235,8 +233,8 @@ class MixedICDTableResource(CodedTableResource):
             manager = mixed_icd_scheme.register_map(manager=manager, target_name=target_name, mapping=mapping)
         return manager
 
-    @abstractmethod
     @staticmethod
+    @abstractmethod
     def _add_version_column_if_not_exists(df: pd.DataFrame) -> pd.DataFrame:
         # This is specifically added for MIMIC-III, pure ICD-9 codes.
         raise NotImplementedError('Override this method in subclass')
@@ -270,7 +268,7 @@ class MixedICDTableResource(CodedTableResource):
     def space(self, data_connection: Any) -> pd.DataFrame:
         pipeline = (self._coerce_code_to_str, self._strip_icd_codes,
                     self._add_version_column_if_not_exists, self._coerce_version_to_str)
-        return self.preprocess(pipeline, self.load_space_table(data_connection))
+        return self.apply_pipeline(pipeline, self.load_space_table(data_connection))
 
     def __call__(self, data_connection: Any, **kwargs) -> pd.DataFrame:
         mixed_scheme_name = kwargs.pop('mixed_scheme_name')
@@ -278,18 +276,20 @@ class MixedICDTableResource(CodedTableResource):
         pipeline = (self._coerce_id_to_str, self._coerce_code_to_str, self._strip_icd_codes,
                     self._add_version_column_if_not_exists, self._coerce_version_to_str,
                     self._mixed_code_format(mixed_scheme_name, schemes_manager))
-        return self.preprocess(pipeline, self.load_standard_columns_table(data_connection, **kwargs))
+        return self.apply_pipeline(pipeline, self.load_standard_columns_table(data_connection, **kwargs))
 
 
 class MixedICDTableResource_MIMICIII(MixedICDTableResource):
-    def _add_version_column_if_not_exists(self, df: pd.DataFrame) -> pd.DataFrame:
+    @staticmethod
+    def _add_version_column_if_not_exists(df: pd.DataFrame) -> pd.DataFrame:
         assert str(COLUMN.version) not in df
         df[str(COLUMN.version)] = "9"
         return df
 
 
 class MixedICDTableResource_MIMICIV(MixedICDTableResource):
-    def _add_version_column_if_not_exists(self, df: pd.DataFrame) -> pd.DataFrame:
+    @staticmethod
+    def _add_version_column_if_not_exists(df: pd.DataFrame) -> pd.DataFrame:
         assert str(COLUMN.version) in df.columns
         return df
 
@@ -326,7 +326,7 @@ class MultivariateTimeSeriesTableResource(CodedTableResource):
         return df.astype({str(COLUMN.measurement): float})
 
     def _rename_attributes(self, df: pd.DataFrame) -> pd.DataFrame:
-        df[str(COLUMN.code)] = pd.Series([self.config.name for _ in range(len(df))]) + '.' + df[str(COLUMN.code)]
+        df[str(COLUMN.code)] = pd.Series([self.config.name] * len(df)) + '.' + df[str(COLUMN.code)]
         return df
 
     @property
@@ -758,9 +758,7 @@ class MIMICSchemeResources(AbstractConfig):
 
     def make_all_schemes(self, data_connection: Any) -> CodingSchemesManager:
         # make standard ones.
-        manager = setup_standard_icd_ccs(CodingSchemesManager(),
-                                         scheme_selection=CCSICDSchemeSelection.all(),
-                                         outcome_selection=CCSICDOutcomeSelection.all())
+        manager = setup_standard_icd_ccs()
         manager = self.make_hosp_procedures_scheme(manager, data_connection)
         manager = self.make_dx_discharge_scheme(manager, data_connection)
         return (manager + self.make_gender_scheme(data_connection) + self.make_ethnicity_scheme(

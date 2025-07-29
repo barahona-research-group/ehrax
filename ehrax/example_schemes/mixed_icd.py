@@ -28,11 +28,11 @@ class MixedICDScheme(CodingScheme):
     def fix_dots(df: pd.DataFrame,
                  icd_schemes: dict[str, ICDScheme]) -> pd.DataFrame:
         df = df.copy()
-        for version, icd_df in df.groupby(str(COLUMN.version)):
-            scheme = icd_schemes[str(version)]
-            df.loc[icd_df.index, str(COLUMN.code)] = \
-                icd_df[str(COLUMN.code)].str.replace(' ', '').str.replace('.', '').map(scheme.ops.add_dots)
+        add_dots = {v: icd_scheme.ops.add_dots for v, icd_scheme in icd_schemes.items()}
+        codes = df[str(COLUMN.code)].str.strip().replace('.', '')
+        df[str(COLUMN.code)] = list(map(lambda c, v: add_dots[v](c), codes, df[str(COLUMN.version)]))
         return df
+
 
     @classmethod
     def from_selection(cls, manager: CodingSchemesManager, name: str, icd_version_selection: pd.DataFrame,
