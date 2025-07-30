@@ -5,8 +5,9 @@ import pytest
 import tables as tb
 
 import ehrax as rx
-from ehrax.example_schemes.icd import CCSICDSchemeSelection, setup_standard_icd_ccs, CCSICDOutcomeSelection, \
-    setup_icd_schemes, setup_icd_outcomes
+from ehrax import CodeMap, CodingScheme, CodingSchemesManager, FrozenDict1N
+from ehrax.example_schemes.icd import CCSICDOutcomeSelection, CCSICDSchemeSelection, setup_icd_outcomes, \
+    setup_icd_schemes, setup_standard_icd_ccs
 
 _DIR = os.path.dirname(__file__)
 
@@ -129,7 +130,7 @@ class TestFlatScheme:
     def icd_ccs_map_manager(self, scheme_pair_selection: CCSICDSchemeSelection) -> rx.CodingSchemesManager:
         return setup_standard_icd_ccs(scheme_pair_selection, CCSICDOutcomeSelection())
 
-    @pytest.fixture
+    @pytest.fixture(scope='class')
     def icd_ccs_outcome_manager(self, icd_ccs_outcome_manager_prerequisite: rx.CodingSchemesManager,
                                 outcome_selection: CCSICDOutcomeSelection) -> rx.CodingSchemesManager:
         return setup_icd_outcomes(icd_ccs_outcome_manager_prerequisite, outcome_selection)
@@ -160,7 +161,9 @@ class TestFlatScheme:
         assert (b, a) in icd_ccs_map_manager.map
         m1 = icd_ccs_map_manager.map[(a, b)]
         m2 = icd_ccs_map_manager.map[(b, a)]
-
+        for m in (m1, m2):
+            assert set(m.data.keys()) == set(m.domain)
+            assert frozenset().union(*tuple(m.data.values())) == frozenset(m.range)
         assert m1.source_name == a
         assert m1.target_name == b
         assert m2.source_name == b
@@ -318,10 +321,6 @@ class TestFlatScheme:
                                                             desc=rx.FrozenDict11(desc)))
 
 
-class TestSchemeManager:
-    pass
-
-
 class TestReducedCodeMapN1:
     @pytest.fixture(scope='class')
     def codes_n1(self):
@@ -383,3 +382,135 @@ class TestReducedCodeMapN1:
 
     def test_groups_permute(self, reduced_code_map: rx.ReducedCodeMapN1, source_index: dict[str, int]):
         assert reduced_code_map.groups_permute(source_index) == (0, 1, 2, 3, 5, 7, 6, 4, 8)
+
+
+class TestCodingSchemesManager:
+    @pytest.fixture(scope='class')
+    def scheme1(self) -> CodingScheme:
+        return CodingScheme(name='s', codes=('A', 'B'))
+
+    @pytest.fixture(scope='class')
+    def scheme2(self) -> CodingScheme:
+        return CodingScheme(name='t', codes=('C', 'D'))
+
+    @pytest.fixture(scope='class') # to test chaining.
+    def scheme3(self) -> CodingScheme:
+        return CodingScheme(name='q', codes=('E', 'F'))
+
+    @pytest.fixture(scope='class')
+    def map_a(self, scheme1: CodingScheme, scheme2: CodingScheme) -> CodeMap:
+        return CodeMap(source_name=scheme1.name, target_name=scheme2.name,
+                       data=FrozenDict1N({'A': {'D'}}))
+
+    @pytest.fixture(scope='class') # to test chaining
+    def map_b(self, scheme2: CodingScheme, scheme3: CodingScheme) -> CodeMap:
+        return CodeMap(source_name=scheme2.name, target_name=scheme3.name,
+                       data=FrozenDict1N({'D': {'F'}}))
+
+    @pytest.fixture(scope='class')
+    def scheme_x(self) -> CodingScheme: # to test match map
+        return CodingScheme(name='x', codes=tuple(sorted(('xO', 'hY', ' zN'))))
+
+    @pytest.fixture(scope='class')
+    def scheme_y(self) -> CodingScheme: # to test match map
+        return CodingScheme(name='y', codes=tuple(sorted((' Xo', 'Hy ', 'ZN'))))
+
+    @pytest.fixture(scope='class')
+    def scheme_z(self) -> CodingScheme: # to test match map
+        return CodingScheme(name='z', codes=(' Xoo', 'iHy ', 'iiii'))
+
+    @pytest.fixture(scope='class')
+    def manager1(self, scheme1: CodingScheme) -> CodingSchemesManager:
+        return CodingSchemesManager().add_scheme(scheme1)
+
+    @pytest.fixture(scope='class')
+    def manager2(self, scheme2: CodingScheme) -> CodingSchemesManager:
+        return CodingSchemesManager().add_scheme(scheme2)
+
+    @pytest.fixture(scope='class')
+    def manager3(self, map_a: CodeMap) -> CodingSchemesManager:
+        return CodingSchemesManager().add_map(map_a)
+
+    @pytest.fixture(scope='class')
+    def manager_union(self, manager1: CodingSchemesManager, manager2: CodingSchemesManager,
+                      manager3: CodingSchemesManager) -> CodingSchemesManager:
+        return manager1 + manager2 + manager3
+
+    @pytest.fixture(scope='class') # to test chaining
+    def manager_all(self, manager_union: CodingSchemesManager, scheme3: CodingScheme, map_b: CodeMap) -> CodingSchemesManager:
+        return manager_union.add_scheme(scheme3).add_map(map_b)
+
+    @pytest.fixture(scope='class') # tot test chaining
+    def manager_with_chained_map(self, manager_all: CodingSchemesManager):
+        return manager_all.add_chained_map('s', 't', 'q')
+
+    @pytest.fixture(scope='class')
+    def manager4matchmap(self, scheme_x: CodingScheme, scheme_y: CodingScheme, scheme_z: CodingScheme) -> CodingSchemesManager:
+        return CodingSchemesManager().add_scheme(scheme_x).add_scheme(scheme_y).add_scheme(scheme_z)
+
+    @pytest.fixture(scope='class')
+    def manager_with_match_map(self, manager4matchmap: CodingSchemesManager):
+        return manager4matchmap.add_match_map('x', 'y')
+
+    def test_dims0(self):
+        m = CodingSchemesManager()
+        assert len(m.scheme) == 0
+        assert len(m.map) == 0
+        assert len(m.outcome) == 0
+        assert len(m.identity_maps) == 0
+        assert m.equals(CodingSchemesManager())
+
+    def test_dims1(self, manager1: CodingSchemesManager, manager2: CodingSchemesManager):
+        assert len(manager1.scheme) == len(manager2.scheme) == 1
+        assert len(manager1.map) == len(manager2.scheme) == 1  # now it contains an identity map (automatically made)
+        assert len(manager1.identity_maps) == len(manager2.identity_maps) == 1
+        assert manager1.equals(manager1)
+        assert not manager1.equals(manager2)
+        assert not manager1.equals(CodingSchemesManager())
+
+    def test_dims2(self, manager3: CodingSchemesManager):
+        assert len(manager3.scheme) == 0
+        assert len(manager3.map) == 1
+        assert len(manager3.identity_maps) == 0
+        assert not manager3.equals(CodingSchemesManager())
+        assert manager3.equals(manager3)
+
+    def test_dims3(self, manager1: CodingSchemesManager, manager2: CodingSchemesManager, manager3: CodingSchemesManager,
+                   manager_union: CodingSchemesManager):
+        assert (manager1 + manager2).equals(manager2 + manager1)
+        assert not (manager1 + manager2 + manager3).equals(manager1 + manager3)
+        assert (manager1 + manager2 + manager3).equals(manager3 + manager2 + manager1 + CodingSchemesManager())
+        assert (manager1 + manager1 + manager1).equals(manager1)
+        assert len(manager_union.schemes) == 2
+        assert len(manager_union.identity_maps) == 2
+        assert len(manager_union.map) == 3
+
+
+    def test_chained_map(self, manager_all: CodingSchemesManager, manager_with_chained_map: CodingSchemesManager):
+        assert ('s', 't') in manager_all.map
+        assert ('s', 't') in manager_with_chained_map.map
+        assert ('s', 'q') not in manager_all.map
+        assert ('s', 'q') in manager_with_chained_map.map
+        s = manager_with_chained_map.scheme['s']
+        q = manager_with_chained_map.scheme['q']
+        s_q = manager_with_chained_map.map[('s', 'q')]
+        assert set(s.codes).issuperset(s_q.data.keys())
+        assert s_q.map_codeset(s.codes).issubset(q.codes)
+
+    def test_manager_with_match_map(self, manager_with_match_map: CodingSchemesManager):
+        scheme_x = manager_with_match_map.scheme['x']
+        scheme_y = manager_with_match_map.scheme['y']
+        m_xy = manager_with_match_map.map[('x', 'y')]
+        m_yx = manager_with_match_map.map[('y', 'x')]
+        assert set(scheme_x.codes) == set(m_xy.data.keys())
+        assert set(scheme_y.codes) == set(m_yx.data.keys())
+        assert set(scheme_x.codes) == frozenset().union(*list(m_yx.data.values()))
+        assert set(scheme_y.codes) == frozenset().union(*list(m_xy.data.values()))
+        assert set(m_xy.map_codeset(scheme_x.codes)) == set(scheme_y.codes)
+        assert set(m_yx.map_codeset(scheme_y.codes)) == set(scheme_x.codes)
+        assert m_yx.map_codeset(m_xy.map_codeset(scheme_x.codes)) == set(scheme_x.codes)
+        assert m_xy.map_codeset(m_yx.map_codeset(scheme_y.codes)) == set(scheme_y.codes)
+
+    def test_invalid_match_map(self, manager4matchmap: CodingSchemesManager):
+        with pytest.raises(AssertionError):
+            _ = manager4matchmap.add_match_map('x', 'z')

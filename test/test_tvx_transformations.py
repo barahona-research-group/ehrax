@@ -1,5 +1,5 @@
 from statistics import median
-from typing import Callable, Any
+from typing import Any, Callable
 
 import equinox as eqx
 import numpy as np

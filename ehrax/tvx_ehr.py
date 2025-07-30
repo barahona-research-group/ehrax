@@ -1,7 +1,7 @@
-from abc import ABCMeta, abstractmethod, ABC
+from abc import ABC, ABCMeta, abstractmethod
 from functools import cached_property
 from types import MappingProxyType
-from typing import Optional, ClassVar, Iterable, Self
+from typing import ClassVar, Iterable, Optional, Self
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -9,15 +9,14 @@ import jax.tree_util as jtu
 import numpy as np
 import pandas as pd
 
-from .base import AbstractConfig, AbstractVxData, fetch_at, HDFVirtualNode
-from .coding_scheme import CodesVector, CodingSchemesManager, CodeMap, ReducedCodeMapN1, GroupingData, OutcomeExtractor
-from .dataset import Dataset, DatasetSchemeProxy, DatasetSchemeConfig, ReportAttributes, \
-    AbstractTransformation, AbstractDatasetPipeline, AbstractProcessedDataset, Report, PipelineReportTable
+from .base import AbstractConfig, AbstractVxData, HDFVirtualNode, fetch_at
+from .coding_scheme import CodeMap, CodesVector, CodingSchemesManager, GroupingData, OutcomeExtractor, ReducedCodeMapN1
+from .dataset import AbstractDatasetPipeline, AbstractProcessedDataset, AbstractTransformation, COLUMN, Dataset, \
+    DatasetSchemeConfig, DatasetSchemeProxy, PipelineReportTable, Report, ReportAttributes
 from .literals import SplitLiteral
-from .tvx_concepts import (Admission, Patient, InpatientObservables,
-                           InpatientInterventions, DemographicVectorConfig,
-                           LeadingObservableExtractorConfig, SegmentedPatient, StaticInfo, InpatientInput,
-                           AdmissionDates)
+from .tvx_concepts import (Admission, AdmissionDates, DemographicVectorConfig, InpatientInput, InpatientInterventions,
+                           InpatientObservables, LeadingObservableExtractorConfig, Patient, SegmentedPatient,
+                           StaticInfo)
 from .utils import tqdm_constructor
 
 
@@ -228,7 +227,7 @@ class TVxEHRSchemeProxy(DatasetSchemeProxy):
     def __init__(self, config: TVxEHRSchemeConfig, schemes_context: CodingSchemesManager):
         super().__init__(config=config, schemes_context=schemes_context)
 
-    @cached_property
+    @property
     def outcome(self) -> Optional[OutcomeExtractor]:
         return self.schemes_context.outcome[self.config.outcome] if self.config.outcome else None
 
@@ -236,13 +235,20 @@ class TVxEHRSchemeProxy(DatasetSchemeProxy):
     def outcome_size(self) -> int | None:
         return len(self.outcome.codes(self.schemes_context.scheme[self.outcome.base_name])) if self.outcome else None
 
+    @cached_property
+    def outcome_base_mapper(self) -> Optional[CodeMap]:
+        if self.config.dx_discharge == self.outcome.base_name:
+            return None
+        return self.schemes_context.map[(self.config.dx_discharge, self.outcome.base_name)]
+
     @staticmethod
     def validate_mapping(coding_scheme_manager: CodingSchemesManager, source: DatasetSchemeConfig,
                          target: TVxEHRSchemeConfig):
         target_schemes = target.scheme_fields()
         for key, source_scheme in source.scheme_fields().items():
-            assert coding_scheme_manager.map[(source_scheme, target_schemes[key])] is not None, \
-                f"Cannot map {key} from {source_scheme} to {target_schemes[key]}"
+            target_scheme = target_schemes[key]
+            assert target_scheme is None or coding_scheme_manager.map[(source_scheme, target_scheme)] is not None, \
+                f"Cannot map {key} from {source_scheme} to {target_scheme}"
 
         if target.outcome is not None:
             assert (coding_scheme_manager.supported_outcome(target.outcome, target.dx_discharge)
@@ -496,12 +502,10 @@ class TVxEHR(AbstractProcessedDataset):
 
     @cached_property
     def subjects_sorted_admission_ids(self) -> dict[str, list[str]]:
-        c_admittime = self.dataset.config.columns.admissions.start_time
-        c_subject_id = self.dataset.config.columns.admissions.subject_id
-
-        # For each subject get the list of adm sorted by admission date.
-        return self.dataset.tables.admissions.groupby(c_subject_id).apply(
-            lambda x: x.sort_values(c_admittime).index.to_list()).to_dict()
+        admissions = self.dataset.tables.admissions
+        # For each subject, get the list of admission id sorted by admission date.
+        sorted_index = lambda x: x.sort_values().index.to_list()
+        return admissions.groupby(COLUMN.subject_id)[COLUMN.start_time].apply(sorted_index).to_dict()
 
     @cached_property
     def admission_ids(self) -> list[str]:
@@ -881,11 +885,3 @@ class SegmentedTVxEHR(TVxEHR):
         return SegmentedTVxEHR(config=tvx_ehr.config, dataset=tvx_ehr.dataset,
                                numerical_processors=tvx_ehr.numerical_processors,
                                subjects=subjects, splits=tvx_ehr.splits, pipeline_report=tvx_ehr.pipeline_report)
-
-## TODO:
-# Roadmap:
-# [ ] Add support for FHIR resources.
-# [ ] Add support for medication and prescriptions.
-# [ ] Add support for referrals and locations.
-# [x] Add examples folder.
-# [ ] Add support for process-mining models.

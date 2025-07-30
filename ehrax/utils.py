@@ -3,12 +3,12 @@
 import json
 import os
 from types import ModuleType
-from typing import Optional, Callable, Any
+from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax._src.tree_util import KeyEntry, GetAttrKey, SequenceKey, DictKey, FlattenedIndexKey
+from jax._src.tree_util import DictKey, FlattenedIndexKey, GetAttrKey, KeyEntry, SequenceKey
 from jaxlib._jax import ArrayImpl
 from tqdm import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
@@ -55,6 +55,10 @@ def translate_path(path: str, relative_to: Optional[str] = None):
         path = os.path.join(relative_to, path)
 
     return os.path.abspath(path)
+
+
+def resources_path(*subdir: str) -> str:
+    return str(os.path.join(os.path.dirname(__file__), "resources", *subdir))
 
 
 def load_config(config_file: str, relative_to: Optional[str] = None):

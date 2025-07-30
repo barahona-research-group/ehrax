@@ -6,7 +6,7 @@ import logging
 from abc import abstractmethod
 from pathlib import Path
 from types import MappingProxyType, NoneType
-from typing import Any, Callable, Self, TYPE_CHECKING, Collection, Mapping, Optional, TypeVar
+from typing import Any, Callable, Collection, Mapping, Optional, Self, TYPE_CHECKING, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -16,8 +16,8 @@ import pandas as pd
 import tables as tb
 
 from .literals import CompressionLibLiteral
-from .utils import NumpyEncoder, ArrayTypes, load_config, write_config, equal_arrays, \
-    path_from_getter, path_from_jax_keypath
+from .utils import ArrayTypes, NumpyEncoder, equal_arrays, load_config, path_from_getter, path_from_jax_keypath, \
+    write_config
 
 _factory_registry: dict[str, type[eqx.Module]] = {}
 
@@ -713,7 +713,6 @@ class AbstractVxData(AbstractHDFSerializable):
 
     def save(self, store: str | Path | tb.Group, complib: CompressionLibLiteral = 'blosc',
              complevel: int = 9, log_config_json: bool = True):
-        # TODO: set BLOSC_NTHREADS in test and deployment
         # complib: Literal['blosc', 'zlib', 'lzo', 'bzip2'] = 'blosc', complevel: int = 9
         # lzo lvl1 is a good compromise between speed and compression ratio.
         # https://www.pytables.org/usersguide/optimization.html (Figure 15).

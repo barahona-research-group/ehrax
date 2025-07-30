@@ -1,6 +1,6 @@
-from collections.abc import Mapping, Iterator, ItemsView, Iterable
+from collections.abc import ItemsView, Iterable, Iterator, Mapping
 from types import MappingProxyType
-from typing import TypeVar, Self, Optional
+from typing import Optional, Self, TypeVar
 
 import pandas as pd
 

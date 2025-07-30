@@ -3,7 +3,7 @@
 import functools
 from datetime import date
 from functools import cached_property
-from typing import Optional, Callable, ClassVar, Iterator, Self
+from typing import Callable, ClassVar, Iterator, Optional, Self
 
 import jax.numpy as jnp
 import numpy as np
@@ -663,7 +663,6 @@ class InpatientInput(AbstractVxData):
 
 
 class InpatientInterventions(AbstractVxData):
-    # TODO: Add docstring.
     hosp_procedures: Optional[InpatientInput]
     icu_procedures: Optional[InpatientInput]
     icu_inputs: Optional[InpatientInput]

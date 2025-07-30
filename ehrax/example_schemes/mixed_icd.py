@@ -3,8 +3,7 @@ from typing import Self
 
 import pandas as pd
 
-from ..coding_scheme import FrozenDict11, FrozenDict1N, CodingScheme, CodingSchemesManager, \
-    CodeMap
+from ..coding_scheme import CodeMap, CodingScheme, CodingSchemesManager, FrozenDict11, FrozenDict1N
 from ..dataset import COLUMN
 from ..example_schemes.icd import ICDScheme
 
@@ -29,19 +28,17 @@ class MixedICDScheme(CodingScheme):
                  icd_schemes: dict[str, ICDScheme]) -> pd.DataFrame:
         df = df.copy()
         add_dots = {v: icd_scheme.ops.add_dots for v, icd_scheme in icd_schemes.items()}
-        codes = df[str(COLUMN.code)].str.strip().replace('.', '')
-        df[str(COLUMN.code)] = list(map(lambda c, v: add_dots[v](c), codes, df[str(COLUMN.version)]))
+        codes = df[COLUMN.code].str.strip().replace('.', '')
+        df[COLUMN.code] = list(map(lambda c, v: add_dots[v](c), codes, df[COLUMN.version]))
         return df
-
 
     @classmethod
     def from_selection(cls, manager: CodingSchemesManager, name: str, icd_version_selection: pd.DataFrame,
                        icd_version_schemes: FrozenDict11, sep: str = ':') -> Self:
-        # TODO: test this method.
         icd_version_selection = icd_version_selection.sort_values([str(COLUMN.version), str(COLUMN.code)])
         icd_version_selection = icd_version_selection.drop_duplicates([str(COLUMN.version), str(COLUMN.code)]).astype(
             str)
-        assert icd_version_selection[str(COLUMN.version)].isin(icd_version_schemes).all(), \
+        assert icd_version_selection[COLUMN.version].isin(icd_version_schemes).all(), \
             f"Only {', '.join(map(lambda x: f'ICD-{x}', icd_version_schemes))} are expected."
 
         # assert no duplicate (icd_code, icd_version)
@@ -54,15 +51,14 @@ class MixedICDScheme(CodingScheme):
             "Only ICD schemes are expected."
 
         df = cls.fix_dots(icd_version_selection, icd_schemes_loaded)
-        df[str(COLUMN.code)] = (df[str(COLUMN.version)] + sep + df[str(COLUMN.code)]).tolist()
-        desc = df.set_index(str(COLUMN.code))[str(COLUMN.description)].to_dict()
+        df[COLUMN.code] = (df[COLUMN.version] + sep + df[COLUMN.code]).tolist()
+        desc = df.set_index(str(COLUMN.code))[COLUMN.description].to_dict()
 
-        return cls(name=name, codes=tuple(sorted(df[str(COLUMN.code)].tolist())), desc=FrozenDict11(desc),
+        return cls(name=name, codes=tuple(sorted(df[COLUMN.code].tolist())), desc=FrozenDict11(desc),
                    icd_version_schemes=icd_version_schemes,
                    sep=sep)
 
     def mixed_code_format_table(self, manager: CodingSchemesManager, table: pd.DataFrame) -> pd.DataFrame:
-        # TODO: test this method.
         """
         Format a table with mixed codes to the ICD version:icd_code format and filter out codes that are not in the scheme.
         """
@@ -115,15 +111,18 @@ class MixedICDScheme(CodingScheme):
             lost_df = dataframe[~dataframe['code'].isin(mixed2standard)]
             if len(lost_df) > 0:
                 n_lost = len(lost_df)
-                n_lost_version = {v: (lost_df['icd_version'] == v).sum() for v in icd_schemes}
-                n_version = {v: (dataframe['icd_version'] == v).sum() for v in icd_schemes}
-                stats0 = map(lambda v: f'v{v} {n_lost_version[v]} ({n_lost_version[v] / n_lost:.2f})', n_version.keys())
-                stats1 = map(lambda v: f'v{v} {n_lost_version[v] / n_version[v]: .2f}', n_version.keys())
-                logging.warning(f"Lost {n_lost} codes when generating the mapping between the Mixed ICD "
-                                f"({self.name}) and the standard ({standard_scheme.name}). "
-                                f"Loss stats: {', '.join(stats0)}; "
-                                f"Loss ratios: {', '.join(stats1)}.")
-                logging.warning(lost_df.to_string().replace('\n', '\n\t'))
+                for v in icd_schemes:
+                    n_lost_version = (lost_df['icd_version'] == v).sum()
+                    n_version = (dataframe['icd_version'] == v).sum()
+                    if n_version == 0:
+                        continue
+                    stats0 = f'v{v} {n_lost_version} ({n_lost_version / n_lost:.2f})'
+                    stats1 = f'v{v} {n_lost_version / n_version: .2f}'
+                    logging.warning(f"Lost {n_lost} codes when generating the mapping between the Mixed ICD "
+                                    f"({self.name}) and the standard ({icd_schemes[v].name}). "
+                                    f"Loss stats: {', '.join(stats0)}; "
+                                    f"Loss ratios: {', '.join(stats1)}.")
+                    logging.warning(lost_df.to_string().replace('\n', '\n\t'))
 
         return manager
 
@@ -132,7 +131,6 @@ class MixedICDScheme(CodingScheme):
         """
         Register a mapping between the current Mixed ICD scheme and a target scheme.
         """
-        # TODO: test this method.
         c_code = str(COLUMN.code)
         c_version = str(COLUMN.version)
         c_target_code = str(COLUMN.mapped_code)

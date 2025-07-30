@@ -10,18 +10,19 @@ from collections.abc import Iterator
 from dataclasses import field
 from datetime import datetime
 from functools import cached_property
-from typing import Optional, Final, Self, ClassVar
+from typing import ClassVar, Final, Optional, Self, TypeVar
 
 import equinox as eqx
 import numpy as np
 import pandas as pd
 
 from .base import AbstractConfig, AbstractVxData, HDFVirtualNode
-from .coding_scheme import CodingSchemesManager, CodingScheme, CodingSchemeWithUOM, NumericScheme
-from .literals import NumericalTypeHint, SplitLiteral, OverlappingAction
+from .coding_scheme import CodingScheme, CodingSchemeWithUOM, CodingSchemesManager, NumericScheme
+from .literals import NumericalTypeHint, SplitLiteral
 from .utils import tqdm_constructor
 
 SECONDS_TO_HOURS_SCALER: Final[float] = 1 / 3600.0  # convert seconds to hours
+SECONDS_TO_DAYS_SCALER: Final[float] = SECONDS_TO_HOURS_SCALER * 1 / 24.0  # convert seconds to days
 
 
 # This Enum will be used as a reference to ensure consistent column names
@@ -81,6 +82,9 @@ class TableColumns(AbstractConfig):
 
     def validate(self):
         assert all(k in COLUMN and k == v for k, v in self.as_dict().items()), f"Fields must be one of {COLUMN}."
+
+    def as_tuple(self) -> tuple[str, ...]:
+        return tuple(self.as_dict().values())
 
     @property
     def id_cols(self) -> tuple[str, ...]:
@@ -218,6 +222,9 @@ class DatasetColumns(AbstractConfig):
             if len(v) > 1:
                 raise ValueError(f"Column {k} is present with different names: {v}")
 
+    def columns_dict(self) -> dict[str, tuple[str, ...]]:
+        return {k: v.as_dict() for k, v in self.as_one_level_dict().items()}
+
     @property
     def admission_id(self) -> str:
         return self.admissions.admission_id
@@ -229,12 +236,12 @@ class DatasetColumns(AbstractConfig):
     @property
     def timestamped_tables_config_dict(self):
         return {k: v for k, v in self.as_one_level_dict().items()
-                if str(COLUMN.time) in v.as_dict().keys()}
+                if COLUMN.time in v.as_dict().keys()}
 
     @property
     def interval_based_table_config_dict(self):
         return {k: v for k, v in self.as_one_level_dict().items()
-                if {str(COLUMN.start_time), str(COLUMN.end_time)}.issubset(set(v.as_dict().keys()))}
+                if {COLUMN.start_time, str(COLUMN.end_time)}.issubset(set(v.as_dict().keys()))}
 
     @property
     def indices(self) -> dict[str, str]:
@@ -296,7 +303,7 @@ class DatasetTables(AbstractVxData):
             "In case you are getting this error message, you can either rewrite all admission_ids of your dataset "
             "tables to be globally unique, or, if not an urgent request, you can post an Issue "
             "at the repository of this code or email at: (asem.a.abdelaziz@proton.me). "
-            "TODO: fix this potential limitation."
+            "TODO: fix this potential limitation. Refer to this issue in the comments with ISSUE_ADM_UNIQ"
         )
 
     @property
@@ -487,95 +494,20 @@ class AbstractDataset(AbstractVxData, ABC):
         ...
 
 
+DType = TypeVar('DType', bound=AbstractDataset)
+RType = TypeVar('RType', bound=Report)
+
+
 class AbstractTransformation(eqx.Module):
 
     @classmethod
     @abstractmethod
-    def apply(cls, dataset: AbstractDataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[
-        AbstractDataset, Report]:
+    def apply(cls, dataset: DType, schemes_context: CodingSchemesManager, report: RType) -> tuple[DType, RType]:
         raise NotImplementedError
 
     @classmethod
-    def skip(cls, dataset: AbstractDataset, report: Report) -> tuple[AbstractDataset, Report]:
-        return dataset, report.add(transformation=cls, operation='skip')
-
-
-#
-# class TransformationSequenceException(TypeError):
-#     pass
-#
-#
-# class DuplicateTransformationException(TransformationSequenceException):
-#     pass
-#
-#
-# class MissingDependencyException(TransformationSequenceException):
-#     pass
-#
-#
-# class BlockedTransformationException(TransformationSequenceException):
-#     pass
-#
-#
-# class TransformationsDependency(AbstractConfig):
-#     depends: dict[type[AbstractTransformation], set[type[AbstractTransformation]]]
-#     blocked_by: dict[type[AbstractTransformation], set[type[AbstractTransformation]]]
-#
-#     def __init__(self, depends: dict[type[AbstractTransformation], set[type[AbstractTransformation]]],
-#                  blocked_by: dict[type[AbstractTransformation], set[type[AbstractTransformation]]]):
-#         self.depends = depends
-#         self.blocked_by = blocked_by
-#
-#     @staticmethod
-#     def empty():
-#         return TransformationsDependency(depends={}, blocked_by={})
-#
-#     @staticmethod
-#     def inherit_features(transformation_type: type[AbstractTransformation],
-#                          inheritable_map: dict[type[AbstractTransformation], set[type[AbstractTransformation]]]) -> set[
-#         type[AbstractTransformation]]:
-#         inherited_features = inheritable_map.get(transformation_type, set())
-#         for d in inheritable_map:
-#             if issubclass(transformation_type, d):
-#                 inherited_features |= inheritable_map[d]
-#         return inherited_features
-#
-#     def merge(self, other: 'TransformationsDependency') -> 'TransformationsDependency':
-#         common_depend_keys = set(self.depends.keys()) & set(other.depends.keys())
-#         common_blocked_keys = set(self.blocked_by.keys()) & set(other.blocked_by.keys())
-#         common_depends = {k: self.depends[k] | other.depends[k] for k in common_depend_keys}
-#         common_blocked = {k: self.blocked_by[k] | other.blocked_by[k] for k in common_blocked_keys}
-#         return TransformationsDependency(depends={**self.depends, **other.depends, **common_depends},
-#                                          blocked_by={**self.blocked_by, **other.blocked_by, **common_blocked})
-#
-#     def get_dependencies(self, transformation_type: type[AbstractTransformation]) -> set[
-#         type[AbstractTransformation]]:
-#         return self.inherit_features(transformation_type, self.depends)
-#
-#     def get_blocked_by(self, transformation_type: type[AbstractTransformation]) -> set[
-#         type[AbstractTransformation]]:
-#         return self.inherit_features(transformation_type, self.blocked_by)
-#
-#     def validate_sequence(self, transformations: list[AbstractTransformation]):
-#         transformations_type: list[type[AbstractTransformation]] = list(map(type, transformations))
-#         if len(set(transformations_type)) != len(transformations_type):
-#             raise DuplicateTransformationException("Transformation sequence contains duplicate transformations. "
-#                                                    "Each transformation must appear only once. "
-#                                                    f"Got {transformations}.")
-#         applied_set: set[type[AbstractTransformation]] = set()
-#         for t in transformations_type:
-#             applied_set.add(t)
-#             dependency_gap = self.get_dependencies(t) - applied_set
-#             block_incidents = self.get_blocked_by(t) & applied_set
-#             if len(dependency_gap) > 0:
-#                 raise MissingDependencyException(f"Transformation {t} depends on "
-#                                                  f"{dependency_gap} which "
-#                                                  "was not applied before."
-#                                                  f"Got {transformations_type}.")
-#             if len(block_incidents) > 0:
-#                 raise BlockedTransformationException(f"Transformation {t} is blocked by "
-#                                                      f"{block_incidents} "
-#                                                      f"which was applied before. Got {transformations_type}.")
+    def skip(cls, dataset: DType, report: RType, reason: str = '') -> tuple[DType, RType]:
+        return dataset, report.add(transformation=cls, operation=': '.join(('skip', reason)))
 
 
 class AbstractDatasetPipelineConfig(AbstractConfig):
@@ -585,16 +517,12 @@ class AbstractDatasetPipelineConfig(AbstractConfig):
 class AbstractDatasetPipeline(AbstractVxData, metaclass=ABCMeta):
     config: AbstractDatasetPipelineConfig
     transformations: list[AbstractTransformation]
-    # validator: ClassVar[TransformationsDependency] = TransformationsDependency.empty()
     report_class: ClassVar[type[Report]] = Report
 
     def __init__(self, config: AbstractDatasetPipelineConfig = AbstractDatasetPipelineConfig(), *,
                  transformations: list[AbstractTransformation]):
         self.config = config
         self.transformations = transformations
-
-    # def __check_init__(self):
-    # self.validator.validate_sequence(self.transformations)
 
 
 class AbstractProcessedDataset(AbstractDataset):
@@ -623,7 +551,7 @@ class AbstractProcessedDataset(AbstractDataset):
                 report = report.add(transformation=type(t), operation='start')
                 dataset, report = t.apply(dataset, schemes_context, report)
                 report = report.add(transformation=type(t), operation='end')
-                pbar.update(0)
+                pbar.update(1)
 
         return eqx.tree_at(lambda x: x.pipeline_report, dataset, report.compile(dataset.pipeline_report))
 
@@ -631,16 +559,16 @@ class AbstractProcessedDataset(AbstractDataset):
 class DatasetConfig(AbstractConfig):
     scheme: DatasetSchemeConfig
     columns: DatasetColumns
-    overlapping_admissions: OverlappingAction
     select_subjects_with_observation: Optional[str]
+    select_subjects_with_short_admissions: Optional[float]  # number of days.
 
     def __init__(self, scheme: DatasetSchemeConfig, columns: DatasetColumns = DatasetColumns(),
-                 overlapping_admissions: OverlappingAction = "merge",
-                 select_subjects_with_observation: Optional[str] = None):
+                 select_subjects_with_observation: Optional[str] = None,
+                 select_subjects_with_short_admissions: Optional[float] = None):
         self.scheme = scheme
         self.columns = columns
-        self.overlapping_admissions = overlapping_admissions
         self.select_subjects_with_observation = select_subjects_with_observation
+        self.select_subjects_with_short_admissions = select_subjects_with_short_admissions
 
 
 class Dataset(AbstractProcessedDataset):
@@ -692,8 +620,10 @@ class Dataset(AbstractProcessedDataset):
         c_subject_id = self.config.columns.admissions.subject_id
         admissions = self.tables.admissions
         missed_subjects = set(self.subject_ids).difference(set(admissions[c_subject_id]))
-        return pd.concat([admissions.groupby(c_subject_id).size(),
-                          pd.Series([0] * len(missed_subjects), index=list(missed_subjects))])
+        n_admissions = [admissions.groupby(c_subject_id).size()]
+        if len(missed_subjects) > 0:
+            n_admissions.append(pd.Series([0] * len(missed_subjects), index=list(missed_subjects)))
+        return pd.concat(n_admissions)
 
     def random_splits(self,
                       splits: list[float],
