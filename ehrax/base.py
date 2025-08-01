@@ -633,7 +633,8 @@ class AbstractVxData(AbstractHDFSerializable):
             cls.serialize_object(group, pd.Series(collection), 'data')
         else:
             fields = list(map(str, range(len(collection))))
-            group._v_attrs.type_enum = cls._dict_to_str(dict(zip(fields, map(cls.object_type_enum_name, collection))))
+            cls.serialize_object(group, pd.Series(list(map(cls.object_type_enum_name, collection)),
+                                                  index=fields), '_type_enum')
             for i, item in enumerate(collection):
                 cls.serialize_object(group, item, f'i{i}')
 
@@ -644,7 +645,7 @@ class AbstractVxData(AbstractHDFSerializable):
             return []
         if 'data' in group:
             return pd.read_hdf(group._v_file.filename, key=group.data._v_pathname).values.tolist()
-        metadata = cls._str_to_dict(group._v_attrs.type_enum)
+        metadata = pd.read_hdf(group._v_file.filename, key=group._type_enum._v_pathname).to_dict()
         return [cls.deserialize_object(group, f'i{k}', element_type, defer, levels) for k, element_type in
                 metadata.items()]
 
@@ -656,7 +657,8 @@ class AbstractVxData(AbstractHDFSerializable):
             cls.serialize_object(group, pd.Series(d), 'data')
         else:
             fields = list(d.keys())
-            group._v_attrs.type_enum = cls._dict_to_str(dict(zip(fields, map(cls.object_type_enum_name, d.values()))))
+            cls.serialize_object(group, pd.Series(list(map(cls.object_type_enum_name, d.values())),
+                                                  index=fields), '_type_enum')
             for k, v in d.items():
                 cls.serialize_object(group, v, str(k))
 
@@ -667,9 +669,9 @@ class AbstractVxData(AbstractHDFSerializable):
             return {}
         elif 'data' in group:
             return pd.read_hdf(group._v_file.filename, key=group.data._v_pathname).to_dict()
-        type_enum = cls._str_to_dict(group._v_attrs.type_enum)
+        metadata = pd.read_hdf(group._v_file.filename, key=group._type_enum._v_pathname).to_dict()
         return {k: cls.deserialize_object(group, str(k), value_type_enum, defer, levels) for k, value_type_enum in
-                type_enum.items()}
+                metadata.items()}
 
     @staticmethod
     def _dict_to_str(x: dict) -> str:

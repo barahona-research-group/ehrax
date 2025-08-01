@@ -584,15 +584,26 @@ class TVxConcepts(AbstractTransformation):
         tvx_scheme_proxy = tvx_ehr.scheme_proxy(schemes_context)
         c_adm_id = tvx_ehr.dataset.config.columns.dx_discharge.admission_id
         c_code = tvx_ehr.dataset.config.columns.dx_discharge.code
-        dx_discharge = tvx_ehr.dataset.tables.dx_discharge
+        df = tvx_ehr.dataset.tables.dx_discharge
         dx_mapper = tvx_scheme_proxy.dx_mapper(tvx_ehr.dataset.config.scheme)
         target_scheme = tvx_scheme_proxy.dx_discharge
-        n1 = len(dx_discharge)
-        dx_discharge = dx_discharge[dx_discharge[c_code].isin(dx_mapper.data)]
+        n1 = len(df)
+        dx_discharge = df[df[c_code].isin(dx_mapper.data)]
         n2 = len(dx_discharge)
         if n1 != n2:
-            logging.warning(f'Some codes are not in the target scheme. {n1 - n2} / {n1} codes were removed.')
-            # TODO: report removed codes.
+            unique_codes_a = set(df[c_code])
+            unique_codes_b = set(df[c_code]) & set(dx_mapper.data.keys())
+            unique_removed = unique_codes_a - unique_codes_b
+            n_uniq_a = len(unique_codes_a)
+            n_uniq_rem = len(unique_removed)
+            logging.warning(f'Some codes are not in the target scheme. '
+                            f'{n1 - n2} / {n1} = {(n1 - n2) / n1: .2f} rows were removed.'
+                            f'{n_uniq_rem} / {n_uniq_a} = {n_uniq_rem / n_uniq_a: .2f} '
+                            f'unique codes were removed.')
+            source_scheme = tvx_ehr.dataset.scheme_proxy(schemes_context).dx_discharge
+            lost_df = pd.DataFrame([(code, source_scheme.desc[code]) for code in unique_removed],
+                                   columns=['code', 'description'])
+            logging.warning(lost_df.to_string().replace('\n', '\n\t'))
 
         dx_codes_set = dx_discharge.groupby(c_adm_id)[c_code].apply(set).to_dict()
         dx_codes_set = {k: dx_mapper.map_codeset(v) for k, v in dx_codes_set.items()}
