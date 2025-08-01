@@ -54,10 +54,15 @@ from .transformations import (
     FilterSubjectsNegativeAdmissionLengths,
     FilterUnsupportedCodes,
     ICUInputRateUnitConversion,
-    ProcessOverlappingAdmissions,
+    MergeOverlappingAdmissions,
+    RemoveSubjectsWithOverlappingAdmissions,
     SetAdmissionRelativeTimes,
     SetIndex,
     SynchronizeSubjects,
+    FilterSubjectsWithLongAdmission,
+    FilterAdmissionsWithNoDiagnoses,
+    FilterSubjectsWithSingleOrNoAdmission,
+    SqueezeToStandardColumns
 )
 
 from .tvx_concepts import (

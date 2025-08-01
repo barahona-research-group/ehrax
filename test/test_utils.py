@@ -1,5 +1,5 @@
 import pytest
-from jax._src.tree_util import SequenceKey, DictKey, GetAttrKey
+from jax._src.tree_util import DictKey, GetAttrKey, SequenceKey
 
 import ehrax as rx
 

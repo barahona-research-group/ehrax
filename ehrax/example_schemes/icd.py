@@ -8,9 +8,9 @@ from typing import Any, ClassVar, Final, Iterable, Optional, Self
 import pandas as pd
 
 from ..base import AbstractConfig
-from ..coding_scheme import (CodingScheme, HierarchicalScheme,
-                             CodeMap, resources_dir, CodingSchemesManager,
-                             FrozenDict11, FrozenDict1N, ExcludingOutcomeExtractor)
+from ..coding_scheme import (CodeMap, CodingScheme, CodingSchemesManager, ExcludingOutcomeExtractor, FrozenDict11,
+                             FrozenDict1N, HierarchicalScheme)
+from ..utils import resources_path
 
 
 class Flags(AbstractConfig):
@@ -147,8 +147,8 @@ class ICDMapOps:
     @staticmethod
     def load_conversion_table(source_scheme: ICDScheme, target_scheme: ICDScheme,
                               conversion_filename: str) -> tuple[pd.DataFrame, dict[str, str | set[str]]]:
-        df = pd.read_csv(resources_dir("ICD", conversion_filename),
-                         sep='\s+',
+        df = pd.read_csv(resources_path("ICD", conversion_filename),
+                         sep=r'\s+',
                          dtype=str,
                          names=['source', 'target', 'meta'])
         df['approximate'] = df['meta'].apply(lambda s: s[0])
@@ -182,7 +182,7 @@ class ICDMapOps:
             else:
                 return '1n_map'
 
-        return conversion_table.groupby('source').apply(_get_status).to_dict()
+        return conversion_table.groupby('source')[['no_map', 'scenario', 'choice_list']].apply(_get_status).to_dict()
 
     @staticmethod
     def register_mappings(manager: CodingSchemesManager, source_scheme: str, target_scheme: str,
@@ -222,7 +222,7 @@ class DxICD10Ops(ICDOps):
     @staticmethod
     def distill_icd10_xml(filename: str, hierarchical: bool = True) -> dict[str, Any]:
         # https://www.cdc.gov/nchs/icd/Comprehensive-listing-of-ICD-10-CM-Files.htm
-        _ICD10_FILE = resources_dir("ICD", filename)
+        _ICD10_FILE = resources_path("ICD", filename)
         with gzip.open(_ICD10_FILE, 'r') as f:
             tree = ET.parse(f)
         root = tree.getroot()
@@ -301,7 +301,7 @@ class PrICD10Ops(ICDOps):
 
     @staticmethod
     def distill_icd10_xml(filename: str) -> dict[str, Any]:
-        _ICD10_FILE = resources_dir("ICD", filename)
+        _ICD10_FILE = resources_path("ICD", filename)
 
         with gzip.open(_ICD10_FILE, 'rt') as f:
             desc = {
@@ -316,7 +316,7 @@ class PrICD10Ops(ICDOps):
 
 
 class ICD9Ops(ICDOps):
-    ICD9CM_FILE: Final[str] = resources_dir('ICD', 'HOM-ICD9.csv.gz')
+    ICD9CM_FILE: Final[str] = resources_path('ICD', 'HOM-ICD9.csv.gz')
     DUMMY_ROOT_CLASS_ID: Final[str] = 'owl#Thing'
     PR_ROOT_CLASS_ID: Final[str] = 'MM_CLASS_2'
     DX_ROOT_CLASS_ID: Final[str] = 'MM_CLASS_21'
@@ -497,7 +497,7 @@ class CCSMapOps:
 
     @classmethod
     def ccs_columns(cls, icd9_scheme: ICDHierarchicalScheme) -> tuple[dict[str, list[str]], dict[str, set[str] | str]]:
-        df = pd.read_csv(resources_dir("CCS", cls.SCHEME_FILE), dtype=str)
+        df = pd.read_csv(resources_path("CCS", cls.SCHEME_FILE), dtype=str)
         icd_cname = '\'ICD-9-CM CODE\''
 
         df[icd_cname] = df[icd_cname].str.strip('\'').str.strip()
@@ -656,7 +656,7 @@ class FlatCCSMapOps:
 
     @classmethod
     def flat_ccs_columns(cls, icd9_scheme: ICDHierarchicalScheme) -> tuple[pd.DataFrame, dict[str, set[str] | str]]:
-        filepath = resources_dir("CCS", cls.SCHEME_FILE)
+        filepath = resources_path("CCS", cls.SCHEME_FILE)
         df = pd.read_csv(filepath, skiprows=[0, 2], dtype=str)
         icd9_cname = '\'ICD-9-CM CODE\''
         cat_cname = '\'CCS CATEGORY\''
@@ -781,6 +781,15 @@ def setup_icd_maps(manager: CodingSchemesManager, scheme_selection: CCSICDScheme
         manager = DxFlatCCSMapOps.register_ccs_flat_mappings(manager, 'dx_flat_ccs', 'dx_icd9')
     if scheme_selection.pr_flat_ccs and scheme_selection.pr_icd9:
         manager = PrFlatCCSMapOps.register_ccs_flat_mappings(manager, 'pr_flat_ccs', 'pr_icd9')
+
+    # cross-maps
+    if scheme_selection.dx_ccs and scheme_selection.dx_flat_ccs and scheme_selection.dx_icd9:
+        manager = manager.add_chained_map('dx_ccs', 'dx_icd9', 'dx_flat_ccs')
+        manager = manager.add_chained_map('dx_flat_ccs', 'dx_icd9', 'dx_ccs')
+
+    if scheme_selection.pr_ccs and scheme_selection.pr_flat_ccs and scheme_selection.pr_icd9:
+        manager = manager.add_chained_map('pr_ccs', 'pr_icd9', 'pr_flat_ccs')
+        manager = manager.add_chained_map('pr_flat_ccs', 'pr_icd9', 'pr_ccs')
 
     return manager
 

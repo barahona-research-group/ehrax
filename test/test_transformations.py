@@ -314,9 +314,7 @@ class TestOverlappingAdmissions:
 
     @pytest.fixture(scope='class')
     def superset_admissions_dictionary(self, admissions_table: pd.DataFrame) -> dict[str, list[str]]:
-        sub2sup = rx.ProcessOverlappingAdmissions._collect_overlaps(admissions_table,
-                                                                    str(rx.COLUMN.start_time),
-                                                                    str(rx.COLUMN.end_time))
+        sub2sup = rx.MergeOverlappingAdmissions._collect_overlaps(admissions_table)
         sup2sub = defaultdict(list)
         for sub, sup in sub2sup.items():
             sup2sub[sup].append(sub)
@@ -338,18 +336,29 @@ class TestOverlappingAdmissions:
 
     @pytest.fixture(scope='class')
     def merged_admissions_dataset(self, indexed_dataset: rx.Dataset, sample_admission_ids_map: dict[str, str]):
-        return rx.ProcessOverlappingAdmissions._merge_overlapping_admissions(indexed_dataset,
-                                                                             sample_admission_ids_map, rx.Report())[0]
+        return rx.MergeOverlappingAdmissions._admissions_map_admission_ids(indexed_dataset, sample_admission_ids_map,
+                                                                           rx.Report())[0]
 
-    def test_map_admission_ids(self, indexed_dataset: rx.Dataset,
-                               merged_admissions_dataset: rx.Dataset,
-                               sample_admission_ids_map: dict[str, str]):
+    @pytest.fixture(scope='class')
+    def mapped_tables_dataset(self, indexed_dataset: rx.Dataset, sample_admission_ids_map: dict[str, str]):
+        return rx.MergeOverlappingAdmissions._tables_map_admission_ids(indexed_dataset, sample_admission_ids_map,
+                                                                       rx.Report())[0]
+
+    def test_merge_admission_ids(self, indexed_dataset: rx.Dataset,
+                                 merged_admissions_dataset: rx.Dataset,
+                                 sample_admission_ids_map: dict[str, str]):
         admissions0 = indexed_dataset.tables.admissions
         admissions1 = merged_admissions_dataset.tables.admissions
 
         assert len(admissions0) == len(admissions1) + len(sample_admission_ids_map)
         assert set(admissions1.index).issubset(set(admissions0.index))
-        for table_name, table1 in merged_admissions_dataset.tables.tables_dict.items():
+
+    def test_map_admission_ids(self, indexed_dataset: rx.Dataset,
+                               mapped_tables_dataset: rx.Dataset,
+                               sample_admission_ids_map: dict[str, str]):
+        admissions0 = indexed_dataset.tables.admissions
+        admissions1 = mapped_tables_dataset.tables.admissions
+        for table_name, table1 in mapped_tables_dataset.tables.tables_dict.items():
             table0 = getattr(indexed_dataset.tables, table_name)
             if str(rx.COLUMN.admission_id) in table1.columns:
                 assert len(table1) == len(table0)
@@ -362,9 +371,7 @@ class TestOverlappingAdmissions:
         admissions = indexed_dataset.tables.admissions
 
         sub2sup = {adm_id: super_adm_id for _, subject_adms in admissions.groupby(str(rx.COLUMN.subject_id))
-                   for adm_id, super_adm_id in rx.ProcessOverlappingAdmissions._collect_overlaps(subject_adms,
-                                                                                                 str(rx.COLUMN.start_time),
-                                                                                                 str(rx.COLUMN.end_time)).items()}
+                   for adm_id, super_adm_id in rx.MergeOverlappingAdmissions._collect_overlaps(subject_adms).items()}
 
         if len(sub2sup) == 0:
             assert 0, ("No overlapping admissions in rx.Dataset.")
@@ -373,15 +380,11 @@ class TestOverlappingAdmissions:
 
     @pytest.fixture(scope='class')
     def merged_overlapping_admission_dataset(self, indexed_dataset: rx.Dataset):
-        indexed_dataset = eqx.tree_at(lambda x: x.config.overlapping_admissions, indexed_dataset,
-                                      "merge")
-        return rx.ProcessOverlappingAdmissions.apply(indexed_dataset, DATASET_SCHEME_MANAGER, rx.Report())[0]
+        return rx.MergeOverlappingAdmissions.apply(indexed_dataset, DATASET_SCHEME_MANAGER, rx.Report())[0]
 
     @pytest.fixture(scope='class')
     def removed_overlapping_admission_subjects_dataset(self, indexed_dataset: rx.Dataset):
-        indexed_dataset = eqx.tree_at(lambda x: x.config.overlapping_admissions, indexed_dataset,
-                                      "remove")
-        return rx.ProcessOverlappingAdmissions.apply(indexed_dataset, DATASET_SCHEME_MANAGER, rx.Report())[0]
+        return rx.RemoveSubjectsWithOverlappingAdmissions.apply(indexed_dataset, DATASET_SCHEME_MANAGER, rx.Report())[0]
 
     def test_process_overlapping_admissions(self, indexed_dataset: rx.Dataset,
                                             large_dataset_overlaps_dictionary: dict[str, str],
@@ -511,3 +514,249 @@ class TestClampTimestamps:
 
                 if len(admission_procedures0) > 1:
                     assert len(admission_procedures0) > len(admission_procedures1)
+
+
+class TestFilterAdmissionsWithNoDiagnoses:
+    ADMISSION_ID = list(map(str, range(10)))
+    ADMISSION_ID_WITH_NO_DIAGNOSIS = ['2', '5']
+
+    @pytest.fixture(scope='class', params=[
+        (ADMISSION_ID, ADMISSION_ID_WITH_NO_DIAGNOSIS),
+        (ADMISSION_ID, []),
+        ([], [])
+    ])
+    def admission_id_admission_id_with_no_diagnosis(self, request) -> tuple[list[str], list[str]]:
+        return request.param
+
+    @pytest.fixture(scope='class')
+    def admission_id(self, admission_id_admission_id_with_no_diagnosis: tuple[list[str], list[str]]) -> list[str]:
+        return admission_id_admission_id_with_no_diagnosis[0]
+
+    @pytest.fixture(scope='class')
+    def admission_id_with_no_diagnosis(self,
+                                       admission_id_admission_id_with_no_diagnosis: tuple[list[str], list[str]]) -> \
+            list[str]:
+        return admission_id_admission_id_with_no_diagnosis[1]
+
+    @pytest.fixture(scope='class')
+    def static(self) -> pd.DataFrame:
+        return pd.DataFrame({
+            rx.COLUMN.subject_id: list(map(str, range(100, 110)))
+        }).set_index(rx.COLUMN.subject_id)
+
+    @pytest.fixture(scope='class')
+    def admissions(self, static: pd.DataFrame, admission_id: list[str]) -> pd.DataFrame:
+        return pd.DataFrame({
+            rx.COLUMN.subject_id: random.choices(static.index, k=len(admission_id)),
+            rx.COLUMN.admission_id: admission_id
+        }).set_index(rx.COLUMN.admission_id)
+
+    @pytest.fixture(scope='class')
+    def dx_discharge(self, admissions: pd.DataFrame, admission_id: list[str],
+                     admission_id_with_no_diagnosis: list[str]) -> pd.DataFrame:
+        return pd.DataFrame({
+            rx.COLUMN.admission_id: list(set(admission_id) - set(admission_id_with_no_diagnosis))
+        })
+
+    @pytest.fixture(scope='class')
+    def dataset(self, static: pd.DataFrame, dx_discharge: pd.DataFrame, admissions: pd.DataFrame) -> rx.Dataset:
+        return rx.Dataset(tables=rx.DatasetTables(static=static, admissions=admissions, dx_discharge=dx_discharge),
+                          config=rx.DatasetConfig(scheme=rx.DatasetSchemeConfig()))
+
+    @pytest.fixture(scope='class')
+    def filtered_dataset(self, dataset: rx.Dataset) -> rx.Dataset:
+        updated_dataset, _ = rx.FilterAdmissionsWithNoDiagnoses.apply(dataset, None, rx.Report())
+        return updated_dataset
+
+    def test_transformation(self, dataset: rx.Dataset, filtered_dataset: rx.Dataset,
+                            admission_id: list[str], admission_id_with_no_diagnosis: list[str], ):
+        assert set(admission_id).issubset(dataset.tables.admissions.index)
+        assert set(filtered_dataset.tables.admissions.index) == set(admission_id) - set(admission_id_with_no_diagnosis)
+
+
+class TestFilterSubjectsWithSingleOrNoAdmission:
+    SUBJECT_ID = list(map(str, range(10)))
+    SUBJECT_ID_WITH_NO_ADMISSIONS = ['4', '5']
+
+    @pytest.fixture(scope='class', params=[
+        (SUBJECT_ID, SUBJECT_ID_WITH_NO_ADMISSIONS),
+        (SUBJECT_ID, []),
+        ([], [])
+    ])
+    def subject_id_subject_id_with_1_admissions(self, request) -> tuple[list[str], list[str]]:
+        return request.param
+
+    @pytest.fixture(scope='class')
+    def subject_id(self, subject_id_subject_id_with_1_admissions: tuple[list[str], list[str]]) -> list[str]:
+        return subject_id_subject_id_with_1_admissions[0]
+
+    @pytest.fixture(scope='class')
+    def subject_id_with_1_admission(self, subject_id_subject_id_with_1_admissions: tuple[list[str], list[str]]) -> list[
+        str]:
+        return subject_id_subject_id_with_1_admissions[1]
+
+    @pytest.fixture(scope='class')
+    def static(self, subject_id: list[str]) -> pd.DataFrame:
+        return pd.DataFrame({
+            rx.COLUMN.subject_id: subject_id
+        }).set_index(rx.COLUMN.subject_id)
+
+    @pytest.fixture(scope='class')
+    def admissions(self, static: pd.DataFrame, subject_id: list[str],
+                   subject_id_with_1_admission: list[str]) -> pd.DataFrame:
+        admission_id_1 = list(map(str, range(len(subject_id))))
+        df_1 = pd.DataFrame({
+            rx.COLUMN.subject_id: subject_id,
+            rx.COLUMN.admission_id: admission_id_1
+        })
+        n1 = len(subject_id)
+        subject_w_2_admissions = set(subject_id) - set(subject_id_with_1_admission)
+        admission_id_2 = list(map(str, range(n1, n1 + len(subject_w_2_admissions))))
+        df_2 = pd.DataFrame({
+            rx.COLUMN.subject_id: list(subject_w_2_admissions),
+            rx.COLUMN.admission_id: admission_id_2
+        })
+
+        return pd.concat([df_1, df_2], ignore_index=True).set_index(rx.COLUMN.admission_id)
+
+    @pytest.fixture(scope='class')
+    def dataset(self, static: pd.DataFrame, admissions: pd.DataFrame) -> rx.Dataset:
+        return rx.Dataset(tables=rx.DatasetTables(static=static, admissions=admissions),
+                          config=rx.DatasetConfig(scheme=rx.DatasetSchemeConfig()))
+
+    @pytest.fixture(scope='class')
+    def filtered_dataset(self, dataset: rx.Dataset) -> rx.Dataset:
+        updated_dataset, _ = rx.FilterSubjectsWithSingleOrNoAdmission.apply(dataset, None, rx.Report())
+        return updated_dataset
+
+    def test_transformation(self, dataset: rx.Dataset, filtered_dataset: rx.Dataset,
+                            subject_id: list[str], subject_id_with_1_admission: list[str], ):
+        assert set(subject_id).issubset(dataset.tables.static.index)
+        assert set(filtered_dataset.tables.static.index) == set(subject_id) - set(subject_id_with_1_admission)
+
+
+class TestFilterSubjectsWithLongAdmission:
+    SUBJECT_ID = list(map(str, range(10)))
+    SUBJECT_ID_WITH_LONG_ADMISSIONS = ['4', '5']
+    MAX_LOS_DAYS = 10.0
+
+    @pytest.fixture(scope='class', params=[
+        (SUBJECT_ID, SUBJECT_ID_WITH_LONG_ADMISSIONS),
+        (SUBJECT_ID, []),
+        ([], [])
+    ])
+    def subject_id_subject_id_with_long_admissions(self, request) -> tuple[list[str], list[str]]:
+        return request.param
+
+    @pytest.fixture(scope='class')
+    def subject_id(self, subject_id_subject_id_with_long_admissions: tuple[list[str], list[str]]) -> list[str]:
+        return subject_id_subject_id_with_long_admissions[0]
+
+    @pytest.fixture(scope='class')
+    def subject_id_with_long_admission(self, subject_id_subject_id_with_long_admissions: tuple[list[str], list[str]]) -> \
+            list[
+                str]:
+        return subject_id_subject_id_with_long_admissions[1]
+
+    @pytest.fixture(scope='class')
+    def static(self, subject_id: list[str]) -> pd.DataFrame:
+        return pd.DataFrame({
+            rx.COLUMN.subject_id: subject_id
+        }).set_index(rx.COLUMN.subject_id)
+
+    @pytest.fixture(scope='class')
+    def admissions(self, static: pd.DataFrame, subject_id: list[str],
+                   subject_id_with_long_admission: list[str]) -> pd.DataFrame:
+        admission_id_1 = list(map(str, range(len(subject_id))))
+        df_1 = pd.DataFrame({
+            rx.COLUMN.subject_id: subject_id,
+            rx.COLUMN.admission_id: admission_id_1,
+            rx.COLUMN.start_time: pd.Timestamp.now(),
+            rx.COLUMN.end_time: pd.Timestamp.now() + pd.Timedelta(days=random.uniform(0.0, self.MAX_LOS_DAYS * 0.99)),
+        })
+        n1 = len(subject_id)
+        admission_id_2 = list(map(str, range(n1, n1 + len(subject_id_with_long_admission))))
+        df_2 = pd.DataFrame({
+            rx.COLUMN.subject_id: list(subject_id_with_long_admission),
+            rx.COLUMN.admission_id: admission_id_2,
+            rx.COLUMN.start_time: pd.Timestamp.now(),
+            rx.COLUMN.end_time: pd.Timestamp.now() + pd.Timedelta(days=random.uniform(self.MAX_LOS_DAYS * 1.01,
+                                                                                      self.MAX_LOS_DAYS * 2.0)),
+        })
+        return pd.concat([df_1, df_2], ignore_index=True).set_index(rx.COLUMN.admission_id)
+
+    @pytest.fixture(scope='class')
+    def dataset_no_config(self, static: pd.DataFrame, admissions: pd.DataFrame) -> rx.Dataset:
+        return rx.Dataset(tables=rx.DatasetTables(static=static, admissions=admissions),
+                          config=rx.DatasetConfig(scheme=rx.DatasetSchemeConfig()))
+
+    @pytest.fixture(scope='class')
+    def dataset(self, dataset_no_config: rx.Dataset) -> rx.Dataset:
+        return eqx.tree_at(lambda x: x.config.select_subjects_with_short_admissions, dataset_no_config,
+                           self.MAX_LOS_DAYS, is_leaf=lambda x: x is None)
+
+    @pytest.fixture(scope='class')
+    def filtered_dataset_no_config(self, dataset_no_config: rx.Dataset) -> rx.Dataset:
+        updated, _ = rx.FilterSubjectsWithLongAdmission.apply(dataset_no_config, None, rx.Report())
+        return updated
+
+    @pytest.fixture(scope='class')
+    def filtered_dataset(self, dataset: rx.Dataset) -> rx.Dataset:
+        updated_dataset, _ = rx.FilterSubjectsWithLongAdmission.apply(dataset, None, rx.Report())
+        return updated_dataset
+
+    def test_transformation(self, dataset: rx.Dataset, filtered_dataset: rx.Dataset,
+                            filtered_dataset_no_config: rx.Dataset,
+                            subject_id: list[str], subject_id_with_long_admission: list[str], ):
+        assert set(subject_id).issubset(dataset.tables.static.index)
+        assert set(filtered_dataset.tables.static.index) == set(subject_id) - set(subject_id_with_long_admission)
+        assert dataset.tables.equals(filtered_dataset_no_config.tables)
+
+
+class TestSqueezeToStandardColumns:
+    @pytest.fixture(scope='class')
+    def static(self) -> pd.DataFrame:
+        return pd.DataFrame({
+            rx.COLUMN.subject_id: list(range(100)),
+            rx.COLUMN.gender: list(reversed(range(100))),
+            rx.COLUMN.date_of_birth: ['x'] * 100,
+            'other_column': ['y'] * 100
+        })
+
+    @pytest.fixture(scope='class')
+    def indexed_static(self, static: pd.DataFrame) -> pd.DataFrame:
+        return static.set_index(rx.COLUMN.subject_id)
+
+    @pytest.fixture(scope='class')
+    def dataset(self, static: pd.DataFrame) -> rx.Dataset:
+        return rx.Dataset(tables=rx.DatasetTables(static=static, admissions=pd.DataFrame(columns=['admission_id'])),
+                          config=rx.DatasetConfig(scheme=rx.DatasetSchemeConfig()))
+
+    @pytest.fixture(scope='class')
+    def indexed_dataset(self, indexed_static: pd.DataFrame) -> rx.Dataset:
+        return rx.Dataset(tables=rx.DatasetTables(static=indexed_static,
+                                                  admissions=pd.DataFrame(columns=['admission_id'])),
+                          config=rx.DatasetConfig(scheme=rx.DatasetSchemeConfig()))
+
+    @pytest.fixture(scope='class')
+    def indexed_transformed(self, indexed_dataset: rx.Dataset) -> rx.Dataset:
+        updated, _ = rx.SqueezeToStandardColumns.apply(indexed_dataset, None, rx.Report())
+        return updated
+
+    @pytest.fixture(scope='class')
+    def transformed(self, dataset: rx.Dataset) -> rx.Dataset:
+        updated, _ = rx.SqueezeToStandardColumns.apply(dataset, None, rx.Report())
+        return updated
+
+    def test_transformation(self, transformed: rx.Dataset,
+                            indexed_transformed: rx.Dataset,
+                            dataset: rx.Dataset,
+                            indexed_dataset: rx.Dataset):
+        for ds in (dataset, indexed_dataset):
+            assert 'other_column' in ds.tables.static.columns
+        for ds in (transformed, indexed_transformed):
+            assert 'other_column' not in ds.tables.static.columns
+        assert set(transformed.tables.static.columns) - set(indexed_transformed.tables.static.columns) == {'subject_id'}
+        assert set(dataset.tables.static.columns) - set(transformed.tables.static.columns) == {'other_column'}
+        assert set(dataset.tables.static.columns) - set(indexed_transformed.tables.static.columns) == {'other_column',
+                                                                                                       'subject_id'}

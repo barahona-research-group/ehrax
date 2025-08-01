@@ -1,10 +1,10 @@
 import json
-from typing import Self, Optional
+from typing import Optional, Self
 
 import networkx as nx
 import pandas as pd
 
-from ..coding_scheme import (HierarchicalScheme, FrozenDict11, FrozenDict1N)
+from ..coding_scheme import (FrozenDict11, FrozenDict1N, HierarchicalScheme)
 from ..utils import tqdm_constructor
 
 

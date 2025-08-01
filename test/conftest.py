@@ -7,15 +7,13 @@ import pytest
 import tables as tb
 
 import ehrax as rx
-from common_setup import OBS_MAX_N_TIMESTAMPS, INTERVENTIONS_MAX_N_ITEMS
-from ehrax.testing.common_setup import DATASET_SCHEME_CONF, TVXEHR_CONF, _dataset_tables, SCHEMES, \
-    _dx_codes, OUTCOME_EXTRACTOR, \
-    DATASET_SCHEME_MANAGER, \
-    _singular_codevec, _static_info, _dx_codes_history, _inpatient_observables, _icu_inputs, _proc, _outcome, \
-    DATASET_CONFIG, _segmented_inpatient_interventions, _inpatient_interventions, leading_observables_extractor, \
-    _admission, _admissions, TARGET_SCHEMES
-from .common_setup import ADMISSION_CONCEPT_MAX_STAY_DAYS, ADMISSION_TABLES_MAX_STAY_DAYS, \
-    ADMISSION_CONCEPT_MAX_STAY_HOURS
+from common_setup import INTERVENTIONS_MAX_N_ITEMS, OBS_MAX_N_TIMESTAMPS
+from ehrax.testing.common_setup import DATASET_CONFIG, DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER, OUTCOME_EXTRACTOR, \
+    SCHEMES, TARGET_SCHEMES, TVXEHR_CONF, _admission, _admissions, _dataset_tables, _dx_codes, _dx_codes_history, \
+    _icu_inputs, _inpatient_interventions, _inpatient_observables, _outcome, _proc, _segmented_inpatient_interventions, \
+    _singular_codevec, _static_info, leading_observables_extractor
+from .common_setup import ADMISSION_CONCEPT_MAX_STAY_DAYS, ADMISSION_CONCEPT_MAX_STAY_HOURS, \
+    ADMISSION_TABLES_MAX_STAY_DAYS
 
 
 class Dataset(rx.Dataset):
@@ -77,16 +75,11 @@ def unit_converter_table(dataset_tables_with_records: rx.DatasetTables) -> Optio
     table = pd.DataFrame(columns=[c_code, c_amount_unit],
                          data=[(code, unit) for code, unit in
                                icu_inputs.groupby([c_code, c_amount_unit]).groups.keys()])
-
-    for code, df in table.groupby(c_code):
-        units = df[c_amount_unit].unique()
-        universal_unit = np.random.choice(units, size=1)[0]
-        norm_factor = 1
-        if len(units) > 1:
-            norm_factor = np.random.choice([1e-3, 100, 10, 1e3], size=len(units))
-            norm_factor = np.where(units == universal_unit, 1, norm_factor)
-        table.loc[df.index, c_norm_factor] = norm_factor
-        table.loc[df.index, c_universal_unit] = universal_unit
+    table[c_norm_factor] = 1.0
+    table[c_universal_unit] = table[c_amount_unit].map({c: np.random.choice(df[c_amount_unit].unique(), size=1)[0]
+                                                        for c, df in table.groupby(c_code)})
+    table[c_norm_factor] = table[c_norm_factor].where(table[c_universal_unit] == table[c_amount_unit],
+                                                      np.random.choice([1e-3, 100, 10, 1e3]))
     return table
 
 

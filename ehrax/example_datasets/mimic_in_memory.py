@@ -1,14 +1,12 @@
-from typing import Literal, cast
+from typing import Literal, Optional, cast
 
 import pandas as pd
 
-from .mimic import TableResource, CodedTableResource, CodedColumns, StaticTableResource, \
-    MixedICDTableResource, DatasetTablesResources, MIMICDatasetAuxiliaryResources, ScopedSchemeNames, \
-    ExternalMapResources, ExternalSelectionResources, MIMICDatasetSchemeSuffixes, DatasetSchemeMapsFileNames, \
-    DatasetSchemeSelectionFiles, StaticTableResource_MIMICIII, StaticTableResource_MIMICIV, \
-    MixedICDTableResource_MIMICIII, MixedICDTableResource_MIMICIV
-from ..base import AbstractVxData, AbstractConfig
-from ..dataset import COLUMN, TableColumns, StaticTableColumns, AdmissionsTableColumns
+from .mimic import CodedColumns, CodedTableResource, DatasetTablesResources, MixedICDTableResource, \
+    MixedICDTableResource_MIMICIII, MixedICDTableResource_MIMICIV, StaticTableResource, StaticTableResource_MIMICIII, \
+    StaticTableResource_MIMICIV, TableResource
+from ..base import AbstractConfig, AbstractVxData
+from ..dataset import AdmissionsTableColumns, COLUMN, StaticTableColumns, TableColumns
 from ..freezer import FrozenDict11
 
 TableFileTitle = Literal['patients', 'admissions', 'diagnoses_icd', 'd_icd_diagnoses']
@@ -28,12 +26,15 @@ class InMemoryMIMICTableFiles(AbstractVxData):
         self.d_icd_diagnoses = d_icd_diagnoses
 
     @classmethod
-    def from_path(cls, patients: str, admissions: str, diagnoses_icd: str, d_icd_diagnoses: str):
+    def from_path(cls, patients: str, admissions: str, diagnoses_icd: str, d_icd_diagnoses: str,
+                  usecols: Optional[dict[str, tuple[str, ...]]] = None):
+        if usecols is None:
+            usecols = {}
         return InMemoryMIMICTableFiles(
-            patients=pd.read_csv(patients),
-            admissions=pd.read_csv(admissions),
-            diagnoses_icd=pd.read_csv(diagnoses_icd),
-            d_icd_diagnoses=pd.read_csv(d_icd_diagnoses),
+            patients=pd.read_csv(patients, usecols=usecols.get('patients', None)),
+            admissions=pd.read_csv(admissions, usecols=usecols.get('admissions', None)),
+            diagnoses_icd=pd.read_csv(diagnoses_icd, usecols=usecols.get('diagnoses_icd', None)),
+            d_icd_diagnoses=pd.read_csv(d_icd_diagnoses, usecols=usecols.get('d_icd_diagnoses', None)),
         )
 
 
@@ -72,26 +73,26 @@ class CodedTableInterface(TableInterface):
 class StaticTableInterface(TableInterface):
     admissions_column_map: FrozenDict11[str]
 
-    def __init__(self, static_column_map: FrozenDict11[str], admissions_colmap: FrozenDict11[str]):
+    def __init__(self, static_column_map: FrozenDict11[str], admissions_column_map: FrozenDict11[str]):
         super().__init__(table_name='patients', column_map=static_column_map)
-        self.admissions_column_map = admissions_colmap
+        self.admissions_column_map = admissions_column_map
 
     def load_standard_columns_table(self, in_memory_tables: InMemoryMIMICTableFiles) -> pd.DataFrame:
         assert set(self.column_map.keys()).issubset(in_memory_tables.patients)
         assert set(self.admissions_column_map.keys()).issubset(in_memory_tables.admissions)
         patients = in_memory_tables.patients.rename(columns=self.column_map)
         admissions = in_memory_tables.admissions.rename(columns=self.admissions_column_map)
-        ethno_map = admissions.set_index(str(COLUMN.subject_id))[str(COLUMN.race)].to_dict()
-        patients[str(COLUMN.race)] = patients[str(COLUMN.subject_id)].map(ethno_map)
+        ethno_map = admissions.set_index(str(COLUMN.subject_id))[COLUMN.race].to_dict()
+        patients[COLUMN.race] = patients[COLUMN.subject_id].map(ethno_map)
         return patients
 
     def load_gender_space_table(self, in_memory_tables: InMemoryMIMICTableFiles) -> pd.DataFrame:
         table = self.load_standard_columns_table(in_memory_tables)
-        return table[[str(COLUMN.gender)]].drop_duplicates()
+        return table[[COLUMN.gender]].drop_duplicates()
 
     def load_ethnicity_space_table(self, in_memory_tables: InMemoryMIMICTableFiles) -> pd.DataFrame:
         table = self.load_standard_columns_table(in_memory_tables)
-        return table[[str(COLUMN.race)]].drop_duplicates()
+        return table[[COLUMN.race]].drop_duplicates()
 
 
 class InMemoryTableResource(TableResource):
@@ -122,12 +123,14 @@ class InMemoryCodedTableResource(CodedTableResource):
         return self.interface.load_space_table(in_memory_tables)
 
 
-class InMemoryStaticTableResource:  # mixin
+class InMemoryStaticTableResource(AbstractConfig):  # mixin
     columns: StaticTableColumns
     interface: StaticTableInterface
 
-    def __init__(self, column_map: FrozenDict11[str], admissions_column_map: FrozenDict11[str]):
-        self.interface = StaticTableInterface(admissions_column_map=admissions_column_map, column_map=column_map)
+    def __init__(self, static_column_map: FrozenDict11[str], admissions_column_map: FrozenDict11[str]):
+        self.interface = StaticTableInterface(admissions_column_map=admissions_column_map,
+                                              static_column_map=static_column_map)
+        self.columns = StaticTableColumns()
 
     def load_standard_columns_table(self, in_memory_tables: InMemoryMIMICTableFiles, *args, **kwargs) -> pd.DataFrame:
         return self.interface.load_standard_columns_table(in_memory_tables)
@@ -147,7 +150,7 @@ class InMemoryStaticTableResource_MIMICIV(InMemoryStaticTableResource, StaticTab
     pass
 
 
-class InMemoryMixedICDTableResource:  # mixin
+class InMemoryMixedICDTableResource(AbstractConfig):  # mixin
     interface: CodedTableInterface
 
     def __init__(self, table_name: TableFileTitle, column_map: FrozenDict11[str], space_table_name: TableFileTitle,
@@ -171,26 +174,6 @@ class InMemoryMixedICDTableResource_MIMICIV(InMemoryMixedICDTableResource, Mixed
     pass
 
 
-class InMemoryMIMICDatasetAuxiliaryResources(MIMICDatasetAuxiliaryResources):
-    scoped_names: ScopedSchemeNames
-    maps: ExternalMapResources
-    selections: ExternalSelectionResources
-    icu_inputs_uom_normalization: None
-    icu_inputs_aggregation_column: None
-
-    @classmethod
-    def make_resources(cls, suffixes: MIMICDatasetSchemeSuffixes = MIMICDatasetSchemeSuffixes(),
-                       name_separator: str = '.', name_prefix: str = 'mimic', resources_root: str = 'mimic',
-                       selection_subdir: str = 'selection',
-                       map_subdir: str = 'map', map_files: DatasetSchemeMapsFileNames = DatasetSchemeMapsFileNames(),
-                       selection_files: DatasetSchemeSelectionFiles = DatasetSchemeSelectionFiles(), *args, **kwargs):
-        return super().make_resources(suffixes=suffixes, name_separator=name_separator, name_prefix=name_prefix,
-                                      resources_root=resources_root, selection_subdir=selection_subdir,
-                                      map_subdir=map_subdir, map_files=map_files,
-                                      selection_files=selection_files, icu_inputs_aggregation_column=None,
-                                      icu_inputs_uom_normalization=None)
-
-
 class MIMICTablesResources(DatasetTablesResources):
     static: StaticTableResource
     admissions: TableResource
@@ -203,9 +186,10 @@ class MIMICTablesResources(DatasetTablesResources):
     def __init__(self, static: StaticTableResource,
                  admissions: TableResource,
                  dx_discharge: MixedICDTableResource):
-        super().__init__(self, static=static, admissions=admissions, dx_discharge=dx_discharge,
+        super().__init__(static=static, admissions=admissions, dx_discharge=dx_discharge,
                          obs=None, icu_procedures=None, icu_inputs=None,
                          hosp_procedures=None)
+
 
 # The configurations below adapt to MIMIC-III v1.4
 MIMICIII_STATIC_COLMAP = FrozenDict11({'DOB': str(COLUMN.date_of_birth),
@@ -244,7 +228,7 @@ MIMICIV_ADMISSIONS_COLMAP = FrozenDict11({'hadm_id': str(COLUMN.admission_id),
                                           'dischtime': str(COLUMN.end_time),
                                           'race': str(COLUMN.race)})
 
-MIMICIV_DIAGNOSES_ICD_COLMAP = FrozenDict11({'hadm_ic': str(COLUMN.admission_id),
+MIMICIV_DIAGNOSES_ICD_COLMAP = FrozenDict11({'hadm_id': str(COLUMN.admission_id),
                                              'icd_code': str(COLUMN.code),
                                              'icd_version': str(COLUMN.version)})
 

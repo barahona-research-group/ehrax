@@ -1,22 +1,19 @@
 import os
-from typing import Optional, Final
+from typing import Final, Optional
 
 import pandas as pd
 import sqlalchemy
 
-from .mimic import DatasetTablesResources, CodedTableResource, TableResource, \
-    CodedColumns, MultivariateTimeSeriesTableResource, GroupedMultivariateTimeSeriesTableResource, MIMICDataset, \
-    MIMICDatasetAuxiliaryResources, StaticTableResource_MIMICIV, MixedICDTableResource_MIMICIV
+from .mimic import CodedColumns, CodedTableResource, DatasetTablesResources, GroupedMultivariateTimeSeriesTableResource, \
+    MixedICDTableResource_MIMICIV, MultivariateTimeSeriesTableResource, StaticTableResource_MIMICIV, TableResource
 from ..base import AbstractConfig
-from ..coding_scheme import resources_dir
-from ..dataset import COLUMN, StaticTableColumns, MultivariateTimeSeriesTableMeta, \
-    TableColumns, DatasetSchemeConfig, DatasetConfig, AdmissionsTableColumns
+from ..dataset import AdmissionsTableColumns, COLUMN, MultivariateTimeSeriesTableMeta, StaticTableColumns, TableColumns
 from ..literals import NumericalTypeHint
+from ..utils import resources_path
 
 
 class SQLTableInterface(AbstractConfig):
     # resource file.
-    # TODO: Add an attribute for the version using the last relevant git commit hash.
     query_template: Optional[str]
 
     def __init__(self, query_template: Optional[str]):
@@ -25,7 +22,7 @@ class SQLTableInterface(AbstractConfig):
     @property
     def query(self) -> str:
         assert self.query_template is not None, "Query template must be set."
-        return open(resources_dir(self.query_template), "r").read()
+        return open(resources_path(self.query_template), "r").read()
 
     def load_standard_columns_table(self, engine: sqlalchemy.Engine):
         query = self.query.format(**COLUMN.as_dict())
@@ -44,7 +41,7 @@ class SQLCodedTableInterface(SQLTableInterface):
     @property
     def space_query(self) -> str:
         assert self.space_query_template is not None, "Space query template must be set."
-        return open(resources_dir(self.space_query_template), "r").read()
+        return open(resources_path(self.space_query_template), "r").read()
 
     def load_space_table(self, engine: sqlalchemy.Engine) -> pd.DataFrame:
         """
@@ -67,11 +64,11 @@ class SQLStaticTableInterface(SQLTableInterface):
 
     @property
     def gender_space_query(self) -> str:
-        return open(resources_dir(self.gender_space_query_template), "r").read()
+        return open(resources_path(self.gender_space_query_template), "r").read()
 
     @property
     def race_space_query(self) -> str:
-        return open(resources_dir(self.race_space_query_template), "r").read()
+        return open(resources_path(self.race_space_query_template), "r").read()
 
     def load_gender_space_table(self, engine: sqlalchemy.Engine):
         query = self.gender_space_query.format(**COLUMN.as_dict())
@@ -185,7 +182,7 @@ RENAL_CREAT_CONF = SQLMultivariateTimeSeriesResource(name="renal_creat",
 RENAL_AKI_CONF = SQLMultivariateTimeSeriesResource(name="renal_aki",
                                                    attributes=('aki_stage_smoothed', 'aki_binary'),
                                                    query_template="mimiciv/sql/renal_aki.tsql",
-                                                   type_hint=('O', 'B'))  # Ordinal, Binary.
+                                                   type_hint=('O', 'B',))  # Ordinal, Binary.
 
 SOFA_CONF = SQLMultivariateTimeSeriesResource(name="sofa",
                                               attributes=("sofa_24hours",),
@@ -334,7 +331,7 @@ class SQLMIMICTablesResources(DatasetTablesResources):
                  icu_procedures: SQLCodedTableResource = ICU_PROCEDURES_CONF,
                  icu_inputs: SQLCodedTableResource = ICU_INPUTS_CONF,
                  hosp_procedures: SQLMixedICDTableResource = HOSP_PROCEDURES_CONF):
-        super().__init__(self, static=static, admissions=admissions, dx_discharge=dx_discharge,
+        super().__init__(static=static, admissions=admissions, dx_discharge=dx_discharge,
                          obs=obs, icu_procedures=icu_procedures, icu_inputs=icu_inputs,
                          hosp_procedures=hosp_procedures)
 
@@ -361,4 +358,3 @@ class SQLMIMICTablesResources(DatasetTablesResources):
     @staticmethod
     def url_from_credentials(user: str, password: str, host: str, port: str, dbname: str) -> str:
         return f'postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}'
-

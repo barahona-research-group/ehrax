@@ -1,41 +1,54 @@
-from typing import Final
+from typing import Final, Optional
 
 import sqlalchemy
 
-from .mimic import ScopedSchemeNames, MIMICDataset, MIMICDatasetAuxiliaryResources
+from .mimic import MIMICDatasetAuxiliaryResources, MIMICDatasetSchemeSuffixes, ScopedSchemeNames, load_mimic
 from .mimic_sql import SQLMIMICTablesResources
-from ..dataset import AbstractDatasetPipeline, DatasetSchemeConfig, DatasetConfig, DatasetColumns
-from ..transformations import SetIndex, CastTimestamps, \
-    SelectSubjectsWithObservation, ProcessOverlappingAdmissions, FilterSubjectsNegativeAdmissionLengths, \
-    FilterClampTimestampsToAdmissionInterval, FilterUnsupportedCodes, ICUInputRateUnitConversion, \
-    FilterInvalidInputRatesSubjects, SetAdmissionRelativeTimes
-from ..tvx_ehr import TVxEHRSchemeConfig, TVxEHRSplitsConfig, DatasetNumericalProcessorsConfig, AbstractTVxPipeline, \
-    TVxEHRConfig, DemographicVectorConfig, LeadingObservableExtractorConfig
-from ..tvx_transformations import SampleSubjects, ObsIQROutlierRemover, RandomSplits, ObsAdaptiveScaler, \
-    InputScaler, ObsTimeBinning, TVxConcepts, InterventionSegmentation, ExcludeShortAdmissions, \
-    LeadingObservableExtraction
+from ..coding_scheme import CodingSchemesManager
+from ..dataset import AbstractDatasetPipeline, Dataset, DatasetColumns, DatasetConfig, DatasetSchemeConfig
+from ..transformations import CastTimestamps, FilterClampTimestampsToAdmissionInterval, FilterInvalidInputRatesSubjects, \
+    FilterSubjectsNegativeAdmissionLengths, FilterUnsupportedCodes, ICUInputRateUnitConversion, \
+    MergeOverlappingAdmissions, SelectSubjectsWithObservation, SetAdmissionRelativeTimes, SetIndex
+from ..tvx_ehr import AbstractTVxPipeline, DatasetNumericalProcessorsConfig, DemographicVectorConfig, \
+    LeadingObservableExtractorConfig, TVxEHRConfig, TVxEHRSchemeConfig, TVxEHRSplitsConfig
+from ..tvx_transformations import ExcludeShortAdmissions, InputScaler, InterventionSegmentation, \
+    LeadingObservableExtraction, ObsAdaptiveScaler, ObsIQROutlierRemover, ObsTimeBinning, RandomSplits, SampleSubjects, \
+    TVxConcepts
 
 OBSERVABLE_AKI_TARGET_CODE: Final[str] = 'renal_aki.aki_binary'
-AKI_STUDY_PREFIX: str = 'mimiciv.aki_study'
-AKI_STUDY_RESOURCES_ROOT: str = 'mimiciv/aki_study'
-SCOPED_NAMES = ScopedSchemeNames(name_separator='.', name_prefix=AKI_STUDY_PREFIX)
 
 
-def dataset_schemes_config():
-    return DatasetSchemeConfig(ethnicity=SCOPED_NAMES.ethnicity,
-                               gender=SCOPED_NAMES.gender,
-                               dx_discharge=SCOPED_NAMES.dx_discharge,
-                               obs=SCOPED_NAMES.obs,
-                               icu_procedures=SCOPED_NAMES.icu_procedures,
-                               hosp_procedures=SCOPED_NAMES.hosp_procedures,
-                               icu_inputs=SCOPED_NAMES.icu_inputs)
+def default_suffixes() -> MIMICDatasetSchemeSuffixes:
+    return MIMICDatasetSchemeSuffixes(ethnicity='ethnicity',
+                                      gender='gender',
+                                      dx_discharge='dx_discharge',
+                                      hosp_procedures='hosp_procedures',
+                                      icu_procedures='icu_procedures',
+                                      icu_inputs='icu_inputs')
 
 
-def dataset_config():
+def default_auxiliary_resources() -> MIMICDatasetAuxiliaryResources:
+    return MIMICDatasetAuxiliaryResources.make_resources(
+        name_prefix='mimiciv_aki', resources_root='aki_study',
+        suffixes=default_suffixes(),
+        icu_inputs_uom_normalization=("uom_normalization", "icu_inputs.csv"),
+        icu_inputs_aggregation_column="aggregation")
+
+
+def dataset_schemes_config(scoped_names: ScopedSchemeNames) -> DatasetSchemeConfig:
+    return DatasetSchemeConfig(ethnicity=scoped_names.ethnicity,
+                               gender=scoped_names.gender,
+                               dx_discharge=scoped_names.dx_discharge,
+                               obs=scoped_names.obs,
+                               icu_procedures=scoped_names.icu_procedures,
+                               hosp_procedures=scoped_names.hosp_procedures,
+                               icu_inputs=scoped_names.icu_inputs)
+
+
+def dataset_config(scoped_names: ScopedSchemeNames) -> DatasetConfig:
     return DatasetConfig(
-        scheme=dataset_schemes_config(),
+        scheme=dataset_schemes_config(scoped_names),
         columns=DatasetColumns(),
-        overlapping_admissions="merge",
         select_subjects_with_observation=OBSERVABLE_AKI_TARGET_CODE)
 
 
@@ -44,7 +57,7 @@ def dataset_pipeline() -> AbstractDatasetPipeline:
         SetIndex(),
         SelectSubjectsWithObservation(),
         CastTimestamps(),
-        ProcessOverlappingAdmissions(),
+        MergeOverlappingAdmissions(),
         FilterSubjectsNegativeAdmissionLengths(),
         FilterClampTimestampsToAdmissionInterval(),
         FilterUnsupportedCodes(),
@@ -55,8 +68,8 @@ def dataset_pipeline() -> AbstractDatasetPipeline:
     return AbstractDatasetPipeline(transformations=pipeline)
 
 
-def tvx_schemes_config(config: DatasetSchemeConfig) -> TVxEHRSchemeConfig:
-    names = SCOPED_NAMES.target
+def tvx_schemes_config(config: DatasetSchemeConfig, scoped_names: ScopedSchemeNames) -> TVxEHRSchemeConfig:
+    names = scoped_names.mapped
     return TVxEHRSchemeConfig(
         gender=config.gender,
         ethnicity=names.ethnicity,
@@ -68,8 +81,8 @@ def tvx_schemes_config(config: DatasetSchemeConfig) -> TVxEHRSchemeConfig:
         outcome='dx_icd9_v1')
 
 
-def tvx_ehr_config() -> TVxEHRConfig:
-    scheme = tvx_schemes_config(dataset_schemes_config())
+def tvx_ehr_config(scoped_names: ScopedSchemeNames) -> TVxEHRConfig:
+    scheme = tvx_schemes_config(dataset_schemes_config(scoped_names), scoped_names)
     return TVxEHRConfig(
         scheme=scheme,
         demographic=DemographicVectorConfig(age=True,
@@ -112,10 +125,13 @@ def tvx_ehr_pipeline() -> AbstractTVxPipeline:
 
 
 def mimiciv_from_env_sql(dataset_tables_resources: SQLMIMICTablesResources = SQLMIMICTablesResources(),
-                         schemes_config: DatasetSchemeConfig = dataset_schemes_config(),
-                         aux_resources: MIMICDatasetAuxiliaryResources = MIMICDatasetAuxiliaryResources.make_resources()):
+                         schemes_config: Optional[DatasetSchemeConfig] = None,
+                         aux_resources: MIMICDatasetAuxiliaryResources = default_auxiliary_resources()) -> tuple[
+    Dataset, CodingSchemesManager]:
+    if schemes_config is None:
+        schemes_config = dataset_schemes_config(aux_resources.scoped_names),
     engine = sqlalchemy.create_engine(dataset_tables_resources.url())
-    return MIMICDataset.compile(config=DatasetConfig(scheme=schemes_config),
-                                tables=dataset_tables_resources,
-                                aux=aux_resources,
-                                data_connection=engine)
+    return load_mimic(config=DatasetConfig(scheme=schemes_config),
+                      tables=dataset_tables_resources,
+                      aux=aux_resources,
+                      data_connection=engine)

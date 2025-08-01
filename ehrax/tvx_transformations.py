@@ -1,7 +1,7 @@
 import logging
 import random
 from abc import ABCMeta
-from typing import Hashable, Optional, Callable, Any
+from typing import Any, Callable, Hashable, Optional
 
 import dask.dataframe as dd
 import equinox as eqx
@@ -9,28 +9,21 @@ import numpy as np
 import pandas as pd
 
 from .coding_scheme import CodeMap, CodingSchemesManager
-from .dataset import Dataset, AbstractTransformation, Report, AdmissionIntervalEventsTableColumns, \
-    AdmissionIntervalRatesTableColumns
+from .dataset import AbstractTransformation, AdmissionIntervalEventsTableColumns, AdmissionIntervalRatesTableColumns, \
+    Dataset, Report
 from .literals import SplitLiteral
 from .transformations import DatasetTransformation
-from .tvx_concepts import StaticInfo, CodesVector, InpatientInput, InpatientInterventions, InpatientObservables, \
-    LeadingObservableExtractor, Admission, Patient
-from .tvx_ehr import TVxReportAttributes, TVxReport, CodedValueScaler, CodedValueProcessor, IQROutlierRemoverConfig, \
-    SegmentedTVxEHR, ScalerConfig, TVxEHR
+from .tvx_concepts import Admission, CodesVector, InpatientInput, InpatientInterventions, InpatientObservables, \
+    LeadingObservableExtractor, Patient, StaticInfo
+from .tvx_ehr import CodedValueProcessor, CodedValueScaler, IQROutlierRemoverConfig, ScalerConfig, SegmentedTVxEHR, \
+    TVxEHR, TVxReport, TVxReportAttributes
 
 
 def dataset_surgery(getter: Callable[[TVxEHR], Any], dataset: TVxEHR, replacement: Any) -> TVxEHR:
     return eqx.tree_at(getter, dataset, replacement)
 
 
-class TVxTransformation(AbstractTransformation, metaclass=ABCMeta):
-
-    @classmethod
-    def skip(cls, tvx_ehr: TVxEHR, report: TVxReport) -> tuple[TVxEHR, TVxReport]:
-        return tvx_ehr, report.add(transformation=cls, operation='skip')
-
-
-class TrainableTransformation(TVxTransformation, metaclass=ABCMeta):
+class TrainableTransformation(AbstractTransformation, metaclass=ABCMeta):
 
     # dependencies: ClassVar[tuple[type[DatasetTransformation], ...]] = (RandomSplits, setIndex, SetCodeIntegerIndices)
 
@@ -44,7 +37,7 @@ class TrainableTransformation(TVxTransformation, metaclass=ABCMeta):
         return admissions[admissions[c_subject_id].isin(training_subject_ids)].index.unique().tolist()
 
 
-class SampleSubjects(TVxTransformation):
+class SampleSubjects(AbstractTransformation):
 
     @classmethod
     def apply(cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport) -> tuple[
@@ -55,7 +48,7 @@ class SampleSubjects(TVxTransformation):
         assert c_subject_id in static.index.names, f'Index name must be {c_subject_id}'
         config = tvx_ehr.config.sample
         if config is None:
-            return cls.skip(tvx_ehr, report)
+            return cls.skip(tvx_ehr, report, reason='config.sample is not configured.')
 
         rng = random.Random(config.seed)
         subjects = static.index.unique().tolist()
@@ -69,10 +62,11 @@ class SampleSubjects(TVxTransformation):
                             operation='sample')
         dataset = eqx.tree_at(lambda x: x.tables.static, tvx_ehr.dataset, static)
         dataset, report = DatasetTransformation.synchronize_subjects(dataset, report)
-        return eqx.tree_at(lambda x: x.dataset, tvx_ehr, dataset), report
+        tvx_ehr = eqx.tree_at(lambda x: x.dataset, tvx_ehr, dataset)
+        return tvx_ehr, report
 
 
-class RandomSplits(TVxTransformation):
+class RandomSplits(AbstractTransformation):
 
     @classmethod
     def apply(cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport) -> tuple[
@@ -80,7 +74,7 @@ class RandomSplits(TVxTransformation):
         config = tvx_ehr.config.splits
 
         if config is None:
-            return cls.skip(tvx_ehr, report)
+            return cls.skip(tvx_ehr, report, 'config.split is not configured.')
 
         splits = tvx_ehr.dataset.random_splits(splits=config.split_quantiles,
                                                random_seed=config.seed,
@@ -96,7 +90,7 @@ class RandomSplits(TVxTransformation):
         return tvx_ehr, report
 
 
-class TrainingSplitGroups(TVxTransformation):
+class TrainingSplitGroups(AbstractTransformation):
 
     @classmethod
     def sync_dataset(cls, dataset: Dataset, subject_ids: tuple[str, ...]) -> Dataset:
@@ -133,7 +127,7 @@ class TrainingSplitGroups(TVxTransformation):
                                        random_seed=seed,
                                        balance=split_balance or tvx_ehr.config.splits.balance,  # type: ignore
                                        discount_first_admission=tvx_ehr.config.splits.discount_first_admission)
-        return tuple(cls.subset(tvx_ehr, group) for group in groups)
+        return tuple(cls.subset(tvx_ehr, tuple(group)) for group in groups)
 
 
 class ZScoreScaler(CodedValueScaler):
@@ -351,7 +345,7 @@ class ObsIQROutlierRemover(TrainableTransformation):
         TVxEHR, TVxReport]:
         config = tvx_ehr.config.numerical_processors.outlier_removers.obs
         if config is None:
-            return cls.skip(tvx_ehr, report)
+            return cls.skip(tvx_ehr, report, 'config.numerical_processors.outlier_removers.obs is None')
         remover = IQROutlierRemover(config=config).fit(tvx_ehr.dataset, cls.get_admission_ids(tvx_ehr),
                                                        table_name='obs',
                                                        code_column=tvx_ehr.dataset.config.columns.obs.code,
@@ -381,7 +375,7 @@ class ObsAdaptiveScaler(TrainableTransformation):
         config = tvx_ehr.config.numerical_processors.scalers.obs
 
         if config is None:
-            return cls.skip(tvx_ehr, report)
+            return cls.skip(tvx_ehr, report, 'config.numerical_processors.scalers.obs is None')
 
         value_column = tvx_ehr.dataset.config.columns.obs.measurement
         scaler = AdaptiveScaler(config=config).fit(tvx_ehr.dataset,
@@ -417,7 +411,7 @@ class InputScaler(TrainableTransformation):
         config = tvx_ehr.config.numerical_processors.scalers.icu_inputs
 
         if config is None:
-            return cls.skip(tvx_ehr, report)
+            return cls.skip(tvx_ehr, report, 'config.numerical_processors.scalers.icu_inputs is None')
 
         scaler = MaxScaler(config=config).fit(tvx_ehr.dataset, cls.get_admission_ids(tvx_ehr),
                                               table_name='icu_inputs',
@@ -442,34 +436,18 @@ class InputScaler(TrainableTransformation):
         return tvx_ehr, report
 
 
-#
-#
-# # TODO: add to the relations an explanation to be shown in the error messages.
-#
-# TVX_DEPENDS_RELATIONS: Final[dict[type[TVxTransformation], set[type[TVxTransformation]]]] = {
-#     RandomSplits: {SetIndex, CastTimestamps},
-#     TrainableTransformation: {RandomSplits, SetIndex},
-#     ObsAdaptiveScaler: {ObsIQROutlierRemover}
-#     # <- inherits also from TrainableTransformation (TODO: test the inheritance of dependencies).
-# }
-#
-# TVX_BLOCKED_BY_RELATIONS: Final[dict[type[TVxTransformation], set[type[TVxTransformation]]]] = {
-#     # Any TVX Transformation blocks DS Transformation.
-#     DatasetTransformation: {TVxTransformation}
-# }
-# TVX_PIPELINE_VALIDATOR: Final[TransformationsDependency] = TransformationsDependency({}, {}
-#                                                                                      # depends=TVX_DEPENDS_RELATIONS,
-#                                                                                      # blocked_by=TVX_BLOCKED_BY_RELATIONS,
-#                                                                                      )
-
-
-class InterventionSegmentation(TVxTransformation):
+class InterventionSegmentation(AbstractTransformation):
 
     @classmethod
     def apply(cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport) -> tuple[
         SegmentedTVxEHR | TVxEHR, TVxReport]:
-        if not tvx_ehr.config.interventions_segmentation or not tvx_ehr.config.interventions:
-            return cls.skip(tvx_ehr, report)
+        if tvx_ehr.config.interventions_segmentation in (None, False) or not tvx_ehr.config.interventions:
+            reason = []
+            if tvx_ehr.config.interventions_segmentation in (None, False):
+                reason.append('config.interventions_segmentation is None/False')
+            if not tvx_ehr.config.interventions:
+                reason.append('config.interventions is False')
+            return cls.skip(tvx_ehr, report, reason=' + '.join(reason))
 
         maximum_padding = 100
         segmented_tvx_ehr = SegmentedTVxEHR.from_tvx_ehr(tvx_ehr, schemes_context=schemes_context,
@@ -484,12 +462,12 @@ class InterventionSegmentation(TVxTransformation):
         return segmented_tvx_ehr, report
 
 
-class ObsTimeBinning(TVxTransformation):
+class ObsTimeBinning(AbstractTransformation):
     @classmethod
     def apply(cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport) -> tuple[
         TVxEHR, TVxReport]:
         if tvx_ehr.config.time_binning is None:
-            return cls.skip(tvx_ehr, report)
+            return cls.skip(tvx_ehr, report, reason='config.time_binning is None')
 
         interval = tvx_ehr.config.time_binning
         obs_scheme = tvx_ehr.scheme_proxy(schemes_context).obs
@@ -517,9 +495,8 @@ class ObsTimeBinning(TVxTransformation):
         return tvx_binned_ehr, report
 
 
-class LeadingObservableExtraction(TVxTransformation):
+class LeadingObservableExtraction(AbstractTransformation):
 
-    # TODO: blocks time binning.
     @classmethod
     def apply(cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport) -> tuple[
         TVxEHR, TVxReport]:
@@ -527,7 +504,7 @@ class LeadingObservableExtraction(TVxTransformation):
                                                observable_scheme=tvx_ehr.dataset.scheme_proxy(schemes_context).obs)
 
         if tvx_ehr.config.leading_observable is None:
-            return cls.skip(tvx_ehr, report)
+            return cls.skip(tvx_ehr, report, reason='config.leading_observable is None')
 
         tvx_concept_path = TVxReportAttributes.admission_attribute_prefix('leading_observables',
                                                                           InpatientObservables)
@@ -556,7 +533,7 @@ class LeadingObservableExtraction(TVxTransformation):
         return tvx_ehr, report
 
 
-class TVxConcepts(TVxTransformation):
+class TVxConcepts(AbstractTransformation):
 
     @classmethod
     def _static_info(cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport) -> tuple[
@@ -641,10 +618,14 @@ class TVxConcepts(TVxTransformation):
         return dx_discharge_history
 
     @staticmethod
-    def _outcome(tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, dx_discharge: dict[str, set[str]]) -> dict[
-        str, CodesVector]:
+    def _outcome(tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager,
+                 dx_discharge: dict[str, set[str]]) -> dict[str, CodesVector]:
         tvx_scheme_proxy = tvx_ehr.scheme_proxy(schemes_context)
-        outcome_extractor = tvx_scheme_proxy.outcome.codeset2vec_extractor(tvx_scheme_proxy.dx_discharge, None)
+        base_scheme = schemes_context.scheme[tvx_scheme_proxy.outcome.base_name]
+
+        outcome_extractor = tvx_scheme_proxy.outcome.codeset2vec_extractor(base_scheme,
+                                                                           tvx_scheme_proxy.outcome_base_mapper,
+                                                                           tvx_scheme_proxy.dx_discharge)
         return {adm_id: outcome_extractor(codeset) for adm_id, codeset in dx_discharge.items()}
 
     @staticmethod
@@ -872,13 +853,14 @@ class TVxConcepts(TVxTransformation):
         return tvx_ehr, report
 
 
-class ExcludeShortAdmissions(TVxTransformation):
+class ExcludeShortAdmissions(AbstractTransformation):
     @classmethod
     def apply(cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport) -> tuple[
         TVxEHR, TVxReport]:
         admission_minimum_los = tvx_ehr.config.admission_minimum_los
         if admission_minimum_los is None:
-            return cls.skip(tvx_ehr, report)
+            return cls.skip(tvx_ehr, report, reason='admission_minimum_los is not configured.')
+
         filtered_subjects = {subject_id: subject.filter_short_stays(admission_minimum_los)
                              for subject_id, subject in tvx_ehr.subjects.items()}
 
@@ -898,7 +880,3 @@ class ExcludeShortAdmissions(TVxTransformation):
                             after=len(tvx_ehr_filtered.subject_ids))
 
         return tvx_ehr_filtered, report
-
-# TODO: add handy report functions to capture all statistics
-#  (they need to be cached properties for EHR, Patient, Admission, etc to avoid recomputation).
-#  and only record the differences in the report.

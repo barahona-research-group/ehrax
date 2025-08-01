@@ -7,15 +7,16 @@ import equinox as eqx
 import numpy as np
 import pandas as pd
 
-from .coding_scheme import CodingSchemesManager, CodingSchemeWithUOM
-from .dataset import (Dataset, AbstractTransformation, Report, SECONDS_TO_HOURS_SCALER)
+from .coding_scheme import CodingSchemeWithUOM, CodingSchemesManager
+from .dataset import (AbstractTransformation, COLUMN, DType, Dataset, RType, Report, SECONDS_TO_DAYS_SCALER,
+                      SECONDS_TO_HOURS_SCALER)
 
 
 class DatasetTransformation(AbstractTransformation, metaclass=ABCMeta):
 
     @staticmethod
-    def synchronize_index(dataset: Dataset, indexed_table_name: str,
-                          index_name: str, report: Report) -> tuple[Dataset, Report]:
+    def synchronize_index(dataset: DType, indexed_table_name: str,
+                          index_name: str, report: RType) -> tuple[DType, RType]:
         tables_dict = dataset.tables.tables_dict
 
         target_tables = {  # columns that have admission_id as column
@@ -37,26 +38,30 @@ class DatasetTransformation(AbstractTransformation, metaclass=ABCMeta):
         return eqx.tree_at(lambda x: x.tables, dataset, tables), report
 
     @staticmethod
-    def filter_no_admission_subjects(dataset: Dataset, report: Report) -> tuple[Dataset, Report]:
+    def filter_subjects_with_less_than_n_admissions(static: pd.DataFrame, admissions: pd.DataFrame,
+                                                    n: int) -> pd.DataFrame:
+        n_admissions = static.index.map(admissions.groupby(COLUMN.subject_id).size()).fillna(0)
+        return static[(n_admissions >= n)]
+
+    @staticmethod
+    def filter_no_admission_subjects(dataset: DType, report: RType) -> tuple[DType, RType]:
         static = dataset.tables.static
         admissions = dataset.tables.admissions
-        c_subject = dataset.config.columns.static.subject_id
-        no_admission_subjects = static[~static.index.isin(admissions[c_subject].unique())].index
         n1 = len(static)
-        static = static.drop(no_admission_subjects, axis='index')
+        static = DatasetTransformation.filter_subjects_with_less_than_n_admissions(static, admissions, 1)
         n2 = len(static)
-        report = report.add(table='static', column=c_subject, before=n1, after=n2, value_type='count',
+        report = report.add(table='static', column=static.index.name, before=n1, after=n2, value_type='count',
                             operation='filter_no_admission_subjects')
         return eqx.tree_at(lambda x: x.tables.static, dataset, static), report
 
     @classmethod
-    def synchronize_admissions(cls, dataset: Dataset, report: Report) -> tuple[Dataset, Report]:
+    def synchronize_admissions(cls, dataset: Dataset, report: RType) -> tuple[Dataset, RType]:
         dataset, report = cls.synchronize_index(dataset, 'admissions',
                                                 dataset.config.columns.admissions.admission_id, report)
         return cls.filter_no_admission_subjects(dataset, report)
 
     @classmethod
-    def synchronize_subjects(cls, dataset: Dataset, report: Report) -> tuple[Dataset, Report]:
+    def synchronize_subjects(cls, dataset: Dataset, report: RType) -> tuple[Dataset, RType]:
         # Synchronizing subjects might entail synchronizing admissions, so we need to call it first
         dataset, report = cls.synchronize_index(dataset, 'static',
                                                 dataset.config.columns.static.subject_id, report)
@@ -64,7 +69,7 @@ class DatasetTransformation(AbstractTransformation, metaclass=ABCMeta):
 
     @classmethod
     @abstractmethod
-    def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
+    def apply(cls, dataset: DType, schemes_context: CodingSchemesManager, report: RType) -> tuple[DType, RType]:
         ...
 
 
@@ -84,9 +89,11 @@ class SetIndex(DatasetTransformation):
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         tables_dict = dataset.tables.tables_dict
-        for indexed_table_name, index_name in dataset.config.columns.indices.items():
+        for indexed_table_name, index_name, table in ((table_name, index_name, tables_dict[table_name]) for
+                                                      table_name, index_name in
+                                                      dataset.config.columns.indices.items() if
+                                                      table_name in tables_dict):
             (index_name,) = index_name
-            table = tables_dict[indexed_table_name]
             index1 = table.index.name
             table = table.set_index(index_name)
             index2 = table.index.name
@@ -102,11 +109,13 @@ class CastTimestamps(DatasetTransformation):
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         tables = dataset.tables
         tables_dict = tables.tables_dict
-        for table_name, time_cols in dataset.config.columns.time_cols.items():
-
-            table = tables_dict[table_name].iloc[:, :]
+        for table_name, time_cols, table in ((name, cols, tables_dict[name]) for name, cols in
+                                             dataset.config.columns.time_cols.items() if
+                                             name in tables_dict):
+            table = table.iloc[:, :]
             for time_col in time_cols:
                 assert time_col in table.columns, f'{time_col} not found in {table_name}'
+                assert isinstance(time_col, str)
 
                 if table[time_col].dtype == 'datetime64[ns]':
                     logging.debug(f'{table_name}[{time_col}] already in datetime64[ns]')
@@ -122,6 +131,27 @@ class CastTimestamps(DatasetTransformation):
         return eqx.tree_at(lambda x: x.tables, dataset, tables), report
 
 
+class SqueezeToStandardColumns(DatasetTransformation):
+    @classmethod
+    def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
+
+        tables_dict = dataset.tables.tables_dict
+        for table_name, columns, table in ((name, cols, tables_dict[name]) for name, cols in
+                                           dataset.config.columns.columns_dict().items() if name in tables_dict):
+            columns = tuple(c for c in columns if c in table.columns)
+            if columns == tuple(table.columns):
+                continue
+            elif set(columns) == set(table.columns):
+                operation = 'columns reordering'
+            else:
+                operation = 'columns subsetting & reordering'
+
+            report = report.add(table=table_name, before=', '.join(table.columns), after=', '.join(columns),
+                                value_type='columns', operation=operation)
+            dataset = eqx.tree_at(lambda x: getattr(x.tables, table_name), dataset, table[list(columns)])
+        return dataset, report
+
+
 class SetAdmissionRelativeTimes(DatasetTransformation):
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
@@ -133,8 +163,8 @@ class SetAdmissionRelativeTimes(DatasetTransformation):
         admissions = dataset.tables.admissions[[c_admittime]]
         tables_dict = dataset.tables.tables_dict
 
-        for table_name, table_time_cols in time_cols.items():
-            table = tables_dict[table_name]
+        for table_name, table_time_cols, table in ((name, cols, tables_dict[name]) for name, cols in
+                                                   time_cols.items() if name in tables_dict):
             df = pd.merge(table, admissions,
                           left_on=c_admission_id,
                           right_index=True,
@@ -184,9 +214,9 @@ class FilterUnsupportedCodes(DatasetTransformation):
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         tables_dict = dataset.tables.tables_dict
-        for table_name, code_column in dataset.config.columns.code_column.items():
+        for (table_name, code_column, table) in ((name, col, tables_dict[name]) for name, col in
+                                                 dataset.config.columns.code_column.items() if name in tables_dict):
             (code_column,) = code_column
-            table = tables_dict[table_name]
             coding_scheme = getattr(dataset.scheme_proxy(schemes_context), table_name)
             n1 = len(table)
             table = table[table[code_column].isin(coding_scheme.codes)]
@@ -197,10 +227,83 @@ class FilterUnsupportedCodes(DatasetTransformation):
         return dataset, report
 
 
+class FilterAdmissionsWithNoDiagnoses(DatasetTransformation):
+    @classmethod
+    def apply(cls, dataset: Dataset, scheme_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
+        dx_discharge = dataset.tables.dx_discharge
+        admissions = dataset.tables.admissions
+        c_admission_id = dataset.config.columns.dx_discharge.admission_id
+        selected_admission_id = set(dx_discharge[c_admission_id].tolist())
+        n1 = len(admissions)
+        admissions = admissions[admissions.index.isin(selected_admission_id)]
+        n2 = len(admissions)
+        report = report.add(table='admissions', column=admissions.index.name, before=n1, after=n2, value_type='count',
+                            operation='filter')
+        dataset = eqx.tree_at(lambda x: x.tables.admissions, dataset, admissions)
+        return cls.synchronize_admissions(dataset, report)
+
+
+class FilterSubjectsWithSingleOrNoAdmission(DatasetTransformation):
+    @classmethod
+    def apply(cls, dataset: Dataset, scheme_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
+        n1 = len(dataset.tables.static)
+        static = cls.filter_subjects_with_less_than_n_admissions(dataset.tables.static, dataset.tables.admissions, 2)
+        n2 = len(static)
+        report = report.add(table='static', column=static.index.name, before=n1, after=n2, value_type='count',
+                            operation='filter')
+        dataset = eqx.tree_at(lambda x: x.tables.static, dataset, static)
+        return cls.synchronize_subjects(dataset, report)
+
+
+class FilterSubjectsWithLongAdmission(DatasetTransformation):
+    @classmethod
+    def apply(cls, dataset: Dataset, scheme_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
+        max_days = dataset.config.select_subjects_with_short_admissions
+        if max_days is None:
+            return cls.skip(dataset, report, reason='select_subjects_with_short_admissions is not configured.')
+
+        a_df = dataset.tables.admissions.copy()
+        static = dataset.tables.static
+        a_df['los'] = (a_df[COLUMN.end_time] - a_df[COLUMN.start_time]).dt.total_seconds() * SECONDS_TO_DAYS_SCALER
+        max_admission_los = a_df.groupby(COLUMN.subject_id)['los'].max().loc[static.index]
+        n1 = len(static)
+        static = static[max_admission_los < max_days]
+        n2 = len(static)
+        report = report.add(table='static', column=static.index.name,
+                            before=n1, after=n2, value_type='count',
+                            operation='filter')
+        dataset = eqx.tree_at(lambda x: x.tables.static, dataset, static)
+        return cls.synchronize_subjects(dataset, report)
+
+
 class ProcessOverlappingAdmissions(DatasetTransformation):
 
     @staticmethod
-    def map_admission_ids(dataset: Dataset, sub2sup: dict[str, str], report: Report) -> tuple[Dataset, Report]:
+    def _collect_overlaps(admissions: pd.DataFrame) -> dict[str, str]:
+
+        """
+        Collect overlapping admissions for a subject.
+        """
+        # Sort by admission time.
+        if len(admissions) == 0:
+            return dict()
+
+        admissions = admissions.sort_values(COLUMN.start_time)
+        intervals = list(zip(admissions.index, admissions[COLUMN.start_time], admissions[COLUMN.end_time]))
+        new_admission = dict()
+        new_admission_id, _, last_discharge = intervals[0]
+        for (admission_id, admission_time, discharge_time) in intervals:
+            if last_discharge < admission_time:
+                new_admission_id = admission_id
+            if new_admission_id != admission_id:
+                new_admission[admission_id] = new_admission_id
+            last_discharge = max(last_discharge, discharge_time)
+        return dict(new_admission)
+
+
+class MergeOverlappingAdmissions(ProcessOverlappingAdmissions):
+    @staticmethod
+    def _tables_map_admission_ids(dataset: Dataset, sub2sup: dict[str, str], report: Report) -> tuple[Dataset, Report]:
         tables_dict = dataset.tables.tables_dict
         c_admission_id = dataset.config.columns.admissions.admission_id
 
@@ -223,48 +326,11 @@ class ProcessOverlappingAdmissions(DatasetTransformation):
         return eqx.tree_at(lambda x: x.tables, dataset, tables), report
 
     @staticmethod
-    def _collect_overlaps(subject_admissions: pd.DataFrame, c_admittime: str, c_dischtime: str) -> dict[str, str]:
-
-        """
-        Collect overlapping admissions for a subject.
-        Tested in test.unit.ehr.test_pipeline.TestProcessOverlappingAdmissions.test_overlapping_cases
-        """
-        # Sort by admission time.
-        subject_admissions = subject_admissions.sort_values(c_admittime)
-
-        # Previous discharge time.
-        index = subject_admissions.index
-        subject_admissions.loc[index[1:], 'prev_dischtime'] = subject_admissions.loc[index[:-1], c_dischtime].values
-        # Cumulative-max of previous discharge time.
-        subject_admissions['prev_dischtime_cummax'] = subject_admissions['prev_dischtime'].cummax()
-
-        # Get corresponding index of the maximum discharge time up to the current admission.
-        lambda_fn = lambda x: subject_admissions[subject_admissions[c_dischtime] == x].first_valid_index()
-        subject_admissions['prev_dischtime_cummax_idx'] = subject_admissions['prev_dischtime_cummax'].map(lambda_fn)
-
-        # Drop admissions with admittime after the prev_max discharge time. No overlaps with preceding admissions.
-        # Note: this line needs to come after adding 'prev_dischtime_cummax_idx' column.
-        subject_admissions = subject_admissions[
-            subject_admissions[c_admittime] <= subject_admissions['prev_dischtime_cummax']]
-        subject_admissions = subject_admissions[subject_admissions['prev_dischtime_cummax_idx'].notnull()]
-
-        # New admissions mappings.
-        child2parent = subject_admissions['prev_dischtime_cummax_idx'].to_dict()
-        # Recursively map parents to further ancestors until the root admission.
-        while len(set(child2parent.values()).intersection(child2parent.keys())) > 0:
-            child2parent = {k: child2parent.get(v, v) for k, v in child2parent.items()}
-
-        return child2parent
-
-    @classmethod
-    def _merge_overlapping_admissions(cls,
-                                      dataset: Dataset,
-                                      sub2sup: dict[str, str], report: Report) -> tuple[Dataset, Report]:
+    def _admissions_map_admission_ids(dataset: Dataset, sub2sup: dict[str, str], report: Report) -> tuple[
+        Dataset, Report]:
         admissions = dataset.tables.admissions
-        c_admission_id = dataset.config.columns.admissions.admission_id
-        c_dischtime = dataset.config.columns.admissions.end_time
 
-        # Map from super-admissions to its sub-admissions.
+        # Step 1: Map from super-admissions to its sub-admissions.
         sup2sub = defaultdict(list)
         for sub, sup in sub2sup.items():
             sup2sub[sup].append(sub)
@@ -272,63 +338,67 @@ class ProcessOverlappingAdmissions(DatasetTransformation):
         # Step 2: Merge overlapping admissions by extending discharge time to the maximum discharge
         # time of its sub-admissions.
         for super_idx, sub_indices in sup2sub.items():
-            current_dischtime = admissions.loc[super_idx, c_dischtime]
-            new_dischtime = max(admissions.loc[sub_indices, c_dischtime].max(), current_dischtime)
-            admissions.loc[super_idx, c_dischtime] = new_dischtime
+            current_dischtime = admissions.loc[super_idx, COLUMN.end_time]
+            new_dischtime = max(max(admissions.loc[sub_indices, COLUMN.end_time].values), current_dischtime)
+            admissions.loc[super_idx, COLUMN.end_time] = new_dischtime
 
         # Step 3: Remove sub-admissions.
         n1 = len(admissions)
         admissions = admissions.drop(list(sub2sup.keys()), axis='index')
         n2 = len(admissions)
         dataset = eqx.tree_at(lambda x: x.tables.admissions, dataset, admissions)
-        report = report.add(table='admissions', column=c_admission_id, value_type='count',
+        report = report.add(table='admissions', column=COLUMN.admission_id, value_type='count',
                             operation='merge_overlapping_admissions',
                             before=n1, after=n2)
+        return dataset, report
 
-        # Step 4: update admission ids in other columns.
-        return cls.map_admission_ids(dataset, sub2sup, report)
+    @classmethod
+    def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
+
+        # Step 1: Collect overlapping admissions
+        # NOTE: assumes unique admissions globally. See ISSUE_ADM_UNIQ in dataset.py.
+        sub2sup = {adm_id: super_adm_id for _, subject_admissions in
+                   dataset.tables.admissions.groupby(COLUMN.subject_id)
+                   for adm_id, super_adm_id in cls._collect_overlaps(subject_admissions).items()}
+        # Step 2: Merge in admissions table
+        dataset, report = cls._admissions_map_admission_ids(dataset, sub2sup, report)
+        # Step 3: Map admission ids in other tables.
+        return cls._tables_map_admission_ids(dataset, sub2sup, report)
+
+
+class RemoveSubjectsWithOverlappingAdmissions(ProcessOverlappingAdmissions):
 
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         admissions = dataset.tables.admissions
-        table_config = dataset.config.columns.admissions
-        c_subject_id = table_config.subject_id
-        c_dischtime = table_config.end_time
-        c_admittime = table_config.start_time
         # Step 1: Collect overlapping admissions
         # Map from sub-admissions to the new super-admissions.
-        sub2sup = {adm_id: super_adm_id for _, subject_adms in admissions.groupby(c_subject_id)
-                   for adm_id, super_adm_id in cls._collect_overlaps(subject_adms, c_admittime, c_dischtime).items()}
+        sub2sup = {adm_id: super_adm_id for _, subject_admissions in admissions.groupby(COLUMN.subject_id)
+                   for adm_id, super_adm_id in cls._collect_overlaps(subject_admissions).items()}
 
-        # Step 2: Apply action.
-        if dataset.config.overlapping_admissions == "merge":
-            # Step 3: Extend discharge time of super admissions, remove sub-admissions,
-            # and update admission ids in other columns.
-            return cls._merge_overlapping_admissions(dataset, sub2sup, report)
-        elif dataset.config.overlapping_admissions == "remove":
-            # Step 3: Collect subjects with at least one overlapping admission and remove them entirely.
-            subject_ids = admissions.loc[sub2sup.keys(), c_subject_id].unique()
-            static = dataset.tables.static
-            n1 = len(static)
-            static = static.drop(subject_ids, axis='index')
-            n2 = len(static)
-            report = report.add(table='static', column=c_subject_id, value_type='count',
-                                operation='filter_problematic_subjects',
-                                before=n1, after=n2)
-            dataset = eqx.tree_at(lambda x: x.tables.static, dataset, static)
-            # Step 4: synchronize subjects
-            return cls.synchronize_subjects(dataset, report)
-        else:
-            raise ValueError(f'Unsupported action: {dataset.config.overlapping_admissions}')
+        # Step 2: Collect subjects with at least one overlapping admission and remove them entirely.
+        subject_ids = admissions.loc[sub2sup.keys(), COLUMN.subject_id].unique()
+        static = dataset.tables.static
+        n1 = len(static)
+        static = static.drop(subject_ids, axis='index')
+        n2 = len(static)
+        report = report.add(table='static', column=COLUMN.subject_id, value_type='count',
+                            operation='filter_problematic_subjects',
+                            before=n1, after=n2)
+        dataset = eqx.tree_at(lambda x: x.tables.static, dataset, static)
+        # Step 4: synchronize subjects
+        return cls.synchronize_subjects(dataset, report)
 
 
 class FilterClampTimestampsToAdmissionInterval(DatasetTransformation):
 
     @classmethod
     def _filter_timestamped_tables(cls, dataset: Dataset, report: Report) -> tuple[Dataset, Report]:
+        tables_dict = dataset.tables.tables_dict
         timestamped_tables_conf = dataset.config.columns.timestamped_tables_config_dict
-        timestamped_tables = {name: getattr(dataset.tables, name) for name in
-                              timestamped_tables_conf.keys()}
+        timestamped_tables = {name: tables_dict[name] for name in
+                              timestamped_tables_conf.keys() if name in tables_dict}
+
         table_config = dataset.config.columns.admissions
         c_admission_id = table_config.admission_id
         c_dischtime = table_config.end_time
@@ -355,9 +425,10 @@ class FilterClampTimestampsToAdmissionInterval(DatasetTransformation):
 
     @classmethod
     def _filter_interval_based_tables(cls, dataset: Dataset, report: Report) -> tuple[Dataset, Report]:
+        tables_dict = dataset.tables.tables_dict
         interval_based_tables_conf = dataset.config.columns.interval_based_table_config_dict
-        interval_based_tables: dict[str, pd.DataFrame] = {name: getattr(dataset.tables, name) for name in
-                                                          interval_based_tables_conf.keys()}
+        interval_based_tables: dict[str, pd.DataFrame] = {name: tables_dict[name] for name in
+                                                          interval_based_tables_conf.keys() if name in tables_dict}
         table_config = dataset.config.columns.admissions
         c_admission_id = table_config.admission_id
         c_dischtime = table_config.end_time
@@ -370,8 +441,8 @@ class FilterClampTimestampsToAdmissionInterval(DatasetTransformation):
             df = pd.merge(table, admissions, how='left',
                           left_on=c_admission_id, right_index=True,
                           suffixes=(None, '_y'))
-            admittime_col =  f'{c_admittime}_y'if c_admittime in table.columns else c_admittime
-            dischtime_col =  f'{c_dischtime}_y'if c_dischtime in table.columns else c_dischtime
+            admittime_col = f'{c_admittime}_y' if c_admittime in table.columns else c_admittime
+            dischtime_col = f'{c_dischtime}_y' if c_dischtime in table.columns else c_dischtime
             # Step 1: Filter out intervals that are entirely outside admission interval.
             index = df[df[c_start_time].between(df[admittime_col], df[dischtime_col]) |
                        df[c_end_time].between(df[admittime_col], df[dischtime_col])].index

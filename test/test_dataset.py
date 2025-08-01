@@ -8,7 +8,7 @@ import pytest
 import tables as tb
 
 import ehrax as rx
-from ehrax.testing.common_setup import DATASET_SCHEME_MANAGER, DATASET_SCHEME_CONF
+from ehrax.testing.common_setup import DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER
 
 
 @pytest.mark.parametrize('columns, id_cols, code_cols, time_cols, index', [
@@ -207,11 +207,11 @@ class TestDatasetWithRecords(AbstractTestDataset):
     def test_random_split(self, processed_dataset: rx.Dataset, subject_ids: list[str],
                           subject_splits: list[list[str]],
                           split_quantiles: list[float]):
-        assert set.union(*list(map(set, subject_splits))) == set(subject_ids)
+        assert set().union(*list(map(set, subject_splits))) == set(subject_ids)
         assert len(subject_splits) == len(split_quantiles) + 1
         # No overlaps.
         assert sum(len(v) for v in subject_splits) == len(processed_dataset.subject_ids)
-        assert set.union(*[set(v) for v in subject_splits]) == set(processed_dataset.subject_ids)
+        assert set().union(*[set(v) for v in subject_splits]) == set(processed_dataset.subject_ids)
 
     @pytest.fixture
     def split_proportions(self, split_quantiles: list[float]):

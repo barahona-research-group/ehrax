@@ -10,8 +10,8 @@ import tables as tb
 import ehrax as rx
 from common_setup import ADMISSION_CONCEPT_MAX_STAY_HOURS
 from ehrax.testing.common_setup import BINARY_OBSERVATION_CODE_INDEX, CATEGORICAL_OBSERVATION_CODE_INDEX, \
-    NUMERIC_OBSERVATION_CODE_INDEX, ORDINAL_OBSERVATION_CODE_INDEX, \
-    inpatient_binary_input, leading_observables_extractor, SCHEMES
+    NUMERIC_OBSERVATION_CODE_INDEX, ORDINAL_OBSERVATION_CODE_INDEX, SCHEMES, inpatient_binary_input, \
+    leading_observables_extractor
 
 
 class TestInpatientObservables:

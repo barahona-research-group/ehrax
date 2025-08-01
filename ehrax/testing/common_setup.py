@@ -1,5 +1,6 @@
 import random
 from typing import cast
+
 import numpy as np
 import numpy.random as nr
 import pandas as pd
@@ -90,9 +91,9 @@ def _dx_codes_history(dx_codes: rx.CodesVector):
 def _outcome(outcome_extractor_: rx.OutcomeExtractor, dataset_scheme_manager: rx.CodingSchemesManager,
              dx_codes: rx.CodesVector):
     source_scheme = dataset_scheme_manager.scheme[dx_codes.scheme]
-    outcome_base_scheme = dataset_scheme_manager.scheme[outcome_extractor_.base_name]
+    base_scheme = dataset_scheme_manager.scheme[outcome_extractor_.base_name]
     code_map = dataset_scheme_manager.map[(dx_codes.scheme, outcome_extractor_.base_name)]
-    extractor = outcome_extractor_.codeset2vec_extractor(outcome_base_scheme, code_map)
+    extractor = outcome_extractor_.codeset2vec_extractor(base_scheme, code_map, source_scheme)
     return extractor(source_scheme.vec2codeset(dx_codes.vec))
 
 
@@ -116,7 +117,8 @@ def sample_admissions_dataframe(subjects_df: pd.DataFrame,
     c_admission_time = str(rx.COLUMN.start_time)
     c_discharge_time = str(rx.COLUMN.end_time)
     admit_dates = pd.to_datetime(random.choices(pd.date_range(start='1/1/2000', end='1/1/2020', freq='D'), k=n))
-    disch_dates = admit_dates + pd.to_timedelta(random.choices(range(1, max_stay_days), k=n), unit='D')
+    los = [random.uniform(0.5, max_stay_days * 0.99) for _ in range(n)]
+    disch_dates = admit_dates + pd.to_timedelta(los, unit='D')
 
     return pd.DataFrame({
         c_subject: random.choices(subjects_df[c_subject], k=n),
@@ -155,7 +157,7 @@ def _sample_proc_dataframe(admissions_df: pd.DataFrame,
                   on=c_admission,
                   suffixes=(None, '_y'))
     c_admittime = f'{c_admittime}_y' if c_admittime in df_in.columns else c_admittime
-    c_dischtime = f'{c_dischtime}_y'if c_dischtime in df_in.columns else c_dischtime
+    c_dischtime = f'{c_dischtime}_y' if c_dischtime in df_in.columns else c_dischtime
 
     df['los'] = (df[c_dischtime] - df[c_admittime]).dt.total_seconds() / 3600
     relative_start = nr.uniform(0, df['los'].values.tolist(), size=n)
