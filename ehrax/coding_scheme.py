@@ -18,7 +18,7 @@ import tables as tbl  # type: ignore
 from .base import AbstractVxData
 from .freezer import FrozenDict11, FrozenDict1N, FrozenDict1NM
 from .literals import AggregationLiteral, NumericalTypeHint
-from .utils import Array, load_config, resources_path, tqdm_constructor
+from .utils import Array, load_config, resources_path, tqdm_constructor, dataframe_logger
 
 
 class CodesVector(AbstractVxData):
@@ -807,11 +807,16 @@ class CodeMap(AbstractVxData):
         df = df.iloc[:, :]
         code2list = {k: list(v) if len(v) > 1 else next(iter(v)) for k, v in self.data.items()}
         df[code_column] = df[code_column].map(code2list)
-
-        if df[code_column].isna().sum() > 0:
-            logging.warning(
-                f"Some codes are not mapped to the target scheme: {df[code_column].isna().sum()} / {len(df)}")
-            # TODO: Add to the report the conversion misses.
+        invalid_rows = df[code_column].isna()
+        if invalid_rows.sum() > 0:
+            unique_codes = df.loc[invalid_rows, code_column].unique()
+            total_unique_codes = df[code_column].unique()
+            dataframe_logger.info(
+                (f"Some codes are not mapped to the target scheme: "
+                 f"Total rows removed {invalid_rows.sum()} / {len(invalid_rows)} = {invalid_rows.mean(): .3f}. "
+                 f"Unique codes dropped: {len(unique_codes)} / {len(total_unique_codes)} = "
+                 f"{len(unique_codes) / len(total_unique_codes): .3f}.",
+                 pd.DataFrame(unique_codes, columns=[code_column]), 'unique_columns_missed'))
             df = df[~df[code_column].isna()]
         return df.explode(code_column)
 
@@ -1170,4 +1175,3 @@ class CodingSchemesManager(AbstractVxData):
         m_ba = CodeMap(scheme_b.name, scheme_a.name,
                        data=FrozenDict1N({b: {a} for a, b in zip(codes_a, codes_b)}))
         return self.add_map(m_ab).add_map(m_ba)
-

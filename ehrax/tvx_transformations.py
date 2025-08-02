@@ -17,6 +17,7 @@ from .tvx_concepts import Admission, CodesVector, InpatientInput, InpatientInter
     LeadingObservableExtractor, Patient, StaticInfo
 from .tvx_ehr import CodedValueProcessor, CodedValueScaler, IQROutlierRemoverConfig, ScalerConfig, SegmentedTVxEHR, \
     TVxEHR, TVxReport, TVxReportAttributes
+from .utils import dataframe_logger
 
 
 def dataset_surgery(getter: Callable[[TVxEHR], Any], dataset: TVxEHR, replacement: Any) -> TVxEHR:
@@ -596,14 +597,16 @@ class TVxConcepts(AbstractTransformation):
             unique_removed = unique_codes_a - unique_codes_b
             n_uniq_a = len(unique_codes_a)
             n_uniq_rem = len(unique_removed)
-            logging.warning(f'Some codes are not in the target scheme. '
-                            f'{n1 - n2} / {n1} = {(n1 - n2) / n1: .2f} rows were removed.'
-                            f'{n_uniq_rem} / {n_uniq_a} = {n_uniq_rem / n_uniq_a: .2f} '
-                            f'unique codes were removed.')
             source_scheme = tvx_ehr.dataset.scheme_proxy(schemes_context).dx_discharge
-            lost_df = pd.DataFrame([(code, source_scheme.desc[code]) for code in unique_removed],
-                                   columns=['code', 'description'])
-            logging.warning(lost_df.to_string().replace('\n', '\n\t'))
+            dataframe_logger.info((
+                f'Some codes are not in the target scheme. '
+                f'{n1 - n2} / {n1} = {(n1 - n2) / n1: .2f} rows were removed. '
+                f'{n_uniq_rem} / {n_uniq_a} = {n_uniq_rem / n_uniq_a: .2f} '
+                f'unique codes were removed (see report).',
+                pd.DataFrame([(code, source_scheme.desc[code]) for code in unique_removed],
+                             columns=['code', 'description']),
+                'lost_dx_discharge_codes_unique'
+            ))
 
         dx_codes_set = dx_discharge.groupby(c_adm_id)[c_code].apply(set).to_dict()
         dx_codes_set = {k: dx_mapper.map_codeset(v) for k, v in dx_codes_set.items()}

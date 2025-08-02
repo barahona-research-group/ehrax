@@ -1,4 +1,3 @@
-import logging
 from typing import Self
 
 import pandas as pd
@@ -6,6 +5,7 @@ import pandas as pd
 from ..coding_scheme import CodeMap, CodingScheme, CodingSchemesManager, FrozenDict11, FrozenDict1N
 from ..dataset import COLUMN
 from ..example_schemes.icd import ICDScheme
+from ..utils import dataframe_logger
 
 
 class MixedICDScheme(CodingScheme):
@@ -118,11 +118,12 @@ class MixedICDScheme(CodingScheme):
                         continue
                     stats0 = f'v{v} {n_lost_version} ({n_lost_version / n_lost:.2f})'
                     stats1 = f'v{v} {n_lost_version / n_version: .2f}'
-                    logging.warning(f"Lost {n_lost} codes when generating the mapping between the Mixed ICD "
-                                    f"({self.name}) and the standard ({icd_schemes[v].name}). "
-                                    f"Loss stats: {', '.join(stats0)}; "
-                                    f"Loss ratios: {', '.join(stats1)}.")
-                    logging.warning(lost_df.to_string().replace('\n', '\n\t'))
+                    dataframe_logger.info((
+                        f"Lost {n_lost} codes when generating the mapping between the Mixed ICD "
+                        f"({self.name}) and the standard ({icd_schemes[v].name}). "
+                        f"Loss stats: {', '.join(stats0)}; "
+                        f"Loss ratios: {', '.join(stats1)}.",
+                        lost_df, f'mixed_to_{icd_schemes[v].name}_lost_codes'))
 
         return manager
 

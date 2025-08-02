@@ -1,13 +1,16 @@
 """Miscalleneous utility functions."""
 
 import json
+import logging
 import os
+from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pandas as pd
 from jax._src.tree_util import DictKey, FlattenedIndexKey, GetAttrKey, KeyEntry, SequenceKey
 from jaxlib._jax import ArrayImpl
 from tqdm import tqdm
@@ -187,3 +190,52 @@ def equal_arrays(a: Array, b: Array) -> bool:
         return True
     is_nan = _np.isnan(a) & _np.isnan(b)
     return _np.array_equal(a[~is_nan], b[~is_nan], equal_nan=False)  # type: ignore
+
+
+class DataFrameLogger(logging.LoggerAdapter):
+    @property
+    def extract_file_handler_names(self) -> Optional[tuple[str, str, str]]:
+        for handler in self.logger.handlers:
+            if isinstance(handler, logging.FileHandler):
+                # baseFilename is actually the absolute path.
+                # https://github.com/python/cpython/blob/801cf3fcdd27d8b6dd0fdd3c39e6c996e2b2f7fa/Lib/logging/__init__.py#L1200
+                file_title = Path(handler.baseFilename).stem
+                file_suffix = Path(handler.baseFilename).suffix
+                file_parent = str(Path(handler.baseFilename).parent)
+                return file_parent, file_title, file_suffix
+        return None
+
+    def process(self, msg: tuple[str, pd.DataFrame, Optional[str]],
+                kwargs: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        if len(msg) == 2:
+            msg = (*msg, '')
+        assert tuple(map(type, msg)) == (str, pd.DataFrame, str)
+        description, dataframe, tag = msg
+        # timestamp representative and incremental id.
+        timestamp = pd.Timestamp.now().strftime('%Y_%m_%dT_%H_%M_%S')
+        if self.extra is None:
+            self.extra = {}
+        incremental_id = self.extra.get('incremental_id', 0) + 1
+        self.extra = dict(self.extra) | {'incremental_id': incremental_id}
+        filehandler_names = self.extract_file_handler_names
+        if filehandler_names is None:
+            return (f'{description}. Appendix report will not be saved to disk because '
+                    f'no single file handler found in the logger. '
+                    f'To store the appendix report, configure the logger {self.logger.name} '
+                    f'by either adding a FileHandler manually or call logging.basicConfig '
+                    f'with setting the filename argument.'), kwargs
+        parent_dir, main_log_file, main_log_file_suffix = self.extract_file_handler_names
+        file_title = '_'.join((main_log_file, tag, timestamp, f'{incremental_id:03d}'))
+        file_path = Path(parent_dir, file_title).with_suffix(f'{main_log_file_suffix}.csv')
+        dataframe.to_csv(file_path, index=False)
+        return (f'{description}. Find the appendix report stored as a table of '
+                f'columns {dataframe.columns} and {len(dataframe)} rows at ({file_path}).'), kwargs
+
+
+def attached_dataframe_logger(logger: logging.Logger, extra: Optional[dict[str, Any]] = None) -> DataFrameLogger:
+    if extra is None:
+        extra = {}
+    return DataFrameLogger(logger, extra)
+
+
+dataframe_logger = attached_dataframe_logger(logging.getLogger())
