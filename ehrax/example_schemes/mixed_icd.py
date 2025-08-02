@@ -88,11 +88,18 @@ class MixedICDScheme(CodingScheme):
         between the individual ICD schemes.
         """
         dataframe = self.as_dataframe()
+        dataframe_groupby = [(v, version_df) for v, version_df in dataframe.groupby('icd_version')]
         icd_schemes = self.icd_schemes(manager)
+        stats = pd.DataFrame(columns=['count'] + [f'standard-ICD-{v}' for v in icd_schemes.keys()],
+                             index=['mixed-ICD'] + [f'mixed-ICD-v{v}' for v in icd_schemes.keys()])
+        stats.loc['mixed-ICD', 'count'] = len(dataframe)
+        for v, version_df in dataframe_groupby:
+            stats.loc[f'mixed-ICD-v{v}', 'count'] = len(version_df)
+
         for standard_version, standard_scheme in icd_schemes.items():
             # mixed2pure has the form {mixed_code: {icd}}.
             mixed2standard = {}
-            for mixed_version, mixed_version_df in dataframe.groupby('icd_version'):
+            for mixed_version, mixed_version_df in dataframe_groupby:
                 mixed_format_to_standard_icd = mixed_version_df.set_index('code')['icd_code'].to_dict()
                 if mixed_version == standard_version:
                     update = {c: {icd} for c, icd in mixed_format_to_standard_icd.items() if icd in standard_scheme}
@@ -107,24 +114,24 @@ class MixedICDScheme(CodingScheme):
             # register the mapping between the mixed and pure ICD schemes.
             manager = manager.add_map(CodeMap(source_name=self.name, target_name=standard_scheme.name,
                                               data=FrozenDict1N(mixed2standard)))
+            for mixed_version, version_subset_df in dataframe_groupby:
+                n_mapped = version_subset_df['code'].isin(mixed2standard).sum()
+                stats.loc[f'mixed-ICD-v{mixed_version}', f'standard-ICD-{standard_version}'] = n_mapped
+            stats.loc['mixed-ICD', f'standard-ICD-{standard_version}'] = dataframe['code'].isin(mixed2standard).sum()
+            lost_codes_df = dataframe[~dataframe['code'].isin(mixed2standard.keys())]
+            dataframe_logger.info((
+                f"Lost {len(lost_codes_df)} codes when generating the mapping between the Mixed ICD "
+                f"({self.name})) and the standard ({icd_schemes[standard_version].name}). ",
+                lost_codes_df, f'mixed_to_{icd_schemes[standard_version].name}_lost_codes'))
 
-            lost_df = dataframe[~dataframe['code'].isin(mixed2standard)]
-            if len(lost_df) > 0:
-                n_lost = len(lost_df)
-                for v in icd_schemes:
-                    n_lost_version = (lost_df['icd_version'] == v).sum()
-                    n_version = (dataframe['icd_version'] == v).sum()
-                    if n_version == 0:
-                        continue
-                    stats0 = f''
-                    stats1 = f''
-                    dataframe_logger.info((
-                        f"Lost {n_lost} codes when generating the mapping between the Mixed ICD "
-                        f"({self.name}) and the standard ({icd_schemes[v].name}). "
-                        f"Loss stats: v{v} {n_lost_version} ({n_lost_version / n_lost:.2f}). "
-                        f"Loss ratios: v{v} {n_lost_version / n_version: .2f}.",
-                        lost_df, f'mixed_to_{icd_schemes[v].name}_lost_codes'))
-
+        lost_stats = len(dataframe) - pd.DataFrame(stats.iloc[:, 1:], columns=[f'Lost {c}' for c in stats.columns[1:]])
+        stats = pd.concat([stats, lost_stats], axis=1)
+        norm_stats = pd.DataFrame(stats, index=[f'%{i}' for i in stats.index]) / len(dataframe)
+        stats = pd.concat([stats, norm_stats], axis=0)
+        dataframe_logger.info((
+            f"Statistics of the mapping between the Mixed ICD ({self.name}) and the standard ICD schemes.",
+            stats, f'mixed_to_standard_stats'
+        ))
         return manager
 
     def register_map(self, manager: CodingSchemesManager, target_name: str,
