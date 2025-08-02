@@ -1,4 +1,3 @@
-import os
 from unittest import mock
 
 import pytest
@@ -8,8 +7,6 @@ import ehrax as rx
 from ehrax import CodeMap, CodingScheme, CodingSchemesManager, FrozenDict1N
 from ehrax.example_schemes.icd import CCSICDOutcomeSelection, CCSICDSchemeSelection, setup_icd_outcomes, \
     setup_icd_schemes, setup_standard_icd_ccs
-
-_DIR = os.path.dirname(__file__)
 
 
 class TestFlatScheme:
@@ -393,7 +390,7 @@ class TestCodingSchemesManager:
     def scheme2(self) -> CodingScheme:
         return CodingScheme(name='t', codes=('C', 'D'))
 
-    @pytest.fixture(scope='class') # to test chaining.
+    @pytest.fixture(scope='class')  # to test chaining.
     def scheme3(self) -> CodingScheme:
         return CodingScheme(name='q', codes=('E', 'F'))
 
@@ -402,21 +399,21 @@ class TestCodingSchemesManager:
         return CodeMap(source_name=scheme1.name, target_name=scheme2.name,
                        data=FrozenDict1N({'A': {'D'}}))
 
-    @pytest.fixture(scope='class') # to test chaining
+    @pytest.fixture(scope='class')  # to test chaining
     def map_b(self, scheme2: CodingScheme, scheme3: CodingScheme) -> CodeMap:
         return CodeMap(source_name=scheme2.name, target_name=scheme3.name,
                        data=FrozenDict1N({'D': {'F'}}))
 
     @pytest.fixture(scope='class')
-    def scheme_x(self) -> CodingScheme: # to test match map
+    def scheme_x(self) -> CodingScheme:  # to test match map
         return CodingScheme(name='x', codes=tuple(sorted(('xO', 'hY', ' zN'))))
 
     @pytest.fixture(scope='class')
-    def scheme_y(self) -> CodingScheme: # to test match map
+    def scheme_y(self) -> CodingScheme:  # to test match map
         return CodingScheme(name='y', codes=tuple(sorted((' Xo', 'Hy ', 'ZN'))))
 
     @pytest.fixture(scope='class')
-    def scheme_z(self) -> CodingScheme: # to test match map
+    def scheme_z(self) -> CodingScheme:  # to test match map
         return CodingScheme(name='z', codes=(' Xoo', 'iHy ', 'iiii'))
 
     @pytest.fixture(scope='class')
@@ -436,16 +433,18 @@ class TestCodingSchemesManager:
                       manager3: CodingSchemesManager) -> CodingSchemesManager:
         return manager1 + manager2 + manager3
 
-    @pytest.fixture(scope='class') # to test chaining
-    def manager_all(self, manager_union: CodingSchemesManager, scheme3: CodingScheme, map_b: CodeMap) -> CodingSchemesManager:
+    @pytest.fixture(scope='class')  # to test chaining
+    def manager_all(self, manager_union: CodingSchemesManager, scheme3: CodingScheme,
+                    map_b: CodeMap) -> CodingSchemesManager:
         return manager_union.add_scheme(scheme3).add_map(map_b)
 
-    @pytest.fixture(scope='class') # tot test chaining
+    @pytest.fixture(scope='class')  # tot test chaining
     def manager_with_chained_map(self, manager_all: CodingSchemesManager):
         return manager_all.add_chained_map('s', 't', 'q')
 
     @pytest.fixture(scope='class')
-    def manager4matchmap(self, scheme_x: CodingScheme, scheme_y: CodingScheme, scheme_z: CodingScheme) -> CodingSchemesManager:
+    def manager4matchmap(self, scheme_x: CodingScheme, scheme_y: CodingScheme,
+                         scheme_z: CodingScheme) -> CodingSchemesManager:
         return CodingSchemesManager().add_scheme(scheme_x).add_scheme(scheme_y).add_scheme(scheme_z)
 
     @pytest.fixture(scope='class')
@@ -484,7 +483,6 @@ class TestCodingSchemesManager:
         assert len(manager_union.schemes) == 2
         assert len(manager_union.identity_maps) == 2
         assert len(manager_union.map) == 3
-
 
     def test_chained_map(self, manager_all: CodingSchemesManager, manager_with_chained_map: CodingSchemesManager):
         assert ('s', 't') in manager_all.map

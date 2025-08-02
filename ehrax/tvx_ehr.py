@@ -400,7 +400,7 @@ _SplitsType = tuple[tuple[str, ...], ...]
 
 class TVxEHR(AbstractProcessedDataset):
     """
-    A class representing a collection of patients in the EHR system, in ML-compliant format.
+    A class representing a sequence of patients in the EHR system, in ML-compliant format.
 
     Attributes:
         config (TVxEHRConfig): the configuration for the interface.
@@ -461,7 +461,7 @@ class TVxEHR(AbstractProcessedDataset):
         if subject_ids is None:
             subject_ids = self.subject_ids
         # generating lambdas inside generators can lead to unexpected behaviour, e.g. all lambdas can be bounded
-        # to one value of subject_id (the last one of the collection).
+        # to one value of subject_id (the last one of the sequence).
         # https://stackoverflow.com/a/452660
         return fetch_at(tuple(map(lambda k: lambda x: x.subjects[k], subject_ids)), self)
 

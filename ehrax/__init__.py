@@ -112,6 +112,7 @@ from .tvx_transformations import (
 )
 
 from .utils import (
+    Array, ArrayTypes,
     path_from_getter,
     path_from_jax_keypath,
     load_config, write_config,

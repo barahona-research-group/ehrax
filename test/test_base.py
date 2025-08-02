@@ -6,8 +6,10 @@ import numpy as np
 import pandas as pd
 import pytest
 import tables as tb
+from tables import PerformanceWarning
 
 import ehrax as rx
+from ehrax.base import MAX_SEGMENT_SIZE
 
 
 # (A) Test ModuleMeta and AbstractModule
@@ -344,7 +346,7 @@ class TestHDFVirtualNode:
         assert dummy_vnode.parent_path == 'y'
         assert dummy_vnode.type_enum == 'z'
         with pytest.raises(AttributeError):
-            dummy_vnode.foo
+            _ = dummy_vnode.foo
 
     def test_equality(self, dummy_vnode):
         with pytest.raises(ValueError, match="You are trying to test equality with a virtual unfetched node"):
@@ -356,7 +358,7 @@ class TestHDFVirtualNode:
 
     def test_from_hdf(self):
         with pytest.raises(ValueError, match="You are trying to deserialize"):
-            dummy_vnode = rx.HDFVirtualNode.from_hdf_group(None)
+            _ = rx.HDFVirtualNode.from_hdf_group(None)
 
 
 COMPLETE_VX_DATA = VxData(a={'a': 1, 'b': VxData(None, 1, 'x')},
@@ -484,7 +486,7 @@ class TestLazyLoading:
         assert not _cmp(getter(hdf_deserialized_one_level_fetched_at_vxdata), node)
         # Children themselves must be virtual nodes.
 
-        # if the virtual node represents a collection containing plain types, then it will be loaded!
+        # if the virtual node represents a sequence containing plain types, then it will be loaded!
         get_immediate_leaves = (lambda x: eqx.tree_flatten_one_level(x)[0]) if type(node) is not set else (
             lambda x: list(x))
         if set(map(type, get_immediate_leaves(node))).issubset(rx.base.SERIES_GROUPED_ELEMENT_TYPES):
@@ -505,3 +507,31 @@ class TestLazyLoading:
         assert hdf_deserialized_fetched_at_vxdata2.equals(complete_vx_data)
         assert hdf_deserialized_fetched_all_vxdata2.equals(complete_vx_data)
         assert hdf_deserialized_fetched_at_vxdata2.equals(hdf_deserialized_fetched_all_vxdata2)
+
+
+class TestLargeDataSegmentation:
+    BAD_PERFORMANCE_N_ATTRS = 5000
+    BAD_PERFORMANCE_N_CHILDREN = 17000
+
+    @pytest.fixture(scope='class', params=[MAX_SEGMENT_SIZE - 1, MAX_SEGMENT_SIZE, MAX_SEGMENT_SIZE + 1,
+                                           max(BAD_PERFORMANCE_N_ATTRS, BAD_PERFORMANCE_N_CHILDREN)])
+    def wide_data(self, request):
+        n = request.param
+        return VxData({5: [VxData(0, {}, [])] * n}, {'a': ()}, {i: VxData(0, 12, i) for i in range(n)})
+
+    def test_ensure_correctness_of_attributes_warning_capture(self, hf5_group_writer: tb.Group):
+        with pytest.warns(PerformanceWarning, match="maximum number of attributes"):
+            for i in range(self.BAD_PERFORMANCE_N_ATTRS):
+                hf5_group_writer._v_attrs[f'x{i}'] = i
+
+    def test_ensure_correctness_of_children_warning_capture(self, hf5_writer_file: tb.File):
+        with pytest.warns(PerformanceWarning, match="maximum number of children"):
+            for i in range(self.BAD_PERFORMANCE_N_CHILDREN):
+                hf5_writer_file.create_group(f'/x{i}/y', 'z', createparents=True)
+
+    @pytest.mark.filterwarnings('error:.*maximum number of.*')  # children or attributes
+    def test_no_serialization_performance_warning(self, wide_data: VxData, tmp_path_factory):
+        filename = tmp_path_factory.mktemp('wide').joinpath('data.h5')
+        wide_data.save(filename, complevel=0)
+        loaded = VxData.load(filename)
+        assert wide_data.equals(loaded)
