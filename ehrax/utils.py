@@ -88,7 +88,9 @@ def write_config(data, config_file):
         json.dump(data, outfile, indent=4, sort_keys=True, cls=NumpyEncoder)
 
 
-def path_from_getter(getter: Callable[[Any], Any]) -> list[str]:
+def path_from_getter(getter: Callable[[Any], Any],
+                     getattr_transform: Callable[[str], str] = lambda x: x,
+                     getitem_transform: Callable[[Any], str] = lambda x: x) -> list[str]:
     """
     Generate a sequence of attribute names or indices (converted to strings) recording the sequence of access steps
     applied by the function on its input.
@@ -113,25 +115,27 @@ def path_from_getter(getter: Callable[[Any], Any]) -> list[str]:
             try:
                 return object.__getattribute__(self, item)
             except AttributeError:
-                return _M(object.__getattribute__(self, '_x_path') + [item])
+                return _M(object.__getattribute__(self, '_x_path') + [getattr_transform(item)])
 
         def __getitem__(self, item: str):
-            return _M(object.__getattribute__(self, '_x_path') + [str(item)])
+            return _M(object.__getattribute__(self, '_x_path') + [str(getitem_transform(item))])
 
     return getter(_M([]))._x_path
 
 
-def path_from_jax_keypath(path: tuple[KeyEntry, ...]) -> list[str]:
+def path_from_jax_keypath(path: tuple[KeyEntry, ...],
+                          getattr_transform: Callable[[str], str] = lambda x: x,
+                          getitem_transform: Callable[[Any], str] = lambda x: x) -> list[str]:
     def _extract(entry: KeyEntry):
         match entry:
             case GetAttrKey(name):
-                return name
+                return getattr_transform(name)
             case SequenceKey(idx):
-                return str(idx)
+                return str(getitem_transform(idx))
             case DictKey(key):
-                return str(key)
+                return str(getitem_transform(key))
             case FlattenedIndexKey(key):
-                return str(key)
+                return str(getitem_transform(key))
             case _:
                 raise ValueError(f"Unexpected key {entry}")
 
