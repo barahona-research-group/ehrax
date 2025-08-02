@@ -116,13 +116,13 @@ class MixedICDScheme(CodingScheme):
                     n_version = (dataframe['icd_version'] == v).sum()
                     if n_version == 0:
                         continue
-                    stats0 = f'v{v} {n_lost_version} ({n_lost_version / n_lost:.2f})'
-                    stats1 = f'v{v} {n_lost_version / n_version: .2f}'
+                    stats0 = f''
+                    stats1 = f''
                     dataframe_logger.info((
                         f"Lost {n_lost} codes when generating the mapping between the Mixed ICD "
                         f"({self.name}) and the standard ({icd_schemes[v].name}). "
-                        f"Loss stats: {', '.join(stats0)}; "
-                        f"Loss ratios: {', '.join(stats1)}.",
+                        f"Loss stats: v{v} {n_lost_version} ({n_lost_version / n_lost:.2f}). "
+                        f"Loss ratios: v{v} {n_lost_version / n_version: .2f}.",
                         lost_df, f'mixed_to_{icd_schemes[v].name}_lost_codes'))
 
         return manager

@@ -229,7 +229,7 @@ class DataFrameLogger(logging.LoggerAdapter):
         file_path = Path(parent_dir, file_title).with_suffix(f'{main_log_file_suffix}.csv')
         dataframe.to_csv(file_path, index=False)
         return (f'{description}. Find the appendix report stored as a table of '
-                f'columns {dataframe.columns} and {len(dataframe)} rows at ({file_path}).'), kwargs
+                f'columns {dataframe.columns.tolist()} and {len(dataframe)} rows at ({file_path}).'), kwargs
 
 
 def attached_dataframe_logger(logger: logging.Logger, extra: Optional[dict[str, Any]] = None) -> DataFrameLogger:

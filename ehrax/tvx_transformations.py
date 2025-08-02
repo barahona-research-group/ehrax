@@ -599,8 +599,9 @@ class TVxConcepts(AbstractTransformation):
             n_uniq_rem = len(unique_removed)
             source_scheme = tvx_ehr.dataset.scheme_proxy(schemes_context).dx_discharge
             dataframe_logger.info((
-                f'Some codes are not in the target scheme. '
-                f'{n1 - n2} / {n1} = {(n1 - n2) / n1: .2f} rows were removed. '
+                f'In mapping ({dx_mapper.source_name}->{dx_mapper.target_name}), '
+                f'some codes are not mapped to the target scheme.\n'
+                f'{n1 - n2} / {n1} = {(n1 - n2) / n1: .2f} rows were removed.\n'
                 f'{n_uniq_rem} / {n_uniq_a} = {n_uniq_rem / n_uniq_a: .2f} '
                 f'unique codes were removed (see report).',
                 pd.DataFrame([(code, source_scheme.desc[code]) for code in unique_removed],
