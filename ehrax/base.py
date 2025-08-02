@@ -288,7 +288,7 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
         # Empty dataframes/series are not saved in hdf file, https://github.com/pandas-dev/pandas/issues/13016,
         # https://github.com/PyTables/PyTables/issues/592
         # We still need to preserve the column names, dtypes, index name, index dtype, in a metadata object, to
-        # fulfill perfect serialization/deserialization and have stricter unit-testing.
+        # fulfill perfect serialisation/deserialisation and have stricter unit-testing.
         hdf = group._v_file
         if data.empty:
             key = hdf.create_group(group, 'empty_metadata')._v_pathname
@@ -413,14 +413,14 @@ SERIALIZABLE_FLAT_COLLECTION_TYPES: tuple[type, ...] = sum((e.value for e in SER
 SERIALIZABLE_FLAT_DICT_TYPES: tuple[type, ...] = sum((e.value for e in SERIALIZABLE_FLAT_DICT), ())
 SERIALIZABLE_FLAT_DICT_KEY_TYPES: tuple[type, ...] = sum((e.value for e in SERIALIZABLE_FLAT_DICT_KEY), ())
 
-# Serialized elements within homogeneous- and flat-list, -tuple, -dict.
+# Serialised elements within homogeneous- and flat-list, -tuple, -dict.
 SERIALIZABLE_ELEMENT = (SERIALIZABLE_FIELD.numpy_array, SERIALIZABLE_FIELD.pandas_dataframe,
                         SERIALIZABLE_FIELD.pandas_series, SERIALIZABLE_FIELD.hdf_serializable,
                         SERIALIZABLE_FIELD.config, SERIALIZABLE_FIELD.string, SERIALIZABLE_FIELD.integer,
                         SERIALIZABLE_FIELD.float, SERIALIZABLE_FIELD.boolean, SERIALIZABLE_FIELD.timestamp)
 SERIALIZABLE_ELEMENT_TYPES = sum((e.value for e in SERIALIZABLE_ELEMENT), ())
 
-# These element types contained within homogeneous container, can be converted to a pandas Series first.
+# These element types contained within a homogeneous container, can be converted to a pandas Series first.
 SERIES_GROUPED_ELEMENT = (SERIALIZABLE_FIELD.float, SERIALIZABLE_FIELD.integer, SERIALIZABLE_FIELD.boolean,
                           SERIALIZABLE_FIELD.string, SERIALIZABLE_FIELD.none)
 SERIES_GROUPED_ELEMENT_TYPES = sum((e.value for e in SERIES_GROUPED_ELEMENT), ())
