@@ -154,6 +154,7 @@ def setup_standard_icd_ccs(icd_selection: ICDSchemeSelection = ICDSchemeSelectio
                            outcome_selection: OutcomeSelection = OutcomeSelection.all()) -> CodingSchemesManager:
     manager = setup_icd_schemes(icd_selection)
     manager = setup_icd_icd_maps(manager, icd_selection)
+    manager = setup_ccs_schemes(manager, ccs_selection)
     manager = setup_icd_ccs_maps(manager, icd_selection, ccs_selection)
     manager = setup_outcomes(manager, outcome_selection)
     return manager
