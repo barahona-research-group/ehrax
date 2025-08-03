@@ -126,7 +126,7 @@ class MixedICDScheme(CodingScheme):
 
         lost_stats = len(dataframe) - stats.iloc[:, 1:].rename(columns=lambda c: f'Lost {c}')
         stats = pd.concat([stats, lost_stats], axis=1)
-        norm_stats = pd.DataFrame(stats, index=[f'%{i}' for i in stats.index]) / len(dataframe)
+        norm_stats = stats.rename(index=lambda i: f'%{i}') / len(dataframe)
         stats = pd.concat([stats, norm_stats], axis=0)
         dataframe_logger.info((
             f"Statistics of the mapping between the Mixed ICD ({self.name}) and the standard ICD schemes.",
