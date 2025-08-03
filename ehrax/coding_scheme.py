@@ -6,7 +6,7 @@ import math
 import re
 from abc import ABCMeta, abstractmethod
 from collections import OrderedDict, defaultdict
-from collections.abc import Iterable, Mapping, Sized
+from collections.abc import Iterable, Mapping, Sized, Collection
 from functools import cached_property
 from types import MappingProxyType
 from typing import Callable, ClassVar, Optional, Self, cast
@@ -185,15 +185,16 @@ class CodingScheme(AbstractVxData):
         assert len(vec) == len(self), f"Vector length should be {len(self)}."
         return set(map(lambda idx: self.index2code[int(idx)], np.where(vec)[0]))
 
-    def as_dataframe(self) -> pd.DataFrame:
+    def as_dataframe(self, codes: Optional[Collection[str]] = None) -> pd.DataFrame:
         """
         Returns the scheme as a Pandas DataFrame.
         The DataFrame contains the following columns:
             - code: the code string
             - desc: the code description
         """
-
-        index = list(range(len(self)))
+        if codes is None:
+            codes = self.codes
+        index = list(map(self.index.get, codes))
         return pd.DataFrame(
             {
                 "code": self.index2code,
@@ -341,7 +342,7 @@ class HierarchicalScheme(CodingScheme):
         assert isinstance(self.ch2pt, FrozenDict1N), f"{self}: ch2pt should be a dict."
         for collection in [self.dag_codes, self.dag_desc.values(), self.dag_desc.keys(), self.code2dag.keys(),
                            self.dag_desc.values(), self.code2dag.values(), self.ch2pt.keys(),
-                           frozenset().union(*self.ch2pt.values())]:
+                           frozenset(v for vs in self.ch2pt.values() for v in vs)]:
             assert all(
                 isinstance(c, str) for c in collection
             ), f"{self}: All name types should be str."
@@ -398,7 +399,7 @@ class HierarchicalScheme(CodingScheme):
         return code in self.dag_codes or code in self.codes
 
     @staticmethod
-    def reverse_connection(connection: Mapping[str, set[str]]) -> FrozenDict1N[str]:
+    def reverse_connection(connection: Mapping[str, frozenset[str]]) -> FrozenDict1N[str]:
         """
         Reverses a connection dictionary.
 
@@ -415,7 +416,7 @@ class HierarchicalScheme(CodingScheme):
         return FrozenDict1N(rev_connection)
 
     @staticmethod
-    def _bfs_traversal(connection: FrozenDict1N, code: str, include_itself: bool) -> list[str]:
+    def _bfs_traversal(connection: Mapping[str, frozenset[str]], code: str, include_itself: bool) -> list[str]:
         """
         Performs a breadth-first traversal of the hierarchy.
 
@@ -455,16 +456,16 @@ class HierarchicalScheme(CodingScheme):
         Returns:
             list[str]: A list of codes visited during the traversal.
         """
-        result = {code} if include_itself else set()
+        result = [code] if include_itself else []
 
         def _traversal(_node):
             for conn in connection.get(_node) or ():
-                result.add(conn)
+                result.append(conn)
                 _traversal(conn)
 
         _traversal(code)
 
-        return list(result)
+        return list(set(result))
 
     @staticmethod
     def _dfs_edges(connection: FrozenDict1N, code: str) -> set[tuple[str, str]]:
@@ -478,16 +479,16 @@ class HierarchicalScheme(CodingScheme):
         Returns:
             set[tuple[str, str]]: a set of edges in the hierarchy.
         """
-        result = set()
+        result = []
 
         def _edges(_node):
             connections = connection.get(_node) or ()
             for conn in connections:
-                result.add((_node, conn))
+                result.append((_node, conn))
                 _edges(conn)
 
         _edges(code)
-        return result
+        return set(result)
 
     def code_ancestors_bfs(self, code: str, include_itself: bool) -> list[str]:
         """
@@ -653,7 +654,7 @@ class CodeMap(AbstractVxData):
         assert target_scheme.name == self.target_name, "The target scheme must be the same as the target name."
         if not isinstance(target_scheme, HierarchicalScheme) or target_scheme.dag_codes is target_scheme.codes:
             return False
-        map_target_codes = frozenset().union(*self.data.values())
+        map_target_codes = frozenset([v for vs in self.data.values() for v in vs])
         target_codes = set(target_scheme.codes)
         target_dag_codes = set(target_scheme.dag_codes)
         is_code_subset = map_target_codes.issubset(target_codes)
@@ -680,7 +681,8 @@ class CodeMap(AbstractVxData):
             float: the range ratio of the CodeMap.
         """
         assert self.target_name == target_scheme.name, "The target scheme must be the same as the target name."
-        return len(frozenset().union(*self.data.values()) & frozenset(target_scheme.codes)) / len(target_scheme.codes)
+        target_set = frozenset([v for vs in self.data.values() for v in vs])
+        return len(target_set & frozenset(target_scheme.codes)) / len(target_scheme.codes)
 
     def log_ratios(self, source_scheme: CodingScheme, target_scheme: CodingScheme) -> float:
         """
@@ -785,7 +787,7 @@ class CodeMap(AbstractVxData):
 
     @cached_property
     def range(self) -> frozenset[str]:
-        return frozenset().union(*tuple(self.data.values()))
+        return frozenset(v for vs in self.data.values() for v in vs)
 
     def map_codeset(self, codeset: Iterable[str]) -> frozenset:
         """
@@ -801,7 +803,7 @@ class CodeMap(AbstractVxData):
         if len(supported_set) == 0 and len(cast(Sized, codeset)) > 0:
             logging.debug(f'No code in ({codeset}) maps to the target coding scheme.')
             return frozenset()
-        return frozenset().union(*tuple(self[c] for c in supported_set))
+        return frozenset(t for c in supported_set for t in self[c])
 
     def map_dataframe(self, df: pd.DataFrame, code_column: str) -> pd.DataFrame:
         df = df.iloc[:, :]
@@ -1013,7 +1015,7 @@ class ExcludingOutcomeExtractor(OutcomeExtractor):
         return tuple(c for c in base_scheme.codes if c not in self.exclude_codes)
 
     @classmethod
-    def from_spec_json(cls, available_schemes: dict[str, CodingScheme], json_file: str) -> Self:
+    def from_spec_json(cls, available_schemes: Mapping[str, CodingScheme], json_file: str) -> Self:
         conf = load_config(json_file, relative_to=resources_path('outcomes'))
         exclude_codes = []
         if 'exclude_branches' in conf:
@@ -1147,7 +1149,7 @@ class CodingSchemesManager(AbstractVxData):
         assert not map1.mapped_to_dag_space(i_scheme_object)
         assert not map2.mapped_to_dag_space(t_scheme_object)
 
-        bridge = lambda x: frozenset().union(*[map2[c] for c in map1[x]])
+        bridge = lambda x: frozenset(c for c in (map2[b] for b in map1[x]))
 
         # Supported codes in the new map are the intersection of the source codes and the source codes of the first map
         new_source_codes = set(s_scheme_object.codes) & set(map1.data.keys())

@@ -16,6 +16,8 @@ from jaxlib._jax import ArrayImpl
 from tqdm import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
 
+from ehrax.utils import dataframe_logger
+
 ArrayTypes = (np.ndarray, jnp.ndarray, jax.Array, ArrayImpl)
 Array = np.ndarray | jnp.ndarray | jax.Array | ArrayImpl
 
@@ -211,6 +213,11 @@ class DataFrameLogger(logging.LoggerAdapter):
             msg = (*msg, '')
         assert tuple(map(type, msg)) == (str, pd.DataFrame, str)
         description, dataframe, tag = msg
+
+        if len(dataframe) == 0:
+            return description, kwargs
+
+
         # timestamp representative and incremental id.
         timestamp = pd.Timestamp.now().strftime('%Y_%m_%dT_%H_%M_%S')
         if self.extra is None:
