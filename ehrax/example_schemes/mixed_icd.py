@@ -124,7 +124,7 @@ class MixedICDScheme(CodingScheme):
                 f"({self.name})) and the standard ({icd_schemes[standard_version].name}). ",
                 lost_codes_df, f'mixed_to_{icd_schemes[standard_version].name}_lost_codes'))
 
-        lost_stats = len(dataframe) - pd.DataFrame(stats.iloc[:, 1:], columns=[f'Lost {c}' for c in stats.columns[1:]])
+        lost_stats = len(dataframe) - stats.iloc[:, 1:].rename(columns=lambda c: f'Lost {c}')
         stats = pd.concat([stats, lost_stats], axis=1)
         norm_stats = pd.DataFrame(stats, index=[f'%{i}' for i in stats.index]) / len(dataframe)
         stats = pd.concat([stats, norm_stats], axis=0)
