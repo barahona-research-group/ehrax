@@ -33,7 +33,8 @@ class MultiVersionScheme(CodingScheme):
         return df
 
     @classmethod
-    def from_selection(cls, multi_version_selection: pd.DataFrame, component_schemes: dict[str, CodingScheme]) -> Self:
+    def from_selection(cls, name: str, multi_version_selection: pd.DataFrame,
+                       component_schemes: dict[str, CodingScheme]) -> Self:
         selection = multi_version_selection.sort_values([str(COLUMN.version), str(COLUMN.code)])
         selection = selection.drop_duplicates([str(COLUMN.version), str(COLUMN.code)]).astype(str)
         assert selection[COLUMN.version].isin(component_schemes.keys()).all(), \
