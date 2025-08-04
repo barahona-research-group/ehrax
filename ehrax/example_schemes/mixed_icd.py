@@ -8,19 +8,19 @@ from ..utils import dataframe_logger
 
 
 class MultiVersionScheme(CodingScheme):
-    version_component_scheme: FrozenDict11
+    component_scheme_names: FrozenDict11
     sep: str
 
     def __init__(self,
-                 version_component_scheme: FrozenDict11,
+                 component_scheme_names: FrozenDict11,
                  sep: str, *,
                  name: str, codes: tuple[str, ...], desc: FrozenDict11):
         super().__init__(name, codes, desc)
-        self.version_component_scheme = version_component_scheme
+        self.component_scheme_names = component_scheme_names
         self.sep = sep
 
     def component_schemes(self, manager: CodingSchemesManager) -> dict[str, CodingScheme]:
-        return {k: manager.scheme[v] for k, v in self.version_component_scheme.items()}
+        return {k: manager.scheme[v] for k, v in self.component_scheme_names.items()}
 
     @staticmethod
     def reformat(df: pd.DataFrame, component_schemes: dict[str, CodingScheme]) -> pd.DataFrame:
@@ -57,8 +57,8 @@ class MultiVersionScheme(CodingScheme):
 
         assert c_version in table.columns, f"Column {c_version} not found."
         assert c_code in table.columns, f"Column {c_code} not found."
-        assert table[c_version].isin(self.version_component_scheme.keys()).all(), \
-            f"Only ICD version {list(self.version_component_scheme.keys())} are expected."
+        assert table[c_version].isin(self.component_scheme_names.keys()).all(), \
+            f"Only ICD version {list(self.component_scheme_names.keys())} are expected."
 
         table = self.reformat(table, self.component_schemes(manager))
 
@@ -67,14 +67,14 @@ class MultiVersionScheme(CodingScheme):
         # filter out codes that are not in the scheme.
         use_rows = table[c_code].isin(self.codes)
         removed_rows = table[~use_rows]
-        removed_rows['component_scheme'] = removed_rows[c_version].map(self.version_component_scheme)
+        removed_rows['component_scheme'] = removed_rows[c_version].map(self.component_scheme_names)
         dataframe_logger.info((f"When transforming a table to mixed code format. {len(removed_rows)} codes "
                                f"were not found in the corresponding component schemes.", removed_rows,
                                "del_rows_mixed_format"))
         return table[use_rows].reset_index(drop=True)
 
-    def report_lost_codes(self, dataframe: pd.DataFrame, target_name: str, mixed2target: dict[str, str], c_code: str):
-        lost_codes_df = dataframe[~dataframe[c_code].isin(mixed2target.keys())]
+    def report_lost_codes(self, dataframe: pd.DataFrame, target_name: str, mixed2target: dict[str, str]):
+        lost_codes_df = dataframe[~dataframe['code'].isin(mixed2target.keys())]
         dataframe_logger.info((
             f"Lost {len(lost_codes_df)} codes when generating the mapping between the Mixed {self.name} "
             f"({self.name})) and the standard ({target_name}). ",
@@ -103,7 +103,7 @@ class MultiVersionScheme(CodingScheme):
         ))
 
     def register_infer_map(self, manager: CodingSchemesManager, target_name: str) -> CodingSchemesManager:
-        required_maps = tuple((component_s, target_name) for component_s in self.version_component_scheme.values())
+        required_maps = tuple((component_s, target_name) for component_s in self.component_scheme_names.values())
         assert all(m in manager.map for m in required_maps), (
             f"Mapping between the mixed scheme and {target_name} is not supported due to the absence of "
             f"the map(s): {','.join(str(m) for m in required_maps if m not in manager.map)}")
@@ -148,5 +148,5 @@ class MultiVersionScheme(CodingScheme):
         columns = ['code', 'desc', 'code_index', 'component_version', 'component_code']
         table = pd.DataFrame([(c, self.desc[c], self.index[c], *c.split(self.sep)) for c in codes],
                              columns=columns)
-        table['component_scheme'] = list(map(lambda v: self.version_component_scheme[v], table['component_version']))
+        table['component_scheme'] = list(map(lambda v: self.component_scheme_names[v], table['component_version']))
         return table

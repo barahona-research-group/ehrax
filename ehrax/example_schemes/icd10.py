@@ -131,9 +131,9 @@ class ICD10CM:
             return manager
         data = cls.traverse_icd10_xml()
         if hierarchical:
-            manager = manager.add_scheme(DxHierarchicalICD10(name='dx_icd10', **cls.flat_scheme_data(data)))
+            manager = manager.add_scheme(DxHierarchicalICD10(name='dx_icd10', **cls.hierarchical_scheme_data(data)))
         if flat:
-            manager = manager.add_scheme(DxFlatICD10(name='dx_flat_icd10', **cls.hierarchical_scheme_data(data)))
+            manager = manager.add_scheme(DxFlatICD10(name='dx_flat_icd10', **cls.flat_scheme_data(data)))
         return manager
 
 

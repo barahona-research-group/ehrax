@@ -14,12 +14,17 @@ from ..utils import resources_path, dataframe_logger
 
 
 class CommonPreprocess:  # mixin
+
+    @staticmethod
+    def raw_table(filetitle: str, skiprows: tuple[int, ...] = ()) -> pd.DataFrame:
+        return pd.read_csv(resources_path("CCS", filetitle), skiprows=skiprows, dtype=str)
+
     @staticmethod
     def process_ccs_table(raw_ccs_table: pd.DataFrame, colmap: dict[str, str]) -> pd.DataFrame:
         df = raw_ccs_table.iloc[:, :]
         df = df[list(colmap.keys())].rename(columns=colmap)
         for c in df.columns:
-            df.loc[:, c] = df[:, c].str.strip('\'').str.strip()
+            df.loc[:, c] = df.loc[:, c].str.strip('\'').str.strip()
         return df
 
     @staticmethod
@@ -34,6 +39,7 @@ class CommonPreprocess:  # mixin
 
 
 class CommonMultiLevelCCS(CommonPreprocess):  # mixin
+
     @staticmethod
     def c_level_code(level: int) -> str:
         return f'\'CCS LVL {level}\''
@@ -92,8 +98,8 @@ class CommonMultiLevelCCS(CommonPreprocess):  # mixin
 
 class MultiLevelCCSICD9MapOps(CommonMultiLevelCCS):
     C_ICD_CODE: str = '\'ICD-9-CM CODE\''
-    DX_FILE: str = resources_path("CCS", "ccs_multi_dx_tool_2015.csv.gz")
-    PR_FILE: str = resources_path("CCS", "ccs_multi_pr_tool_2015.csv.gz")
+    DX_FILE: str = "ccs_multi_dx_tool_2015.csv.gz"
+    PR_FILE: str = "ccs_multi_pr_tool_2015.csv.gz"
     DX_N_LEVELS: int = 4
     PR_N_LEVELS: int = 3
 
@@ -105,13 +111,13 @@ class MultiLevelCCSICD9MapOps(CommonMultiLevelCCS):
 
     @classmethod
     def process_dx_ccs_icd_table(cls, icd_scheme: ICDScheme):
-        ccs_table = cls.process_ccs_table(raw_ccs_table=pd.read_csv(cls.DX_FILE),
+        ccs_table = cls.process_ccs_table(raw_ccs_table=cls.raw_table(cls.DX_FILE),
                                           colmap=cls.colmap(cls.DX_N_LEVELS))
         return cls.process_ccs_icd_table(icd_scheme, ccs_table)
 
     @classmethod
     def process_pr_ccs_icd_table(cls, icd_scheme: ICDScheme):
-        ccs_table = cls.process_ccs_table(raw_ccs_table=pd.read_csv(cls.PR_FILE),
+        ccs_table = cls.process_ccs_table(raw_ccs_table=cls.raw_table(cls.PR_FILE),
                                           colmap=cls.colmap(cls.PR_N_LEVELS))
         return cls.process_ccs_icd_table(icd_scheme, ccs_table)
 
@@ -126,11 +132,11 @@ class MultiLevelCCSICD9MapOps(CommonMultiLevelCCS):
 
     @classmethod
     def create_dx_ccs(cls) -> HierarchicalScheme:  # expose
-        return cls.create_scheme('dx_ccs', pd.read_csv(cls.DX_FILE), cls.DX_N_LEVELS)
+        return cls.create_scheme('dx_ccs', cls.raw_table(cls.DX_FILE), cls.DX_N_LEVELS)
 
     @classmethod
     def create_pr_ccs(cls) -> HierarchicalScheme:  # expose
-        return cls.create_scheme('pr_ccs', pd.read_csv(cls.PR_FILE), cls.PR_N_LEVELS)
+        return cls.create_scheme('pr_ccs', cls.raw_table(cls.PR_FILE), cls.PR_N_LEVELS)
 
     @classmethod
     def register_dx_ccs_maps(cls, manager: CodingSchemesManager,
@@ -173,10 +179,9 @@ class FlatCCS2ICD9MapOps(CommonFlatCCS):
     C_ICD_CODE: Final[str] = '\'ICD-9-CM CODE\''
     C_CCS_CODE: Final[str] = '\'CCS CATEGORY\''
     C_CCS_DESC: Final[str] = '\'CCS CATEGORY DESCRIPTION\''
-    DX_FILE: Final[str] = resources_path("CCS", '$dxref 2015.csv.gz')
-    PR_FILE: Final[str] = resources_path("CCS", '$prref 2015.csv.gz')
-
-    # df = pd.read_csv(resources_path("CCS", filetitle), skiprows=[0, 2], dtype=str)
+    DX_FILE: Final[str] = '$dxref 2015.csv.gz'
+    PR_FILE: Final[str] = '$prref 2015.csv.gz'
+    skiprows: Final[tuple[int, int]] = (0, 2)
 
     @classmethod
     def colmap(cls):
@@ -184,11 +189,13 @@ class FlatCCS2ICD9MapOps(CommonFlatCCS):
 
     @classmethod
     def process_dx_ccs_icd_table(cls, icd9_scheme: ICDScheme):
-        return cls.process_ccs_icd_table(icd9_scheme, cls.process_ccs_table(pd.read_csv(cls.DX_FILE), cls.colmap()))
+        return cls.process_ccs_icd_table(icd9_scheme,
+                                         cls.process_ccs_table(cls.raw_table(cls.DX_FILE, cls.skiprows), cls.colmap()))
 
     @classmethod
     def process_pr_ccs_icd_table(cls, icd_scheme: ICDScheme):
-        return cls.process_ccs_icd_table(icd_scheme, cls.process_ccs_table(pd.read_csv(cls.PR_FILE), cls.colmap()))
+        return cls.process_ccs_icd_table(icd_scheme,
+                                         cls.process_ccs_table(cls.raw_table(cls.PR_FILE, cls.skiprows), cls.colmap()))
 
     @classmethod
     def create_scheme(cls, name: DxFlatCCSName | PrFlatCCSName, raw_ccs_table: pd.DataFrame) -> CodingScheme:
@@ -198,11 +205,11 @@ class FlatCCS2ICD9MapOps(CommonFlatCCS):
 
     @classmethod
     def create_dx_flat_ccs(cls) -> CodingScheme:  # expose
-        return cls.create_scheme('dx_flat_ccs', pd.read_csv(cls.DX_FILE))
+        return cls.create_scheme('dx_flat_ccs', cls.raw_table(cls.DX_FILE, cls.skiprows))
 
     @classmethod
     def create_pr_flat_ccs(cls) -> CodingScheme:  # expose
-        return cls.create_scheme('pr_flat_ccs', pd.read_csv(cls.PR_FILE))
+        return cls.create_scheme('pr_flat_ccs', cls.raw_table(cls.PR_FILE, cls.skiprows))
 
     @classmethod
     def register_dx_flat_ccs_maps(cls, manager: CodingSchemesManager,
@@ -224,10 +231,18 @@ class CCS2ICD10MapOps(CommonMultiLevelCCS):
     C_ICD_PCS_CODE: Final[str] = '\'ICD-10-PCS CODE\''
     C_CCS_CODE: Final[str] = '\'CCS CATEGORY\''
     C_CCS_DESC: Final[str] = '\'CCS CATEGORY DESCRIPTION\''
-    DX_FILE: Final[str] = resources_path("CCS", "ccs_dx_icd10cm_2019_1.csv.gz")
-    PR_FILE: Final[str] = resources_path("CCS", "ccs_pr_icd10pcs_2020_1.csv.gz")
+    DX_FILE: Final[str] = "ccs_dx_icd10cm_2019_1.csv.gz"
+    PR_FILE: Final[str] = "ccs_pr_icd10pcs_2020_1.csv.gz"
     DX_N_LEVELS: Final[int] = 2
     PR_N_LEVELS: Final[int] = 2
+
+    @staticmethod
+    def c_level_code(level: int) -> str:
+        return f'\'MULTI CCS LVL {level}\''
+
+    @staticmethod
+    def c_level_code_description(level: int) -> str:
+        return f'\'MULTI CCS LVL {level} LABEL\''
 
     @classmethod
     def dx_colmap(cls, n_levels: int) -> dict[str, str]:
@@ -245,13 +260,13 @@ class CCS2ICD10MapOps(CommonMultiLevelCCS):
     @classmethod
     def process_dx_ccs_icd_table(cls, icd10_scheme: DxHierarchicalICD10 | DxFlatICD10):
         return cls.process_ccs_icd_table(icd10_scheme,
-                                         cls.process_ccs_table(pd.read_csv(cls.DX_FILE),
+                                         cls.process_ccs_table(cls.raw_table(cls.DX_FILE),
                                                                cls.dx_colmap(cls.DX_N_LEVELS)))
 
     @classmethod
     def process_pr_ccs_icd_table(cls, icd10_scheme: PrFlatICD10):
         return cls.process_ccs_icd_table(icd10_scheme,
-                                         cls.process_ccs_table(pd.read_csv(cls.PR_FILE),
+                                         cls.process_ccs_table(cls.raw_table(cls.PR_FILE),
                                                                cls.pr_colmap(cls.PR_N_LEVELS)))
 
     @classmethod
@@ -295,9 +310,9 @@ class CCS2ICD10MapOps(CommonMultiLevelCCS):
 class CCSMapRegistration:
     @staticmethod
     def dx_icd9_maps(manager: CodingSchemesManager,
-                              icd9_scheme: DxHierarchicalICD9Name,
-                              dx_ccs: bool,
-                              dx_flat_ccs: bool) -> CodingSchemesManager:
+                     icd9_scheme: DxHierarchicalICD9Name,
+                     dx_ccs: bool,
+                     dx_flat_ccs: bool) -> CodingSchemesManager:
         if dx_ccs:
             manager = MultiLevelCCSICD9MapOps.register_dx_ccs_maps(manager, icd9_scheme)
         if dx_flat_ccs:
@@ -306,9 +321,9 @@ class CCSMapRegistration:
 
     @staticmethod
     def pr_icd9_maps(manager: CodingSchemesManager,
-                              icd9_scheme: PrHierarchicalICD9Name,
-                              pr_ccs: bool,
-                              pr_flat_ccs: bool) -> CodingSchemesManager:
+                     icd9_scheme: PrHierarchicalICD9Name,
+                     pr_ccs: bool,
+                     pr_flat_ccs: bool) -> CodingSchemesManager:
         if pr_ccs:
             manager = MultiLevelCCSICD9MapOps.register_pr_ccs_maps(manager, icd9_scheme)
         if pr_flat_ccs:
@@ -317,9 +332,9 @@ class CCSMapRegistration:
 
     @staticmethod
     def dx_icd10_maps(manager: CodingSchemesManager,
-                               icd10_scheme: DxHierarchicalICD10Name | DxFlatICD10Name,
-                               dx_ccs: bool,
-                               dx_flat_ccs: bool) -> CodingSchemesManager:
+                      icd10_scheme: DxHierarchicalICD10Name | DxFlatICD10Name,
+                      dx_ccs: bool,
+                      dx_flat_ccs: bool) -> CodingSchemesManager:
         if dx_ccs:
             manager = CCS2ICD10MapOps.register_dx_ccs_maps(manager, icd10_scheme)
         if dx_flat_ccs:
@@ -328,9 +343,9 @@ class CCSMapRegistration:
 
     @staticmethod
     def pr_icd10_maps(manager: CodingSchemesManager,
-                               icd10_scheme: PrFlatICD10Name,
-                               pr_ccs: bool,
-                               pr_flat_ccs: bool) -> CodingSchemesManager:
+                      icd10_scheme: PrFlatICD10Name,
+                      pr_ccs: bool,
+                      pr_flat_ccs: bool) -> CodingSchemesManager:
         if pr_ccs:
             CCS2ICD10MapOps.register_pr_ccs_maps(manager, icd10_scheme)
         if pr_flat_ccs:

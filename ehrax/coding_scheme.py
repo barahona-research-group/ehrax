@@ -1165,7 +1165,7 @@ class CodingSchemesManager(AbstractVxData):
         assert not map1.mapped_to_dag_space(i_scheme_object)
         assert not map2.mapped_to_dag_space(t_scheme_object)
 
-        bridge = lambda x: frozenset(c for c in (map2[b] for b in map1[x]))
+        bridge = lambda x: frozenset(c for b in map1[x] for c in map2[b])
 
         # Supported codes in the new map are the intersection of the source codes and the source codes of the first map
         new_source_codes = set(s_scheme_object.codes) & set(map1.data.keys())

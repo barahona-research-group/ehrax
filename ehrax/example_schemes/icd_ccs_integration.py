@@ -152,8 +152,12 @@ def setup_icd_ccs_maps(manager: CodingSchemesManager, icd_selection: ICDSchemeSe
                                                    pr_flat_ccs=ccs_selection.pr_flat_ccs)
 
     # cross-maps
-    manager = CCSMapRegistration.ccs_flat_to_multi_maps(manager, dx_bridge='dx_icd9' if icd_selection.dx_icd9 else None,
-                                                        pr_bridge='pr_icd9' if icd_selection.pr_icd9 else None)
+    dx_bridge, pr_bridge = None, None
+    if icd_selection.dx_icd9 and ccs_selection.dx_ccs and ccs_selection.dx_flat_ccs:
+        dx_bridge = 'dx_icd9'
+    if icd_selection.pr_icd9 and ccs_selection.pr_ccs and ccs_selection.pr_flat_ccs:
+        pr_bridge = 'pr_icd9'
+    manager = CCSMapRegistration.ccs_flat_to_multi_maps(manager, dx_bridge=dx_bridge, pr_bridge=pr_bridge)
 
     return manager
 

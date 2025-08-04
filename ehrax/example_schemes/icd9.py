@@ -163,11 +163,11 @@ class ICD9:
         processed_icd_table = cls.process_icd_table(cls.load_raw_table())
         all_parent_to_children_map = cls.parent_child_mappings(processed_icd_table)
         if dx:
-            manager.add_scheme(
+            manager = manager.add_scheme(
                 DxHierarchicalICD9(name='dx_icd9',
                                    **cls.create_dx_scheme_data(processed_icd_table, all_parent_to_children_map)))
         if pr:
-            manager.add_scheme(
+            manager = manager.add_scheme(
                 PrHierarchicalICD9(name='pr_icd9',
                                    **cls.create_pr_scheme_data(processed_icd_table, all_parent_to_children_map)))
         return manager

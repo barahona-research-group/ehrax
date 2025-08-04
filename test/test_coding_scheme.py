@@ -94,7 +94,7 @@ class TestFlatScheme:
                             (('pr_icd9',), ('pr_ccs',)),
                             (('dx_icd9',), ('dx_flat_ccs',)),
                             (('pr_icd9',), ('pr_flat_ccs',))],
-                    ids=lambda x: '_'.join(x), scope='class')
+                    ids=lambda x: '_'.join(sum(x, ())), scope='class')
     def scheme_selection(self, request) -> tuple[ICDSchemeSelection, CCSSchemeSelection]:
         kwargs = lambda p: {k: True for k in p}
         return ICDSchemeSelection(**kwargs(request.param[0])), CCSSchemeSelection(**kwargs(request.param[1]))
@@ -109,7 +109,7 @@ class TestFlatScheme:
                             (('pr_icd9',), ('pr_ccs',)),
                             (('dx_icd9',), ('dx_flat_ccs',)),
                             (('pr_icd9',), ('pr_flat_ccs',))],
-                    scope='class', ids=lambda x: '_'.join(x))
+                    scope='class', ids=lambda x: '_'.join(sum(x, ())))
     def scheme_pair_selection(self, request):
         kwargs = lambda p: {k: True for k in p}
         return ICDSchemeSelection(**kwargs(request.param[0])), CCSSchemeSelection(**kwargs(request.param[1]))
