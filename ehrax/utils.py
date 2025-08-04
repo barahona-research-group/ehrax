@@ -16,7 +16,6 @@ from jaxlib._jax import ArrayImpl
 from tqdm import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
 
-
 ArrayTypes = (np.ndarray, jnp.ndarray, jax.Array, ArrayImpl)
 Array = np.ndarray | jnp.ndarray | jax.Array | ArrayImpl
 

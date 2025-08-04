@@ -69,7 +69,7 @@ class MultiVersionScheme(CodingScheme):
         removed_rows = table[~use_rows]
         removed_rows = removed_rows.assign(component_scheme=removed_rows[c_version].map(self.component_scheme_names))
         dataframe_log.info(f"When transforming a table to mixed code format. {len(removed_rows)} codes "
-                              f"were not found in the corresponding component schemes.",
+                           f"were not found in the corresponding component schemes.",
                            dataframe=removed_rows, tag="del_rows_mixed_format")
         return table[use_rows].reset_index(drop=True)
 

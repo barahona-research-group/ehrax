@@ -33,7 +33,7 @@ class CommonPreprocess:  # mixin
         valid_icd = ccs_table['ICD'].isin(icd_scheme.codes)
         unsupported_icd = ccs_table.loc[~valid_icd, :]
         dataframe_log.info(f"In processing CCS multi-level table mapping to {icd_scheme.name} "
-                               f"{unsupported_icd.shape[0]} ICD codes were unsupported.",
+                           f"{unsupported_icd.shape[0]} ICD codes were unsupported.",
                            dataframe=unsupported_icd, tag=f"unsupported_icd_codes_by_{icd_scheme.name}")
         return ccs_table.loc[valid_icd, :]
 

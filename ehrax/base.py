@@ -400,7 +400,8 @@ COMPARISON_PRIORITY = MappingProxyType(
         e.name: 3 for e in (SERIALIZABLE_FIELD.config,)  # then config
     } | {
         e.name: 4 for e in  # then intensive data.
-        (SERIALIZABLE_FIELD.numpy_array, SERIALIZABLE_FIELD.pandas_dataframe, SERIALIZABLE_FIELD.pandas_series, SERIALIZABLE_FIELD.pandas_equivalent)
+        (SERIALIZABLE_FIELD.numpy_array, SERIALIZABLE_FIELD.pandas_dataframe, SERIALIZABLE_FIELD.pandas_series,
+         SERIALIZABLE_FIELD.pandas_equivalent)
     })  # collections, mappings, and HDFSerializable subclasses are left because they can be nested with other HDFSerializables
 assert all(isinstance(e.value, tuple) and all(isinstance(t, type) for t in e.value) for e in
            SERIALIZABLE_FIELD), "Expected a tuple of types."

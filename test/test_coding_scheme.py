@@ -129,17 +129,20 @@ class TestFlatScheme:
         return tuple(scheme_selection[0].flag_set) + tuple(scheme_selection[1].flag_set)
 
     @pytest.fixture(scope="class")
-    def icd_ccs_scheme_manager(self, scheme_selection: tuple[ICDSchemeSelection, CCSSchemeSelection]) -> rx.CodingSchemesManager:
+    def icd_ccs_scheme_manager(self, scheme_selection: tuple[
+        ICDSchemeSelection, CCSSchemeSelection]) -> rx.CodingSchemesManager:
         icd_selection, ccs_selection = scheme_selection
         return setup_ccs_schemes(setup_icd_schemes(icd_selection), ccs_selection)
 
     @pytest.fixture(scope="class")
     def icd_ccs_outcome_manager_prerequisite(self,
                                              outcome_selection: OutcomeSelection) -> rx.CodingSchemesManager:
-        return setup_ccs_schemes(setup_icd_schemes( ICDSchemeSelection(dx_icd9=True)), CCSSchemeSelection(dx_flat_ccs=True))
+        return setup_ccs_schemes(setup_icd_schemes(ICDSchemeSelection(dx_icd9=True)),
+                                 CCSSchemeSelection(dx_flat_ccs=True))
 
     @pytest.fixture(scope="class")
-    def icd_ccs_map_manager(self, scheme_pair_selection: tuple[ICDSchemeSelection, CCSSchemeSelection]) -> rx.CodingSchemesManager:
+    def icd_ccs_map_manager(self, scheme_pair_selection: tuple[
+        ICDSchemeSelection, CCSSchemeSelection]) -> rx.CodingSchemesManager:
         icd_selection, ccs_selection = scheme_pair_selection
         return setup_standard_icd_ccs(icd_selection=icd_selection, ccs_selection=ccs_selection,
                                       outcome_selection=OutcomeSelection())

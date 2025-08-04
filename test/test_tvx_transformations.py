@@ -2,7 +2,6 @@ from statistics import median
 from typing import Any, Callable
 
 import equinox as eqx
-import jax.tree_util as jtu
 import numpy as np
 import pytest
 import tables as tb

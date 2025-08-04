@@ -44,7 +44,6 @@ class ICDMapOps:
 
         return conversion_table.groupby('source')[['no_map', 'scenario', 'choice_list']].apply(_get_status).to_dict()
 
-
     @staticmethod
     def register_mappings(manager: CodingSchemesManager, source_scheme: str, target_scheme: str,
                           conversion_filename: str) -> CodingSchemesManager:  # expose
@@ -63,9 +62,9 @@ class ICDMapOps:
         report = report.assign(invalid_target=~valid_target[report.index.values],
                                invalid_source=~valid_source[report.index.values])
         dataframe_log.info(f"In processing {conversion_filename}. "
-                               f"{(~valid_source).sum()} source code were unsupported. "
-                               f"{(~valid_target).sum()} target code were unsupported. ", dataframe=report,
-                           tag =f"conversion_miss_report_{source_scheme.name}_{target_scheme.name}")
+                           f"{(~valid_source).sum()} source code were unsupported. "
+                           f"{(~valid_target).sum()} target code were unsupported. ", dataframe=report,
+                           tag=f"conversion_miss_report_{source_scheme.name}_{target_scheme.name}")
         # Carry on. Done report and log.
         table = df[valid_target & valid_source]
         conversion_status = ICDMapOps.conversion_status(table)
