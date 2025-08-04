@@ -53,12 +53,6 @@ def default_tvx_schemes_config(config: DatasetSchemeConfig) -> TVxEHRSchemeConfi
         outcome='dx_flat_ccs_v1')
 
 
-def add_mixed_icd_to_ccs(schemes: CodingSchemesManager, source_name: str) -> CodingSchemesManager:
-    # Using dx_ccs need define a map from dx_discharge codes (mixed ICD9/ICD10 scheme) to ICD9 then CCS.
-    # To do this, we invoke a function that chains two maps: (mixed-ICD -> ICD9) and (ICD9 -> CCS).
-    return schemes.add_chained_map(source_name, 'dx_icd9', 'dx_ccs')
-
-
 def default_dataset_pipeline() -> AbstractDatasetPipeline:
     pipeline = [
         SqueezeToStandardColumns(),
@@ -80,11 +74,10 @@ def _mimic_from_memory(dataset_tables_resources: MIMICTablesResources,
                        in_memory_tables: InMemoryMIMICTableFiles) -> tuple[Dataset, CodingSchemesManager]:
     if schemes_config is None:
         schemes_config = default_dataset_schemes_config(aux.scoped_names)
-    dataset, schemes = load_mimic(config=DatasetConfig(scheme=schemes_config),
-                                  tables=dataset_tables_resources,
-                                  aux=aux,
-                                  data_connection=in_memory_tables)
-    return dataset, add_mixed_icd_to_ccs(schemes, schemes_config.dx_discharge)
+    return load_mimic(config=DatasetConfig(scheme=schemes_config),
+                      tables=dataset_tables_resources,
+                      aux=aux,
+                      data_connection=in_memory_tables)
 
 
 def mimiciii_from_paths(patients: str, admissions: str, diagnoses_icd: str, d_icd_diagnoses: str,
