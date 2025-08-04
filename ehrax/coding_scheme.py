@@ -57,6 +57,22 @@ class CodesVector(AbstractVxData):
         return type(self)(self.vec | other.vec, self.scheme)
 
 
+class Formatter(metaclass=ABCMeta):
+    @staticmethod
+    @abstractmethod
+    def format(code: str) -> str:
+        raise NotImplementedError
+
+    @staticmethod
+    @abstractmethod
+    def deformat(code: str) -> str:
+        raise NotImplementedError
+
+    @classmethod
+    def reformat(cls, code: str) -> str:
+        return cls.format(cls.deformat(code))
+
+
 class CodingScheme(AbstractVxData):
     name: str
     codes: tuple[str, ...]

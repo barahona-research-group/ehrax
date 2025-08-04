@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Final
+from typing import Final, Optional
 
 import pandas as pd
 
@@ -24,7 +24,7 @@ class CommonPreprocess:  # mixin
 
     @staticmethod
     def process_ccs_icd_table(icd_scheme: ICDScheme, ccs_table: pd.DataFrame) -> pd.DataFrame:
-        ccs_table['ICD'] = ccs_table.loc[:, 'ICD'].map(icd_scheme.add_dots)
+        ccs_table['ICD'] = ccs_table.loc[:, 'ICD'].map(icd_scheme.format)
         valid_icd = ccs_table['ICD'].isin(icd_scheme.codes)
         unsupported_icd = ccs_table.loc[~valid_icd, :]
         dataframe_logger.info((f"In processing CCS multi-level table mapping to {icd_scheme.name} "
@@ -277,8 +277,74 @@ class CCS2ICD10MapOps(CommonMultiLevelCCS):
     def register_dx_ccs_maps(cls, manager: CodingSchemesManager,
                              icd_scheme: DxHierarchicalICD10Name | DxFlatICD10Name) -> CodingSchemesManager:  # expose
         scheme = manager.scheme[icd_scheme]
-        assert isinstance(scheme, (DxFlatICD10, DxHierarchicalICD9)), (f"Expected "
-                                                                       f"DxHierarchicalICD9/DxFlatICD10, "
-                                                                       f"got {type(scheme)}.")
+        assert isinstance(scheme, (DxFlatICD10, DxHierarchicalICD10)), (f"Expected "
+                                                                        f"DxHierarchicalICD10/DxFlatICD10, "
+                                                                        f"got {type(scheme)}.")
         return cls.register_multi_level_mappings(manager, 'dx_ccs', icd_scheme,
                                                  cls.process_dx_ccs_icd_table(scheme))
+
+    @classmethod
+    def register_pr_ccs_maps(cls, manager: CodingSchemesManager,
+                             icd_scheme: PrFlatICD10Name) -> CodingSchemesManager:  # expose
+        scheme = manager.scheme[icd_scheme]
+        assert isinstance(scheme, PrFlatICD10), f"Expected PrFlatICD10, got {type(scheme)}."
+        return cls.register_multi_level_mappings(manager, 'pr_ccs', icd_scheme,
+                                                 cls.process_pr_ccs_icd_table(scheme))
+
+
+class CCSMapRegistration:
+    @staticmethod
+    def dx_icd9_maps(manager: CodingSchemesManager,
+                              icd9_scheme: DxHierarchicalICD9Name,
+                              dx_ccs: bool,
+                              dx_flat_ccs: bool) -> CodingSchemesManager:
+        if dx_ccs:
+            manager = MultiLevelCCSICD9MapOps.register_dx_ccs_maps(manager, icd9_scheme)
+        if dx_flat_ccs:
+            manager = FlatCCS2ICD9MapOps.register_dx_flat_ccs_maps(manager, icd9_scheme)
+        return manager
+
+    @staticmethod
+    def pr_icd9_maps(manager: CodingSchemesManager,
+                              icd9_scheme: PrHierarchicalICD9Name,
+                              pr_ccs: bool,
+                              pr_flat_ccs: bool) -> CodingSchemesManager:
+        if pr_ccs:
+            manager = MultiLevelCCSICD9MapOps.register_pr_ccs_maps(manager, icd9_scheme)
+        if pr_flat_ccs:
+            manager = FlatCCS2ICD9MapOps.register_pr_flat_ccs_maps(manager, icd9_scheme)
+        return manager
+
+    @staticmethod
+    def dx_icd10_maps(manager: CodingSchemesManager,
+                               icd10_scheme: DxHierarchicalICD10Name | DxFlatICD10Name,
+                               dx_ccs: bool,
+                               dx_flat_ccs: bool) -> CodingSchemesManager:
+        if dx_ccs:
+            manager = CCS2ICD10MapOps.register_dx_ccs_maps(manager, icd10_scheme)
+        if dx_flat_ccs:
+            manager = CCS2ICD10MapOps.register_dx_flat_ccs_maps(manager, icd10_scheme)
+        return manager
+
+    @staticmethod
+    def pr_icd10_maps(manager: CodingSchemesManager,
+                               icd10_scheme: PrFlatICD10Name,
+                               pr_ccs: bool,
+                               pr_flat_ccs: bool) -> CodingSchemesManager:
+        if pr_ccs:
+            CCS2ICD10MapOps.register_pr_ccs_maps(manager, icd10_scheme)
+        if pr_flat_ccs:
+            CCS2ICD10MapOps.register_pr_flat_ccs_maps(manager, icd10_scheme)
+        return manager
+
+    @staticmethod
+    def ccs_flat_to_multi_maps(manager: CodingSchemesManager,
+                               dx_bridge: Optional[DxHierarchicalICD9Name] = None,
+                               pr_bridge: Optional[PrHierarchicalICD9Name] = None):
+        if dx_bridge is not None:
+            manager = manager.add_chained_map('dx_ccs', dx_bridge, 'dx_flat_ccs')
+            manager = manager.add_chained_map('dx_flat_ccs', dx_bridge, 'dx_ccs')
+        if pr_bridge is not None:
+            manager = manager.add_chained_map('pr_ccs', pr_bridge, 'pr_flat_ccs')
+            manager = manager.add_chained_map('pr_flat_ccs', pr_bridge, 'pr_ccs')
+        return manager

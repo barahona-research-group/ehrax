@@ -1,7 +1,7 @@
 from dataclasses import fields
 from typing import Self
 
-from .ccs import MultiLevelCCSICD9MapOps, FlatCCS2ICD9MapOps, CCS2ICD10MapOps
+from .ccs import MultiLevelCCSICD9MapOps, FlatCCS2ICD9MapOps, CCSMapRegistration
 from .icd import ICDMapOps
 from .icd10 import ICD10CM, ICD10PCS
 from .icd9 import ICD9
@@ -117,34 +117,43 @@ def setup_icd_icd_maps(manager: CodingSchemesManager, scheme_selection: ICDSchem
 
 def setup_icd_ccs_maps(manager: CodingSchemesManager, icd_selection: ICDSchemeSelection,
                        ccs_selection: CCSSchemeSelection) -> CodingSchemesManager:
-    # ICD9 <-> CCS
-    if icd_selection.dx_icd9 and ccs_selection.dx_ccs:
-        manager = MultiLevelCCSICD9MapOps.register_dx_ccs_maps(manager, 'dx_icd9')
-    if icd_selection.pr_icd9 and ccs_selection.pr_ccs:
-        manager = MultiLevelCCSICD9MapOps.register_pr_ccs_maps(manager, 'pr_icd9')
+    """
+    Enables the following two-way mappings (if all selected):
 
-    if ccs_selection.dx_flat_ccs and icd_selection.dx_icd9:
-        manager = FlatCCS2ICD9MapOps.register_dx_flat_ccs_maps(manager, 'dx_icd9')
-    if ccs_selection.pr_flat_ccs and icd_selection.pr_icd9:
-        manager = FlatCCS2ICD9MapOps.register_pr_flat_ccs_maps(manager, 'pr_icd9')
+    |                   | dx_icd9   | pr_icd9   | dx_icd10  | dx_flat_icd10 | pr_flat_icd10 |
+    |-------------------|-----------|-----------|-----------|---------------|---------------|
+    | dx_ccs            |   X       |           |   X       |      X        |               |
+    | dx_flat_ccs       |   X       |           |   X       |      X        |               |
+    | pr_ccs            |           |   X       |           |               |      X        |
+    | pr_flat_ccs       |           |   X       |           |               |      X        |
 
-    if ccs_selection.dx_flat_ccs:
-        if icd_selection.dx_icd10:
-            manager = CCS2ICD10MapOps.register_dx_flat_ccs_maps(manager, 'dx_icd10')
-        if icd_selection.dx_flat_icd10:
-            manager = CCS2ICD10MapOps.register_dx_flat_ccs_maps(manager, 'dx_flat_icd10')
+    In addition to dx_ccs <-> dx_flat_ccs and pr_ccs <-> pr_flat_ccs.
+    """
 
-    if ccs_selection.pr_flat_ccs and icd_selection.pr_flat_icd10:
-        manager = CCS2ICD10MapOps.register_pr_flat_ccs_maps(manager, 'pr_flat_icd10')
+    if icd_selection.dx_icd9:
+        manager = CCSMapRegistration.dx_icd9_maps(manager, 'dx_icd9',
+                                                  dx_ccs=ccs_selection.dx_ccs,
+                                                  dx_flat_ccs=ccs_selection.dx_flat_ccs)
+    if icd_selection.pr_icd9:
+        manager = CCSMapRegistration.pr_icd9_maps(manager, 'pr_icd9',
+                                                  pr_ccs=ccs_selection.pr_ccs,
+                                                  pr_flat_ccs=ccs_selection.pr_flat_ccs)
+    if icd_selection.dx_icd10:
+        manager = CCSMapRegistration.dx_icd10_maps(manager, 'dx_icd10',
+                                                   dx_ccs=ccs_selection.dx_ccs,
+                                                   dx_flat_ccs=ccs_selection.dx_flat_ccs)
+    if icd_selection.dx_flat_icd10:
+        manager = CCSMapRegistration.dx_icd10_maps(manager, 'dx_flat_icd10',
+                                                   dx_ccs=ccs_selection.dx_ccs,
+                                                   dx_flat_ccs=ccs_selection.dx_flat_ccs)
+    if icd_selection.pr_flat_icd10:
+        manager = CCSMapRegistration.pr_icd10_maps(manager, 'pr_flat_icd10',
+                                                   pr_ccs=ccs_selection.pr_ccs,
+                                                   pr_flat_ccs=ccs_selection.pr_flat_ccs)
 
     # cross-maps
-    if ccs_selection.dx_ccs and ccs_selection.dx_flat_ccs and icd_selection.dx_icd9:
-        manager = manager.add_chained_map('dx_ccs', 'dx_icd9', 'dx_flat_ccs')
-        manager = manager.add_chained_map('dx_flat_ccs', 'dx_icd9', 'dx_ccs')
-
-    if ccs_selection.pr_ccs and ccs_selection.pr_flat_ccs and icd_selection.pr_icd9:
-        manager = manager.add_chained_map('pr_ccs', 'pr_icd9', 'pr_flat_ccs')
-        manager = manager.add_chained_map('pr_flat_ccs', 'pr_icd9', 'pr_ccs')
+    manager = CCSMapRegistration.ccs_flat_to_multi_maps(manager, dx_bridge='dx_icd9' if icd_selection.dx_icd9 else None,
+                                                        pr_bridge='pr_icd9' if icd_selection.pr_icd9 else None)
 
     return manager
 

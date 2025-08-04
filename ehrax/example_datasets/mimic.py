@@ -14,8 +14,8 @@ from ..coding_scheme import (CodeMap, CodingScheme, CodingSchemeWithUOM, CodingS
 from ..dataset import AdmissionIntervalEventsTableColumns, AdmissionIntervalRatesTableColumns, \
     AdmissionSummaryTableColumns, AdmissionTimeSeriesTableColumns, COLUMN, Dataset, DatasetConfig, DatasetSchemeConfig, \
     DatasetTables, MultivariateTimeSeriesTableMeta, SECONDS_TO_HOURS_SCALER, StaticTableColumns, TableColumns
-from ..example_schemes.icd import setup_standard_icd_ccs
-from ..example_schemes.mixed_icd import MixedICDScheme
+from ..example_schemes.icd_ccs_integration import setup_standard_icd_ccs
+from ..example_schemes.mixed_icd import MultiVersionScheme
 from ..utils import resources_path
 
 warnings.filterwarnings('error', category=RuntimeWarning, message=r'overflow encountered in cast')
@@ -193,11 +193,10 @@ class MixedICDTableResource(CodedTableResource):
         super().__init__(MixedVersionICDSummaryTableColumns())
 
     @staticmethod
-    def _register_scheme(manager: CodingSchemesManager,
-                         name: str,
-                         icd_version_schemes: FrozenDict11,
-                         supported_space: pd.DataFrame,
-                         icd_version_selection: Optional[pd.DataFrame]) -> CodingSchemesManager:
+    def register_scheme(name: str,
+                        component_schemes: dict[str, CodingSchemes],
+                        supported_space: pd.DataFrame,
+                        icd_version_selection: Optional[pd.DataFrame]) -> MultiVersionScheme:
         c_code = str(COLUMN.code)
         c_version = str(COLUMN.version)
         c_desc = str(COLUMN.description)
@@ -218,26 +217,7 @@ class MixedICDTableResource(CodedTableResource):
                 unsupported_codes = codes[~codes[c_code].isin(support_subset[c_code])]
 
                 assert len(unsupported_codes) == 0, f'Codes {unsupported_codes} are not supported for version {version}'
-        scheme = MixedICDScheme.from_selection(manager, name, icd_version_selection,
-                                               icd_version_schemes=icd_version_schemes)
-        return scheme.register_standard_icd_maps(manager.add_scheme(scheme))
-
-    @classmethod
-    def register_scheme(cls, manager: CodingSchemesManager,
-                        name: str,
-                        space_table: pd.DataFrame,
-                        icd_version_schemes: FrozenDict11,
-                        icd_version_selection: Optional[pd.DataFrame],
-                        target_name: Optional[str],
-                        mapping: Optional[pd.DataFrame]) -> CodingSchemesManager:
-        manager = cls._register_scheme(manager=manager,
-                                       name=name, icd_version_schemes=icd_version_schemes,
-                                       supported_space=space_table,
-                                       icd_version_selection=icd_version_selection)
-        if target_name is not None and mapping is not None:
-            mixed_icd_scheme = cast(MixedICDScheme, manager.scheme[name])
-            manager = mixed_icd_scheme.register_map(manager=manager, target_name=target_name, mapping=mapping)
-        return manager
+        return MultiVersionScheme.from_selection(name, icd_version_selection, component_schemes=component_schemes)
 
     @staticmethod
     @abstractmethod
@@ -261,7 +241,7 @@ class MixedICDTableResource(CodedTableResource):
     @staticmethod
     def _mixed_code_format(mixed_scheme_name: str, schemes_manager: CodingSchemesManager) -> Callable[
         [pd.DataFrame], pd.DataFrame]:
-        scheme = cast(MixedICDScheme, schemes_manager.scheme[mixed_scheme_name])
+        scheme = cast(MultiVersionScheme, schemes_manager.scheme[mixed_scheme_name])
 
         def _transform(df: pd.DataFrame) -> pd.DataFrame:
             return scheme.mixed_code_format_table(schemes_manager, df)
@@ -764,22 +744,32 @@ class MIMICSchemeResources(AbstractConfig):
     def make_hosp_procedures_scheme(self, manager: CodingSchemesManager, data_connection: Any) -> CodingSchemesManager:
         target_names = self.aux.scoped_names.mapped
         table = self.tables.hosp_procedures
-        return table.register_scheme(manager, name=self.scheme.hosp_procedures,
-                                     space_table=self.tables.hosp_procedures.space(data_connection),
-                                     icd_version_schemes=FrozenDict11({'9': 'pr_icd9', '10': 'pr_flat_icd10'}),
-                                     icd_version_selection=self.aux.selections.hosp_procedures,
-                                     target_name=target_names.hosp_procedures,
-                                     mapping=self.aux.maps.hosp_procedures)
+        scheme = table.register_scheme(name=self.scheme.hosp_procedures,
+                                       supported_space=self.tables.hosp_procedures.space(data_connection),
+                                       icd_version_selection=self.aux.selections.hosp_procedures,
+                                       icd_version_schemes={'9': manager['pr_icd9'], '10': manager['pr_flat_icd10']})
+        manager = manager.add_scheme(scheme)
+        if target_names.hosp_procedures is not None and self.aux.maps.hosp_procedures is not None:
+            manager = scheme.register_map(manager=manager, target_name=target_names.hosp_procedures,
+                                          mapping=self.aux.maps.hosp_procedures)
+        for target in ('pr_icd9', 'pr_flat_icd10', 'pr_ccs', 'pr_flat_ccs'):
+            manager = scheme.register_infer_map(manager, target)
+        return manager
 
     def make_dx_discharge_scheme(self, manager: CodingSchemesManager, data_connection: Any) -> CodingSchemesManager:
         target_names = self.aux.scoped_names.mapped
         table = self.tables.dx_discharge
-        return table.register_scheme(manager, name=self.scheme.dx_discharge,
-                                     space_table=self.tables.dx_discharge.space(data_connection),
-                                     icd_version_schemes=FrozenDict11({'9': 'dx_icd9', '10': 'dx_flat_icd10'}),
-                                     icd_version_selection=self.aux.selections.dx_discharge,
-                                     target_name=target_names.dx_discharge,
-                                     mapping=self.aux.maps.dx_discharge)
+        scheme = table.register_scheme(name=self.scheme.dx_discharge,
+                                       supported_space=self.tables.dx_discharge.space(data_connection),
+                                       icd_version_selection=self.aux.selections.dx_discharge,
+                                       icd_version_schemes={'9': manager['dx_icd9'], '10': manager['dx_flat_icd10']})
+        manager = manager.add_scheme(scheme)
+        if target_names.dx_discharge is not None and self.aux.maps.dx_discharge is not None:
+            manager = scheme.register_map(manager=manager, target_name=target_names.dx_discharge,
+                                          mapping=self.aux.maps.dx_discharge)
+        for target in ('dx_icd9', 'dx_flat_icd10', 'dx_ccs', 'dx_flat_ccs'):
+            manager = scheme.register_infer_map(manager, target)
+        return manager
 
     def make_all_schemes(self, data_connection: Any) -> CodingSchemesManager:
         # make standard ones.

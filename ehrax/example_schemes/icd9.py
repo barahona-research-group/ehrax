@@ -10,7 +10,7 @@ from ..utils import resources_path
 
 class DxHierarchicalICD9(ICDHierarchicalScheme):
     @staticmethod
-    def add_dots(code: str) -> str:
+    def format(code: str) -> str:
         if '.' in code:
             # logging.debug(f'Code {code} already is in decimal format')
             return code
@@ -29,7 +29,7 @@ class DxHierarchicalICD9(ICDHierarchicalScheme):
 class PrHierarchicalICD9(ICDHierarchicalScheme):
 
     @staticmethod
-    def add_dots(code: str) -> str:
+    def format(code: str) -> str:
         if '.' in code:
             # logging.debug(f'Code {code} already is in decimal format')
             return code

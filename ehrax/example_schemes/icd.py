@@ -1,17 +1,13 @@
-from abc import abstractmethod
-
 import pandas as pd
 
-from ..coding_scheme import (CodeMap, CodingScheme, CodingSchemesManager, FrozenDict1N, HierarchicalScheme)
+from ..coding_scheme import (CodeMap, CodingScheme, CodingSchemesManager, FrozenDict1N, HierarchicalScheme, Formatter)
 from ..utils import resources_path, dataframe_logger
 
 
-class ICDScheme(CodingScheme):
-
+class ICDScheme(CodingScheme, Formatter):
     @staticmethod
-    @abstractmethod
-    def add_dots(code: str) -> str:
-        raise NotImplementedError("Should be implemented by subclass")
+    def deformat(code: str) -> str:
+        return code.strip().replace('.', '')
 
 
 class ICDHierarchicalScheme(HierarchicalScheme, ICDScheme):
@@ -57,8 +53,8 @@ class ICDMapOps:
             f"Expected ICDScheme subclasses. Got {type(source_scheme)} and {type(target_scheme)} instead."
         )
         df = ICDMapOps.load_conversion_table(conversion_filename=conversion_filename)
-        df['source'] = df['source'].map(source_scheme.add_dots)
-        df['target'] = df['target'].map(target_scheme.add_dots)
+        df['source'] = df['source'].map(source_scheme.format)
+        df['target'] = df['target'].map(target_scheme.format)
         valid_target = df['target'].isin(target_scheme.index)
         valid_source = df['source'].isin(source_scheme.index)
         table = df[valid_target & valid_source]
@@ -66,9 +62,9 @@ class ICDMapOps:
         report.loc[:, 'invalid_target'] = ~valid_target
         report.loc[:, 'invalid_source'] = ~valid_source
         dataframe_logger.info((f"In processing {conversion_filename}. "
-                              f"{(~valid_source).sum()} source code were unsupported. "
-                              f"{(~valid_target).sum()} target code were unsupported. ",
-                               report, f"conversion_miss_report_{source_scheme.name}_{target_scheme.name}" ))
+                               f"{(~valid_source).sum()} source code were unsupported. "
+                               f"{(~valid_target).sum()} target code were unsupported. ",
+                               report, f"conversion_miss_report_{source_scheme.name}_{target_scheme.name}"))
         conversion_status = ICDMapOps.conversion_status(table)
         table['status'] = table['source'].map(conversion_status)
         table = table[table['status'] != 'no_map']

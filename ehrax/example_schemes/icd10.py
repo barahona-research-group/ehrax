@@ -11,7 +11,7 @@ from ..utils import resources_path
 class PrFlatICD10(ICDScheme):
 
     @staticmethod
-    def add_dots(code: str) -> str:
+    def format(code: str) -> str:
         # No decimal point in ICD10-PCS
         return code
 
@@ -28,7 +28,7 @@ class DxHierarchicalICD10(ICDHierarchicalScheme):
     """
 
     @staticmethod
-    def add_dots(code: str) -> str:
+    def format(code: str) -> str:
         if '.' in code:
             # logging.debug(f'Code {code} already is in decimal format')
             return code
@@ -41,8 +41,8 @@ class DxHierarchicalICD10(ICDHierarchicalScheme):
 class DxFlatICD10(ICDScheme):
 
     @staticmethod
-    def add_dots(code: str) -> str:
-        return DxHierarchicalICD10.add_dots(code)
+    def format(code: str) -> str:
+        return DxHierarchicalICD10.format(code)
 
 
 class ICD10CM:
