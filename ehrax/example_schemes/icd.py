@@ -1,3 +1,5 @@
+import logging
+
 import pandas as pd
 
 from ..coding_scheme import (CodeMap, CodingScheme, CodingSchemesManager, FrozenDict1N, HierarchicalScheme, Formatter)
@@ -47,6 +49,7 @@ class ICDMapOps:
     @staticmethod
     def register_mappings(manager: CodingSchemesManager, source_scheme: str, target_scheme: str,
                           conversion_filename: str) -> CodingSchemesManager:  # expose
+        logging.debug(f"[BEGIN] mapping from {source_scheme} to {target_scheme} via {conversion_filename}.")
         source_scheme = manager.scheme[source_scheme]
         target_scheme = manager.scheme[target_scheme]
         assert isinstance(source_scheme, ICDScheme) and isinstance(target_scheme, ICDScheme), (
@@ -57,18 +60,23 @@ class ICDMapOps:
                        target=df['target'].map(target_scheme.format))
         valid_target = df['target'].isin(target_scheme.index).values
         valid_source = df['source'].isin(source_scheme.index).values
-        # Wait. Let's report and log.
-        report = df[(~valid_target) | (~valid_source)]
-        report = report.assign(invalid_target=~valid_target[report.index.values],
-                               invalid_source=~valid_source[report.index.values])
-        dataframe_log.info(f"In processing {conversion_filename}. "
-                           f"{(~valid_source).sum()} source code were unsupported. "
-                           f"{(~valid_target).sum()} target code were unsupported. ", dataframe=report,
-                           tag=f"conversion_miss_report_{source_scheme.name}_{target_scheme.name}")
-        # Carry on. Done report and log.
+
         table = df[valid_target & valid_source]
         conversion_status = ICDMapOps.conversion_status(table)
         table = table.assign(status=table['source'].map(conversion_status))
         table = table[table['status'] != 'no_map']
         data = FrozenDict1N(table.groupby('source')['target'].apply(set).to_dict())
-        return manager.add_map(CodeMap(source_name=source_scheme.name, target_name=target_scheme.name, data=data))
+        m = CodeMap(source_name=source_scheme.name, target_name=target_scheme.name, data=data)
+        # Wait. Let's report and log.
+        report = df[(~valid_target) | (~valid_source)]
+        report = report.assign(invalid_target=~valid_target[report.index.values],
+                               invalid_source=~valid_source[report.index.values])
+        dataframe_log.info(f"In processing {conversion_filename}. "
+                           f"{len(m.domain)} (of {len(source_scheme)}) {m.source_name} source codes were mapped to "
+                           f"{len(m.range)} {m.target_name} (of {len(target_scheme)}) target codes. "
+                           f"{(~valid_source).sum()} (of {len(valid_source)}) source code in the conversion table were discarded. "
+                           f"{(~valid_target).sum()} (of {len(valid_target)}) target code in the conversion table were discarded. ",
+                           dataframe=report, tag=f"conversion_miss_report_{source_scheme.name}_{target_scheme.name}")
+        logging.debug(f"[DONE] mapping from {source_scheme} to {target_scheme} via {conversion_filename}.")
+        # Carry on. Done report and log.
+        return manager.add_map(m)

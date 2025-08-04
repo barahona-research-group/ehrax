@@ -29,6 +29,7 @@ class DxHierarchicalICD10(ICDHierarchicalScheme):
 
     @staticmethod
     def format(code: str) -> str:
+        code = code.upper() # ICD10 is case insensitive
         if '.' in code:
             # logging.debug(f'Code {code} already is in decimal format')
             return code

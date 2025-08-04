@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from typing import Final, Optional
 
@@ -33,7 +34,7 @@ class CommonPreprocess:  # mixin
         valid_icd = ccs_table['ICD'].isin(icd_scheme.codes)
         unsupported_icd = ccs_table.loc[~valid_icd, :]
         dataframe_log.info(f"In processing CCS multi-level table mapping to {icd_scheme.name} "
-                           f"{unsupported_icd.shape[0]} ICD codes were unsupported.",
+                           f"{(~valid_icd).sum()} (of {len(valid_icd)}) ICD codes were unsupported.",
                            dataframe=unsupported_icd, tag=f"unsupported_icd_codes_by_{icd_scheme.name}")
         return ccs_table.loc[valid_icd, :]
 
@@ -313,10 +314,17 @@ class CCSMapRegistration:
                      icd9_scheme: DxHierarchicalICD9Name,
                      dx_ccs: bool,
                      dx_flat_ccs: bool) -> CodingSchemesManager:
+        if not any((dx_ccs, dx_flat_ccs)):
+            return manager
+
         if dx_ccs:
+            logging.debug(f"[BEGIN] mapping from {icd9_scheme} to dx_ccs")
             manager = MultiLevelCCSICD9MapOps.register_dx_ccs_maps(manager, icd9_scheme)
+            logging.debug(f"[DONE] mapping from {icd9_scheme} to dx_ccs")
         if dx_flat_ccs:
+            logging.debug(f"[BEGIN] mapping from {icd9_scheme} to dx_flat_ccs")
             manager = FlatCCS2ICD9MapOps.register_dx_flat_ccs_maps(manager, icd9_scheme)
+            logging.debug(f"[DONE] mapping from {icd9_scheme} to dx_flat_ccs")
         return manager
 
     @staticmethod
@@ -325,9 +333,13 @@ class CCSMapRegistration:
                      pr_ccs: bool,
                      pr_flat_ccs: bool) -> CodingSchemesManager:
         if pr_ccs:
+            logging.debug(f"[BEGIN] mapping from {icd9_scheme} to pr_ccs")
             manager = MultiLevelCCSICD9MapOps.register_pr_ccs_maps(manager, icd9_scheme)
+            logging.debug(f"[DONE] mapping from {icd9_scheme} to pr_ccs")
         if pr_flat_ccs:
+            logging.debug(f"[BEGIN] mapping from {icd9_scheme} to pr_flat_ccs")
             manager = FlatCCS2ICD9MapOps.register_pr_flat_ccs_maps(manager, icd9_scheme)
+            logging.debug(f"[DONE] mapping from {icd9_scheme} to pr_flat_ccs")
         return manager
 
     @staticmethod
@@ -336,9 +348,13 @@ class CCSMapRegistration:
                       dx_ccs: bool,
                       dx_flat_ccs: bool) -> CodingSchemesManager:
         if dx_ccs:
+            logging.debug(f"[BEGIN] mapping from {icd10_scheme} to dx_ccs")
             manager = CCS2ICD10MapOps.register_dx_ccs_maps(manager, icd10_scheme)
+            logging.debug(f"[DONE] mapping from {icd10_scheme} to dx_ccs")
         if dx_flat_ccs:
+            logging.debug(f"[BEGIN] mapping from {icd10_scheme} to dx_flat_ccs")
             manager = CCS2ICD10MapOps.register_dx_flat_ccs_maps(manager, icd10_scheme)
+            logging.debug(f"[DONE] mapping from {icd10_scheme} to dx_flat_ccs")
         return manager
 
     @staticmethod
@@ -347,9 +363,13 @@ class CCSMapRegistration:
                       pr_ccs: bool,
                       pr_flat_ccs: bool) -> CodingSchemesManager:
         if pr_ccs:
+            logging.debug(f"[BEGIN] mapping from {icd10_scheme} to pr_ccs")
             CCS2ICD10MapOps.register_pr_ccs_maps(manager, icd10_scheme)
+            logging.debug(f"[DONE] mapping from {icd10_scheme} to pr_ccs")
         if pr_flat_ccs:
+            logging.debug(f"[BEGIN] mapping from {icd10_scheme} to pr_flat_ccs")
             CCS2ICD10MapOps.register_pr_flat_ccs_maps(manager, icd10_scheme)
+            logging.debug(f"[DONE] mapping from {icd10_scheme} to pr_flat_ccs")
         return manager
 
     @staticmethod
@@ -357,9 +377,13 @@ class CCSMapRegistration:
                                dx_bridge: Optional[DxHierarchicalICD9Name] = None,
                                pr_bridge: Optional[PrHierarchicalICD9Name] = None):
         if dx_bridge is not None:
+            logging.debug(f"[BEGIN] mapping from dx_flat_ccs to dx_ccs via {dx_bridge}")
             manager = manager.add_chained_map('dx_ccs', dx_bridge, 'dx_flat_ccs')
             manager = manager.add_chained_map('dx_flat_ccs', dx_bridge, 'dx_ccs')
+            logging.debug(f"[DONE] mapping from dx_flat_ccs to dx_ccs via {dx_bridge}")
         if pr_bridge is not None:
+            logging.debug(f"[BEGIN] mapping from pr_flat_ccs to pr_ccs via {pr_bridge}")
             manager = manager.add_chained_map('pr_ccs', pr_bridge, 'pr_flat_ccs')
             manager = manager.add_chained_map('pr_flat_ccs', pr_bridge, 'pr_ccs')
+            logging.debug(f"[DONE] mapping from pr_flat_ccs to pr_ccs via {pr_bridge}")
         return manager
