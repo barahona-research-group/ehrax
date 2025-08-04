@@ -206,16 +206,12 @@ class DataFrameLogger(logging.LoggerAdapter):
                 return file_parent, file_title, file_suffix
         return None
 
-    def process(self, msg: tuple[str, pd.DataFrame, Optional[str]],
+    def process(self, msg: str,
                 kwargs: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-        if len(msg) == 2:
-            msg = (*msg, '')
-        assert tuple(map(type, msg)) == (str, pd.DataFrame, str)
-        description, dataframe, tag = msg
-
-        if len(dataframe) == 0:
-            return description, kwargs
-
+        df, tag = kwargs.pop('dataframe'), kwargs.pop('tag', '')
+        assert tuple(map(type, (msg, df, tag))) == (str, pd.DataFrame, str)
+        if len(df) == 0:
+            return msg, kwargs
 
         # timestamp representative and incremental id.
         timestamp = pd.Timestamp.now().strftime('%Y_%m_%dT_%H_%M_%S')
@@ -225,7 +221,7 @@ class DataFrameLogger(logging.LoggerAdapter):
         self.extra = dict(self.extra) | {'incremental_id': incremental_id}
         filehandler_names = self.extract_file_handler_names
         if filehandler_names is None:
-            return (f'{description}. Appendix report will not be saved to disk because '
+            return (f'{msg}. Appendix report will not be saved to disk because '
                     f'no single file handler found in the logger. '
                     f'To store the appendix report, configure the logger {self.logger.name} '
                     f'by either adding a FileHandler manually or call logging.basicConfig '
@@ -233,9 +229,9 @@ class DataFrameLogger(logging.LoggerAdapter):
         parent_dir, main_log_file, main_log_file_suffix = self.extract_file_handler_names
         file_title = '_'.join((main_log_file, tag, timestamp, f'{incremental_id:03d}'))
         file_path = Path(parent_dir, file_title).with_suffix(f'{main_log_file_suffix}.csv')
-        dataframe.to_csv(file_path)
-        return (f'{description}. Find the appendix report stored as a table of '
-                f'columns {dataframe.columns.tolist()} and {len(dataframe)} rows at ({file_path}).'), kwargs
+        df.to_csv(file_path)
+        return (f'{msg}. Find the appendix report stored as a table of '
+                f'columns {df.columns.tolist()} and {len(df)} rows at ({file_path}).'), kwargs
 
 
 def attached_dataframe_logger(logger: logging.Logger, extra: Optional[dict[str, Any]] = None) -> DataFrameLogger:
@@ -244,4 +240,4 @@ def attached_dataframe_logger(logger: logging.Logger, extra: Optional[dict[str, 
     return DataFrameLogger(logger, extra)
 
 
-dataframe_logger = attached_dataframe_logger(logging.getLogger())
+dataframe_log = attached_dataframe_logger(logging.getLogger())

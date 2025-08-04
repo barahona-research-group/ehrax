@@ -18,7 +18,7 @@ import tables as tbl  # type: ignore
 from .base import AbstractVxData
 from .freezer import FrozenDict11, FrozenDict1N, FrozenDict1NM
 from .literals import AggregationLiteral, NumericalTypeHint
-from .utils import Array, load_config, resources_path, tqdm_constructor, dataframe_logger
+from .utils import Array, load_config, resources_path, tqdm_constructor, dataframe_log
 
 
 class CodesVector(AbstractVxData):
@@ -829,7 +829,7 @@ class CodeMap(AbstractVxData):
         if invalid_rows.sum() > 0:
             unique_codes = df.loc[invalid_rows, code_column].unique()
             total_unique_codes = df[code_column].unique()
-            dataframe_logger.info(
+            dataframe_log.info(
                 (f"Some codes are not mapped to the target scheme: "
                  f"Total rows removed {invalid_rows.sum()} / {len(invalid_rows)} = {invalid_rows.mean(): .3f}. "
                  f"Unique codes dropped: {len(unique_codes)} / {len(total_unique_codes)} = "

@@ -202,7 +202,7 @@ class MixedICDTableResource(CodedTableResource):
         scheme = self.register_scheme(name=name,
                                       supported_space=self.space(data_connection),
                                       selection=selection,
-                                      component_schemes={k: manager[v] for k, v in component_schemes.items()})
+                                      component_schemes={k: manager.scheme[v] for k, v in component_schemes.items()})
         manager = manager.add_scheme(scheme)
         if target_name is not None and mapping is not None:
             manager = scheme.register_map(manager=manager, target_name=target_name, mapping=mapping)

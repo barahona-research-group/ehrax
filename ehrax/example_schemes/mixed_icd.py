@@ -4,7 +4,7 @@ import pandas as pd
 
 from ..coding_scheme import CodeMap, CodingScheme, CodingSchemesManager, FrozenDict11, FrozenDict1N, Formatter
 from ..dataset import COLUMN
-from ..utils import dataframe_logger
+from ..utils import dataframe_log
 
 
 class MultiVersionScheme(CodingScheme):
@@ -62,23 +62,23 @@ class MultiVersionScheme(CodingScheme):
 
         table = self.reformat(table, self.component_schemes(manager))
 
-        table[c_code] = table[c_version] + self.sep + table[c_code]
+        table.loc[:, c_code] = table[c_version] + self.sep + table[c_code]
 
         # filter out codes that are not in the scheme.
         use_rows = table[c_code].isin(self.codes)
         removed_rows = table[~use_rows]
-        removed_rows['component_scheme'] = removed_rows[c_version].map(self.component_scheme_names)
-        dataframe_logger.info((f"When transforming a table to mixed code format. {len(removed_rows)} codes "
-                               f"were not found in the corresponding component schemes.", removed_rows,
-                               "del_rows_mixed_format"))
+        removed_rows = removed_rows.assign(component_scheme=removed_rows[c_version].map(self.component_scheme_names))
+        dataframe_log.info(f"When transforming a table to mixed code format. {len(removed_rows)} codes "
+                              f"were not found in the corresponding component schemes.",
+                           dataframe=removed_rows, tag="del_rows_mixed_format")
         return table[use_rows].reset_index(drop=True)
 
     def report_lost_codes(self, dataframe: pd.DataFrame, target_name: str, mixed2target: dict[str, str]):
         lost_codes_df = dataframe[~dataframe['code'].isin(mixed2target.keys())]
-        dataframe_logger.info((
+        dataframe_log.info(
             f"Lost {len(lost_codes_df)} codes when generating the mapping between the Mixed {self.name} "
             f"({self.name})) and the standard ({target_name}). ",
-            lost_codes_df, f'mixed_{self.name}_to_{target_name}_lost_codes'))
+            dataframe=lost_codes_df, tag=f'mixed_{self.name}_to_{target_name}_lost_codes')
 
     def report_map_stats(self, dataframe: pd.DataFrame,
                          dataframe_groupby: tuple[tuple[str, pd.DataFrame], ...],
@@ -97,10 +97,10 @@ class MultiVersionScheme(CodingScheme):
         stats = pd.concat([stats, lost_stats], axis=1)
         norm_stats = stats.rename(index=lambda i: f'%{i}') / stats['count'].values.reshape(-1, 1)
         stats = pd.concat([stats, norm_stats], axis=0)
-        dataframe_logger.info((
+        dataframe_log.info(
             f"Statistics of the mapping between the mixed ({self.name}) and {target_name}.",
-            stats, f'mixed_{self.name}_to_{target_name}_stats'
-        ))
+            dataframe=stats, tag=f'mixed_{self.name}_to_{target_name}_stats'
+        )
 
     def register_infer_map(self, manager: CodingSchemesManager, target_name: str) -> CodingSchemesManager:
         required_maps = tuple((component_s, target_name) for component_s in self.component_scheme_names.values())
@@ -129,7 +129,7 @@ class MultiVersionScheme(CodingScheme):
         c_target_desc = str(COLUMN.mapped_description)
 
         mapping = self.reformat(mapping.astype(str), self.component_schemes(manager))
-        mapping[c_code] = (mapping[c_version] + self.sep + mapping[c_code]).tolist()
+        mapping.loc[:, c_code] = (mapping[c_version] + self.sep + mapping[c_code]).tolist()
         mapping = mapping[mapping[c_code].isin(self.codes)]
         assert len(mapping) > 0, "No mapping between the Mixed ICD scheme and the target scheme was found."
         target_codes = tuple(sorted(mapping[c_target_code].drop_duplicates().tolist()))
@@ -148,5 +148,6 @@ class MultiVersionScheme(CodingScheme):
         columns = ['code', 'desc', 'code_index', 'component_version', 'component_code']
         table = pd.DataFrame([(c, self.desc[c], self.index[c], *c.split(self.sep)) for c in codes],
                              columns=columns)
-        table['component_scheme'] = list(map(lambda v: self.component_scheme_names[v], table['component_version']))
+        table.loc[:, 'component_scheme'] = list(
+            map(lambda v: self.component_scheme_names[v], table['component_version']))
         return table

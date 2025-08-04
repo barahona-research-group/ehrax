@@ -5,6 +5,7 @@ __pycache__/**
 .vscode/**
 icenode-env/**
 .idea/**
+**/*.env
 **/*.log
 **/*.log.csv
 **/*.log.csv.gz

@@ -10,7 +10,7 @@ from .literals import DxHierarchicalICD9Name, PrHierarchicalICD9Name, PrFlatCCSN
     DxFlatCCSName, DxFlatICD10Name, DxHierarchicalICD10Name, PrFlatICD10Name, DxMultiCCSName, PrMultiCCSName
 from ..coding_scheme import (CodeMap, CodingScheme, CodingSchemesManager, FrozenDict11,
                              FrozenDict1N, HierarchicalScheme)
-from ..utils import resources_path, dataframe_logger
+from ..utils import resources_path, dataframe_log
 
 
 class CommonPreprocess:  # mixin
@@ -32,9 +32,9 @@ class CommonPreprocess:  # mixin
         ccs_table['ICD'] = ccs_table.loc[:, 'ICD'].map(icd_scheme.format)
         valid_icd = ccs_table['ICD'].isin(icd_scheme.codes)
         unsupported_icd = ccs_table.loc[~valid_icd, :]
-        dataframe_logger.info((f"In processing CCS multi-level table mapping to {icd_scheme.name} "
+        dataframe_log.info(f"In processing CCS multi-level table mapping to {icd_scheme.name} "
                                f"{unsupported_icd.shape[0]} ICD codes were unsupported.",
-                               unsupported_icd, f"unsupported_icd_codes_by_{icd_scheme.name}"))
+                           dataframe=unsupported_icd, tag=f"unsupported_icd_codes_by_{icd_scheme.name}")
         return ccs_table.loc[valid_icd, :]
 
 

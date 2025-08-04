@@ -1,7 +1,7 @@
 import pandas as pd
 
 from ..coding_scheme import (CodeMap, CodingScheme, CodingSchemesManager, FrozenDict1N, HierarchicalScheme, Formatter)
-from ..utils import resources_path, dataframe_logger
+from ..utils import resources_path, dataframe_log
 
 
 class ICDScheme(CodingScheme, Formatter):
@@ -44,6 +44,7 @@ class ICDMapOps:
 
         return conversion_table.groupby('source')[['no_map', 'scenario', 'choice_list']].apply(_get_status).to_dict()
 
+
     @staticmethod
     def register_mappings(manager: CodingSchemesManager, source_scheme: str, target_scheme: str,
                           conversion_filename: str) -> CodingSchemesManager:  # expose
@@ -52,21 +53,23 @@ class ICDMapOps:
         assert isinstance(source_scheme, ICDScheme) and isinstance(target_scheme, ICDScheme), (
             f"Expected ICDScheme subclasses. Got {type(source_scheme)} and {type(target_scheme)} instead."
         )
-        df = ICDMapOps.load_conversion_table(conversion_filename=conversion_filename)
-        df['source'] = df['source'].map(source_scheme.format)
-        df['target'] = df['target'].map(target_scheme.format)
-        valid_target = df['target'].isin(target_scheme.index)
-        valid_source = df['source'].isin(source_scheme.index)
-        table = df[valid_target & valid_source]
-        report = table[(~valid_target) | (~valid_source)]
-        report.loc[:, 'invalid_target'] = ~valid_target
-        report.loc[:, 'invalid_source'] = ~valid_source
-        dataframe_logger.info((f"In processing {conversion_filename}. "
+        df = ICDMapOps.load_conversion_table(conversion_filename=conversion_filename).reset_index(drop=True)
+        df = df.assign(source=df['source'].map(source_scheme.format),
+                       target=df['target'].map(target_scheme.format))
+        valid_target = df['target'].isin(target_scheme.index).values
+        valid_source = df['source'].isin(source_scheme.index).values
+        # Wait. Let's report and log.
+        report = df[(~valid_target) | (~valid_source)]
+        report = report.assign(invalid_target=~valid_target[report.index.values],
+                               invalid_source=~valid_source[report.index.values])
+        dataframe_log.info(f"In processing {conversion_filename}. "
                                f"{(~valid_source).sum()} source code were unsupported. "
-                               f"{(~valid_target).sum()} target code were unsupported. ",
-                               report, f"conversion_miss_report_{source_scheme.name}_{target_scheme.name}"))
+                               f"{(~valid_target).sum()} target code were unsupported. ", dataframe=report,
+                           tag =f"conversion_miss_report_{source_scheme.name}_{target_scheme.name}")
+        # Carry on. Done report and log.
+        table = df[valid_target & valid_source]
         conversion_status = ICDMapOps.conversion_status(table)
-        table['status'] = table['source'].map(conversion_status)
+        table = table.assign(status=table['source'].map(conversion_status))
         table = table[table['status'] != 'no_map']
         data = FrozenDict1N(table.groupby('source')['target'].apply(set).to_dict())
         return manager.add_map(CodeMap(source_name=source_scheme.name, target_name=target_scheme.name, data=data))
