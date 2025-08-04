@@ -123,8 +123,11 @@ def mimiciv_from_paths(patients: str, admissions: str, diagnoses_icd: str, d_icd
                               in_memory_tables=in_memory_tables,
                               aux=aux_resources)
 
-def match_gender_schemes(scheme_config_a: DatasetSchemeConfig, scheme_config_b: DatasetSchemeConfig, schemes: CodingSchemesManager) -> CodingSchemesManager:
+
+def match_gender_schemes(scheme_config_a: DatasetSchemeConfig, scheme_config_b: DatasetSchemeConfig,
+                         schemes: CodingSchemesManager) -> CodingSchemesManager:
     return schemes.add_match_map(scheme_config_a.gender, scheme_config_b.gender)
+
 
 def default_tvx_ehr_config(config: DatasetSchemeConfig) -> TVxEHRConfig:
     scheme = default_tvx_schemes_config(config)
