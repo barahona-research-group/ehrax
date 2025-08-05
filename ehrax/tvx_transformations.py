@@ -3,7 +3,6 @@ import random
 from abc import ABCMeta
 from typing import Any, Callable, Hashable, Optional
 
-import dask.dataframe as dd
 import equinox as eqx
 import numpy as np
 import pandas as pd
@@ -778,16 +777,18 @@ class TVxConcepts(AbstractTransformation):
             value = np.vstack(value.values).reshape((len(time), obs_dim))
             return InpatientObservables(time=time, value=value, mask=mask)
 
-        def partition_fun(part_df):
+        def partition_fun(part_df: pd.DataFrame) -> pd.Series:
             g = part_df.groupby([c_admission_id, c_timestamp], sort=True, as_index=False)
             return g.apply(val_mask).groupby(0).apply(gen_observation)
 
-        logging.debug("obs: dasking")
-        table = dd.from_pandas(table, npartitions=12, sort=True)
-        logging.debug("obs: groupby")
-        inpatient_observables_df = table.map_partitions(partition_fun, meta=(None, object))
-        logging.debug("obs: undasking")
-        inpatient_observables_df = inpatient_observables_df.compute()
+        # return these lines if we need dask as a dependency.
+        # logging.debug("obs: dasking")
+        # table = dd.from_pandas(table, npartitions=12, sort=True)
+        # logging.debug("obs: groupby")
+        # inpatient_observables_df = table.map_partitions(partition_fun, meta=(None, object))
+        # logging.debug("obs: undasking")
+        # inpatient_observables_df = inpatient_observables_df.compute()
+        inpatient_observables_df = partition_fun(table)
         logging.debug("obs: extract")
         assert len(inpatient_observables_df.index.tolist()) == len(set(inpatient_observables_df.index.tolist())), \
             "Duplicate admission ids in obs"

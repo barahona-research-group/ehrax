@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Callable, Optional
+from typing import Callable, Optional, get_args
 from unittest import mock
 
 import equinox as eqx
@@ -8,7 +8,10 @@ import pytest
 import tables as tb
 
 import ehrax as rx
-from ehrax.testing.common_setup import DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER
+from ehrax._literals import TableAggregationLiteral
+from ehrax._stats import DatasetStatsInterface, TargetHistogram
+from ehrax.dataset import AdmissionsTableColumns
+from ehrax.testing.common_setup import DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER, OUTCOME_DATA
 
 
 @pytest.mark.parametrize('columns, id_cols, code_cols, time_cols, index', [
@@ -244,6 +247,105 @@ class TestDatasetWithRecords(AbstractTestDataset):
                 else:
                     assert (split_measure_i - split_measure(subject_splits[j])) <= tolerance
 
+    #
+    # @pytest.fixture
+    # def dataset_hist_interface(self, processed_dataset: rx.Dataset) -> TargetHistogram:
+    #     return processed_dataset.stats(DATASET_SCHEME_MANAGER).target_hist
+    #
+    # #
+    # def stats_dx_discharge(self) -> :
 
 
-    # def stats_dx_discharge(self):
+class TestTargetHistogram:
+
+    @pytest.fixture(scope='class')
+    def stats_interface(self, dataset_with_records: rx.Dataset) -> DatasetStatsInterface:
+        return dataset_with_records._execute_pipeline([rx.SetIndex(), rx.SynchronizeSubjects(), rx.CastTimestamps()],
+                                                      DATASET_SCHEME_MANAGER).stats(DATASET_SCHEME_MANAGER)
+
+    @pytest.fixture(scope='class')
+    def code_map(self) -> rx.CodeMap:
+        m = rx.CodeMap(source_name='x', target_name='y',
+                       data=rx.FrozenDict1N({'a': {'x'}, 'b': {'x'}, 'c': {'y'}, 'd': {'x', 'y'}}))
+        assert m.domain == {'a', 'b', 'c', 'd'}
+        assert m.range == {'x', 'y'}
+        return m
+
+    @pytest.fixture(scope='class')
+    def c_code(self) -> str:
+        return 'code'
+
+    @pytest.fixture(scope='class')
+    def c_admission_id(self) -> str:
+        return 'admission_id'
+
+    @pytest.mark.parametrize('admission_id, code, expected', [
+        # empty table -> {}
+        [(), (), {}],
+        # table with no valid code -> {}
+        [('1',), ('!',), {}],
+        [('1', '2'), ('?', '!'), {}],
+        [('1', '1'), ('$', '*'), {}],
+        # table with just one valid code.
+        [('1',), ('a',), {'x': 1}],
+        # aggregation of admissions
+        [('1', '1'), ('a', 'b'), {'x': 1}],  # a and b both map to x
+        [('1', '1'), ('a', 'b'), {'x': 1}],
+        [('1', '2'), ('a', 'a'), {'x': 2}],
+        [('1', '2'), ('a', 'b'), {'x': 2}],
+        [('1', '1'), ('a', 'c'), {'x': 1, 'y': 1}],
+        # rest
+        [('1', '2', '3'), ('a', 'a', 'a'), {'x': 3}],
+        [('1', '1', '2'), ('d', 'a', 'd'), {'x': 2, 'y': 2}],
+
+    ])
+    def test_hardcoded_table(self, admission_id: tuple[str, ...], code: tuple[str, ...], expected: dict[str, int],
+                             code_map: rx.CodeMap):
+        table = pd.DataFrame({'id': admission_id, 'code': code})
+        hist = TargetHistogram.compute(table, c_admission_id='id', c_code='code', scheme_mapper=code_map).to_dict()
+        assert hist == expected
+
+    @pytest.mark.parametrize(
+        'admission_id, subject_id, admission_time, expected_agg_admission, expected_agg_first_admission, expected_agg_subject',
+        [
+            [(), (), (), (), (), ()],
+            [('1',), ('a',), (0,), ('1',), ('1',), ('a',)],
+            [('1', '2'), ('a', 'a'), (1, 0), ('1', '2'), ('2',), ('a', 'a')],
+            [('1', '2', '3', '4'), ('a', 'a', 'b', 'b'), (0, 1, 4, 3),
+             ('1', '2', '3', '4'), ('1', '4'), ('a', 'a', 'b', 'b')]
+        ]
+    )
+    def test_aggregation_adapt(self, admission_id: tuple[str, ...], subject_id: tuple[str, ...],
+                               admission_time: tuple[int, ...],
+                               expected_agg_admission: tuple[str, ...], expected_agg_first_admission: tuple[str, ...],
+                               expected_agg_subject: tuple[str, ...]):
+        adm_cols = AdmissionsTableColumns()
+        table = pd.DataFrame({adm_cols.admission_id: admission_id,
+                              adm_cols.subject_id: subject_id,
+                              adm_cols.start_time: admission_time})
+        adms = table.set_index(adm_cols.admission_id)
+        adapted1 = TargetHistogram.adapt_aggregation_level(adms, adm_cols, table, adm_cols.admission_id, 'admission')
+        adapted2 = TargetHistogram.adapt_aggregation_level(adms, adm_cols, table, adm_cols.admission_id,
+                                                           'first_admission')
+        adapted3 = TargetHistogram.adapt_aggregation_level(adms, adm_cols, table, adm_cols.admission_id, 'subject')
+        assert adapted1[adm_cols.admission_id].tolist() == list(expected_agg_admission)
+        assert adapted2[adm_cols.admission_id].tolist() == list(expected_agg_first_admission)
+        assert adapted3[adm_cols.admission_id].tolist() == list(expected_agg_subject)
+
+    def test_dataset_stats(self, stats_interface: DatasetStatsInterface):
+        assert isinstance(stats_interface, DatasetStatsInterface)
+        o = DATASET_SCHEME_MANAGER.outcome_data[OUTCOME_DATA.name]
+        o_scheme = o.as_coding_scheme(DATASET_SCHEME_MANAGER.scheme[o.base_name])
+        dx_scheme = DATASET_SCHEME_MANAGER.scheme[o.base_name]
+        dx_stats = [stats_interface.target_hist.dx_discharge(dx_scheme.name, a) for a in
+                    get_args(TableAggregationLiteral)]
+        o_stats = [stats_interface.target_hist.outcome(o.name, a) for a in get_args(TableAggregationLiteral)]
+        assert all(isinstance(dx_stats_i, pd.Series) for dx_stats_i in dx_stats)
+        assert all(dx_stats_i.index.tolist() == list(dx_scheme.codes) for dx_stats_i in dx_stats)
+        # also assert that they get different results, not 100% guaranteed test pass.
+        assert all(not dx_stats_i.equals(dx_stats_j) for dx_stats_i, dx_stats_j in zip(dx_stats[:-1], dx_stats[1:]))
+
+        assert all(isinstance(o_stats_i, pd.Series) for o_stats_i in o_stats)
+        assert all(o_stats_i.index.tolist() == list(o_scheme.codes) for o_stats_i in o_stats)
+        # also assert that they get different results, not 100% guaranteed test pass.
+        assert all(not o_stats_i.equals(o_stats_j) for o_stats_i, o_stats_j in zip(o_stats[:-1], o_stats[1:]))

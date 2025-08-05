@@ -20,7 +20,7 @@ class TargetHistogram:
         s_table = s_table[s_table[c_code].isin(scheme_mapper.domain)]
         # group by admission_id to collapse duplicate target codes within a single admission.
         t_table = s_table.groupby(c_admission_id)[c_code].apply(scheme_mapper.map_codeset)
-        return t_table.explode().value_counts().sort_index()
+        return t_table.explode().value_counts()
 
     @staticmethod
     def adapt_aggregation_level(admissions: pd.DataFrame, admissions_cols: 'AdmissionsTableColumns',
@@ -34,7 +34,7 @@ class TargetHistogram:
             case 'first_admission':
                 # Apply the statistics only on the first admission for each subject.
                 # Collect the first admission id for each subject and remove the rest.
-                table = table.sort_values(by=admissions_cols.start_time)
+                admissions = admissions.sort_values(by=admissions_cols.start_time, ascending=True)
                 admission_index = str(admissions.index.name)
                 assert admission_index == c_admission_id
                 first_admissions = admissions.reset_index(drop=False).groupby(c_subject_id)[admission_index].first()
@@ -48,20 +48,25 @@ class TargetHistogram:
                 raise ValueError(f"Unknown aggregation level '{aggregation_level}'. "
                                  f"Expected one of: {get_args(TableAggregationLiteral)}.")
 
-    def _dx_discharge(self, codemap: CodeMap, aggregation_level: TableAggregationLiteral = 'admission') -> pd.Series:
+    def _dx_discharge(self, codemap: CodeMap, target_codes: tuple[str, ...],
+                      aggregation_level: TableAggregationLiteral = 'admission') -> pd.Series:
         table = self.dataset.tables.dx_discharge
         cols = self.dataset.config.columns.dx_discharge
         table = self.adapt_aggregation_level(self.dataset.tables.admissions, self.dataset.config.columns.admissions,
                                              table, cols.admission_id, aggregation_level)
-        return self.compute(table, cols.admission_id, cols.code, codemap)
+        hist = self.compute(table, cols.admission_id, cols.code, codemap).to_dict()
+        return pd.Series(lambda c: hist.get(c, 0), index=target_codes)
+
 
     def dx_discharge(self, target_scheme: str, aggregation_level: TableAggregationLiteral = 'admission') -> pd.Series:
         codemap = self.schemes_manager.map[self.dataset.config.scheme.dx_discharge, target_scheme]
-        return self._dx_discharge(codemap, aggregation_level)
+        codes = self.schemes_manager.scheme[target_scheme].codes
+        return self._dx_discharge(codemap, codes, aggregation_level)
+
 
     def outcome(self, outcome: str, aggregation_level: TableAggregationLiteral = 'admission') -> pd.Series:
         o = self.schemes_manager.outcome[self.dataset.config.scheme.dx_discharge, outcome]
-        return self._dx_discharge(o.codemap, aggregation_level)
+        return self._dx_discharge(o.codemap, o.scheme.codes, aggregation_level)
 
 
 class DatasetStatsInterface:
