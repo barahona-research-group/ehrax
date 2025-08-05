@@ -8,7 +8,7 @@ import tables as tb
 
 import ehrax as rx
 from common_setup import INTERVENTIONS_MAX_N_ITEMS, OBS_MAX_N_TIMESTAMPS
-from ehrax.testing.common_setup import DATASET_CONFIG, DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER, OUTCOME_EXTRACTOR, \
+from ehrax.testing.common_setup import DATASET_CONFIG, DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER, OUTCOME_DATA, \
     SCHEMES, TARGET_SCHEMES, TVXEHR_CONF, _admission, _admissions, _dataset_tables, _dx_codes, _dx_codes_history, \
     _icu_inputs, _inpatient_interventions, _inpatient_observables, _outcome, _proc, _segmented_inpatient_interventions, \
     _singular_codevec, _static_info, leading_observables_extractor
@@ -162,7 +162,6 @@ def static_info(ethnicity: rx.CodesVector, gender: rx.CodesVector) -> rx.StaticI
 def dx_codes():
     return _dx_codes(TARGET_SCHEMES['dx_discharge'])
 
-
 @pytest.fixture(scope='session')
 def dx_codes_history(dx_codes: rx.CodesVector):
     return _dx_codes_history(dx_codes)
@@ -170,7 +169,7 @@ def dx_codes_history(dx_codes: rx.CodesVector):
 
 @pytest.fixture(scope='session')
 def outcome(dx_codes: rx.CodesVector):
-    return _outcome(OUTCOME_EXTRACTOR, DATASET_SCHEME_MANAGER, dx_codes)
+    return _outcome(OUTCOME_DATA, DATASET_SCHEME_MANAGER, dx_codes)
 
 
 @pytest.fixture(params=[0, 1, 301], scope='session', ids=['0-obs', '1-obs', '301-obs'])
@@ -254,7 +253,7 @@ def segmented_patient(patient: rx.Patient) -> rx.SegmentedPatient:
 @pytest.fixture(params=[0, 10], scope='session', ids=['0adms', '10adms'])
 def patient(request, static_info: rx.StaticInfo) -> rx.Patient:
     admissions = _admissions(n_admissions=request.param, dx_scheme=SCHEMES['dx_discharge'],
-                             outcome_extractor_=OUTCOME_EXTRACTOR, observation_scheme=SCHEMES['obs'],
+                             outcome_extractor_=OUTCOME_DATA, observation_scheme=SCHEMES['obs'],
                              icu_inputs_scheme=SCHEMES['icu_inputs'], icu_proc_scheme=SCHEMES['icu_procedures'],
                              hosp_proc_scheme=SCHEMES['hosp_procedures'],
                              dataset_scheme_manager=DATASET_SCHEME_MANAGER,

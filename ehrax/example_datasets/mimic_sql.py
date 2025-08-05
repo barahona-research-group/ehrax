@@ -8,7 +8,7 @@ from .mimic import CodedColumns, CodedTableResource, DatasetTablesResources, Gro
     MixedICDTableResource_MIMICIV, MultivariateTimeSeriesTableResource, StaticTableResource_MIMICIV, TableResource
 from ..base import AbstractConfig
 from ..dataset import AdmissionsTableColumns, COLUMN, MultivariateTimeSeriesTableMeta, StaticTableColumns, TableColumns
-from ..literals import NumericalTypeHint
+from .._literals import NumericalTypeHint
 from ..utils import resources_path
 
 

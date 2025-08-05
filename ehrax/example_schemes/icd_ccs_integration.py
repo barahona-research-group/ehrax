@@ -1,12 +1,12 @@
 from dataclasses import fields
 from typing import Self
 
-from .ccs import MultiLevelCCSICD9MapOps, FlatCCS2ICD9MapOps, CCSMapRegistration
+from .ccs import CCSMapRegistration, FlatCCS2ICD9MapOps, MultiLevelCCSICD9MapOps
 from .icd import ICDMapOps
 from .icd10 import ICD10CM, ICD10PCS
 from .icd9 import ICD9
 from ..base import AbstractConfig
-from ..coding_scheme import (CodingSchemesManager, ExcludingOutcomeExtractor)
+from ..coding_scheme import (CodingSchemesManager, FilterOutcomeMapData)
 
 
 class Flags(AbstractConfig):
@@ -92,7 +92,7 @@ def setup_ccs_schemes(manager: CodingSchemesManager, ccs_selection: CCSSchemeSel
 def setup_outcomes(manager: CodingSchemesManager,
                    outcome_selection: OutcomeSelection) -> CodingSchemesManager:
     for outcome_name in outcome_selection.flag_set:
-        manager = manager.add_outcome(ExcludingOutcomeExtractor.from_spec_json(manager.scheme, f'{outcome_name}.json'))
+        manager = manager.add_outcome(FilterOutcomeMapData.from_spec_json(manager.scheme, f'{outcome_name}.json'))
     return manager
 
 

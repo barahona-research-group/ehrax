@@ -16,9 +16,10 @@ import equinox as eqx
 import numpy as np
 import pandas as pd
 
+from ._stats import DatasetStatsInterface
+from ._literals import NumericalTypeHint, SplitLiteral
 from .base import AbstractConfig, AbstractVxData, HDFVirtualNode
 from .coding_scheme import CodingScheme, CodingSchemeWithUOM, CodingSchemesManager, NumericScheme
-from .literals import NumericalTypeHint, SplitLiteral
 from .utils import tqdm_constructor
 
 SECONDS_TO_HOURS_SCALER: Final[float] = 1 / 3600.0  # convert seconds to hours
@@ -596,6 +597,9 @@ class Dataset(AbstractProcessedDataset):
 
     def scheme_proxy(self, coding_schemes_manger: CodingSchemesManager) -> DatasetSchemeProxy:  # type: ignore[override]
         return DatasetSchemeProxy(self.config.scheme, coding_schemes_manger)
+
+    def stats(self, coding_schemes_manger: CodingSchemesManager) -> DatasetStatsInterface:
+        return DatasetStatsInterface(self, coding_schemes_manger)
 
     @cached_property
     def subject_ids(self):

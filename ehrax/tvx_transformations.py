@@ -11,7 +11,7 @@ import pandas as pd
 from .coding_scheme import CodeMap, CodingSchemesManager
 from .dataset import AbstractTransformation, AdmissionIntervalEventsTableColumns, AdmissionIntervalRatesTableColumns, \
     Dataset, Report
-from .literals import SplitLiteral
+from ._literals import SplitLiteral
 from .transformations import DatasetTransformation
 from .tvx_concepts import Admission, CodesVector, InpatientInput, InpatientInterventions, InpatientObservables, \
     LeadingObservableExtractor, Patient, StaticInfo
@@ -636,12 +636,7 @@ class TVxConcepts(AbstractTransformation):
     def _outcome(tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager,
                  dx_discharge: dict[str, set[str]]) -> dict[str, CodesVector]:
         tvx_scheme_proxy = tvx_ehr.scheme_proxy(schemes_context)
-        base_scheme = schemes_context.scheme[tvx_scheme_proxy.outcome.base_name]
-
-        outcome_extractor = tvx_scheme_proxy.outcome.codeset2vec_extractor(base_scheme,
-                                                                           tvx_scheme_proxy.outcome_base_mapper,
-                                                                           tvx_scheme_proxy.dx_discharge)
-        return {adm_id: outcome_extractor(codeset) for adm_id, codeset in dx_discharge.items()}
+        return {adm_id: tvx_scheme_proxy.outcome(codeset) for adm_id, codeset in dx_discharge.items()}
 
     @staticmethod
     def _icu_inputs(tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager) -> dict[str, InpatientInput]:

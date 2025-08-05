@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import tables as tb
 
-from .literals import CompressionLibLiteral
+from ._literals import CompressionLibLiteral
 from .utils import ArrayTypes, NumpyEncoder, equal_arrays, load_config, path_from_getter, path_from_jax_keypath, \
     write_config
 

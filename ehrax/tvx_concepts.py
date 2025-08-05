@@ -11,7 +11,7 @@ import scipy
 
 from .base import AbstractConfig, AbstractVxData
 from .coding_scheme import (CodesVector, NumericScheme)
-from .literals import NumericalTypeHint
+from ._literals import NumericalTypeHint
 from .utils import Array, np_module
 
 

@@ -25,12 +25,12 @@ def scheme_with_uom(name: str, codes: list[str]) -> rx.CodingScheme:
                                   uom_normalization_factor=uom_normalization_factor, universal_unit=universal_unit)
 
 
-def outcome_extractor(dx_scheme: rx.CodingScheme) -> rx.OutcomeExtractor:
+def outcome_extractor(dx_scheme: rx.CodingScheme) -> rx.FilterOutcomeMapData:
     name = f'{dx_scheme.name}_outcome'
     k = max(3, len(dx_scheme) - 1)
     random.seed(0)
     excluded = tuple(random.sample(dx_scheme.codes, k=k))
-    return rx.ExcludingOutcomeExtractor(name=name, base_name=dx_scheme.name, exclude_codes=excluded)
+    return rx.FilterOutcomeMapData(name=name, base_name=dx_scheme.name, exclude_codes=excluded)
 
 
 def sample_codes(scheme: rx.CodingScheme, n: int) -> list[str]:
@@ -88,13 +88,11 @@ def _dx_codes_history(dx_codes: rx.CodesVector):
     return rx.CodesVector(vec=v + dx_codes.vec, scheme=dx_codes.scheme)
 
 
-def _outcome(outcome_extractor_: rx.OutcomeExtractor, dataset_scheme_manager: rx.CodingSchemesManager,
+def _outcome(outcome_extractor_: rx.FilterOutcomeMapData, dataset_scheme_manager: rx.CodingSchemesManager,
              dx_codes: rx.CodesVector):
-    source_scheme = dataset_scheme_manager.scheme[dx_codes.scheme]
-    base_scheme = dataset_scheme_manager.scheme[outcome_extractor_.base_name]
-    code_map = dataset_scheme_manager.map[(dx_codes.scheme, outcome_extractor_.base_name)]
-    extractor = outcome_extractor_.codeset2vec_extractor(base_scheme, code_map, source_scheme)
-    return extractor(source_scheme.vec2codeset(dx_codes.vec))
+    source_codes = dataset_scheme_manager.scheme[dx_codes.scheme].vec2codeset(dx_codes.vec)
+    extractor = dataset_scheme_manager.outcome[dx_codes.scheme, outcome_extractor_.name]
+    return extractor(source_codes)
 
 
 def sample_subjects_dataframe(n: int,
@@ -312,9 +310,9 @@ TARGET_SCHEMES_MAPS['icu_inputs'] = rx.ReducedCodeMapN1.from_data(SCHEMES['icu_i
                                                                   rx.FrozenDict11({c: 'w_sum' for c in
                                                                                    TARGET_SCHEMES[
                                                                                        'icu_inputs'].codes}))
-OUTCOME_EXTRACTOR = outcome_extractor(TARGET_SCHEMES['dx_discharge'])
+OUTCOME_DATA = outcome_extractor(TARGET_SCHEMES['dx_discharge'])
 DATASET_SCHEME_MANAGER = rx.CodingSchemesManager(
-    outcomes=(OUTCOME_EXTRACTOR,),
+    outcomes=(OUTCOME_DATA,),
     schemes=tuple(SCHEMES.values()) + tuple(TARGET_SCHEMES.values()),
     maps=tuple(TARGET_SCHEMES_MAPS.values())
 )
@@ -335,7 +333,7 @@ DATASET_CONFIG = rx.DatasetConfig(scheme=DATASET_SCHEME_CONF)
 TVXEHR_SCHEME_CONF = rx.TVxEHRSchemeConfig(ethnicity=SCHEMES['ethnicity'].name,
                                            gender=SCHEMES['gender'].name,
                                            dx_discharge=TARGET_SCHEMES['dx_discharge'].name,
-                                           outcome=OUTCOME_EXTRACTOR.name,
+                                           outcome=OUTCOME_DATA.name,
                                            icu_procedures=SCHEMES['icu_procedures'].name,
                                            icu_inputs=TARGET_SCHEMES['icu_inputs'].name,
                                            obs=SCHEMES['obs'].name,
@@ -399,7 +397,7 @@ def _admission(admission_id: str, admission_date: pd.Timestamp,
 
 
 def _admissions(n_admissions, dx_scheme: rx.CodingScheme,
-                outcome_extractor_: rx.OutcomeExtractor, observation_scheme: rx.NumericScheme,
+                outcome_extractor_: rx.FilterOutcomeMap, observation_scheme: rx.NumericScheme,
                 icu_inputs_scheme: rx.CodingScheme, icu_proc_scheme: rx.CodingScheme,
                 hosp_proc_scheme: rx.CodingScheme,
                 dataset_scheme_manager: rx.CodingSchemesManager, max_los_days: int,

@@ -19,8 +19,8 @@ from .coding_scheme import (
     CodingSchemesManager,
     NumericScheme,
     NumericalTypeHint,
-    OutcomeExtractor,
-    ExcludingOutcomeExtractor,
+    FilterOutcomeMapData,
+    FilterOutcomeMap,
     ReducedCodeMapN1,
     GroupingData,
     AggregationLiteral

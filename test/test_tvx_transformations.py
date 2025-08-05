@@ -278,8 +278,7 @@ class TestTVxConcepts:
         outcome_scheme = tvx_ehr_with_dx.scheme_proxy(DATASET_SCHEME_MANAGER).outcome
         for admission_id, outcome in admission_outcome.items():
             assert outcome.scheme == outcome_scheme.name
-            assert len(outcome.vec) == len(
-                outcome_scheme.codes(DATASET_SCHEME_MANAGER.scheme[outcome_scheme.base_name]))
+            assert len(outcome.vec) == len(outcome_scheme)
 
     @pytest.fixture(scope='class')
     def tvx_ehr_with_icu_inputs(self, tvx_ehr: rx.TVxEHR) -> rx.TVxEHR:

@@ -162,11 +162,11 @@ class TestFlatScheme:
 
     def test_icd_ccs_outcomes(self, icd_ccs_outcome_manager, outcome_selection_name):
         assert len(icd_ccs_outcome_manager.outcomes) == 1
-        assert len(icd_ccs_outcome_manager.outcome) == 1
+        assert len(icd_ccs_outcome_manager.outcome_data) == 1
 
-        assert outcome_selection_name in icd_ccs_outcome_manager.outcome
-        assert icd_ccs_outcome_manager.outcome[outcome_selection_name].name == outcome_selection_name
-        assert isinstance(icd_ccs_outcome_manager.outcome[outcome_selection_name], rx.OutcomeExtractor)
+        assert outcome_selection_name in icd_ccs_outcome_manager.outcome_data
+        assert icd_ccs_outcome_manager.outcome_data[outcome_selection_name].name == outcome_selection_name
+        assert isinstance(icd_ccs_outcome_manager.outcome_data[outcome_selection_name], rx.FilterOutcomeMapData)
 
     def test_icd_ccs_maps(self, icd_ccs_map_manager: rx.CodingSchemesManager,
                           scheme_pair_selection: tuple[ICDSchemeSelection, CCSSchemeSelection]):
@@ -476,7 +476,7 @@ class TestCodingSchemesManager:
         m = CodingSchemesManager()
         assert len(m.scheme) == 0
         assert len(m.map) == 0
-        assert len(m.outcome) == 0
+        assert len(m.outcome_data) == 0
         assert len(m.identity_maps) == 0
         assert m.equals(CodingSchemesManager())
 
