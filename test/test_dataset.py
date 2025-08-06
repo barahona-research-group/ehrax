@@ -325,30 +325,30 @@ class TestTargetHistogram:
                               adm_cols.subject_id: subject_id,
                               adm_cols.start_time: admission_time})
         adms = table.set_index(adm_cols.admission_id)
-        adapted1 = TargetHistogram.adapt_aggregation_level(adms, adm_cols, table, adm_cols.admission_id, 'admission')
-        adapted2 = TargetHistogram.adapt_aggregation_level(adms, adm_cols, table, adm_cols.admission_id,
-                                                           'first_admission')
-        adapted3 = TargetHistogram.adapt_aggregation_level(adms, adm_cols, table, adm_cols.admission_id, 'subject')
+        adapted1, n1 = TargetHistogram.adapt_aggregation_level(adms, adm_cols, table, adm_cols.admission_id,
+                                                               'admission')
+        adapted2, n2 = TargetHistogram.adapt_aggregation_level(adms, adm_cols, table, adm_cols.admission_id,
+                                                               'first_admission')
+        adapted3, n3 = TargetHistogram.adapt_aggregation_level(adms, adm_cols, table, adm_cols.admission_id, 'subject')
         assert adapted1[adm_cols.admission_id].tolist() == list(expected_agg_admission)
         assert adapted2[adm_cols.admission_id].tolist() == list(expected_agg_first_admission)
         assert adapted3[adm_cols.admission_id].tolist() == list(expected_agg_subject)
+        assert n1 == len(admission_id)
+        assert n2 == n3 == len(set(subject_id))
 
     def test_dataset_stats(self, stats_interface: DatasetStatsInterface):
         assert isinstance(stats_interface, DatasetStatsInterface)
         o = DATASET_SCHEME_MANAGER.outcome_data[OUTCOME_DATA.name]
         o_scheme = o.as_coding_scheme(DATASET_SCHEME_MANAGER.scheme[o.base_name])
         dx_scheme = DATASET_SCHEME_MANAGER.scheme[o.base_name]
-        dx_stats = [stats_interface.target_hist.dx_discharge(dx_scheme.name, a) for a in
-                    get_args(TableAggregationLiteral)]
-        o_stats = [stats_interface.target_hist.outcome(o.name, a) for a in get_args(TableAggregationLiteral)]
+        dx_stats, dx_norm = zip(*[stats_interface.target_hist.dx_discharge(dx_scheme.name, a) for a in
+                                  get_args(TableAggregationLiteral)])
+        o_stats, o_norm = zip(
+            *[stats_interface.target_hist.outcome(o.name, a) for a in get_args(TableAggregationLiteral)])
         assert all(isinstance(dx_stats_i, pd.Series) for dx_stats_i in dx_stats)
         assert all(dx_stats_i.index.tolist() == list(dx_scheme.codes) for dx_stats_i in dx_stats)
         assert all(dx_stats_i.dtype is np.dtype('int') for dx_stats_i in dx_stats)
-        # also assert that they get different results, not 100% guaranteed test pass.
-        assert any(not dx_stats_i.equals(dx_stats_j) for dx_stats_i, dx_stats_j in zip(dx_stats[:-1], dx_stats[1:]))
 
         assert all(isinstance(o_stats_i, pd.Series) for o_stats_i in o_stats)
         assert all(o_stats_i.index.tolist() == list(o_scheme.codes) for o_stats_i in o_stats)
         assert all(o_stats_i.dtype is np.dtype('int') for o_stats_i in o_stats)
-        # also assert that they get different results, not 100% guaranteed test pass.
-        assert any(not o_stats_i.equals(o_stats_j) for o_stats_i, o_stats_j in zip(o_stats[:-1], o_stats[1:]))

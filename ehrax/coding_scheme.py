@@ -1021,6 +1021,10 @@ class FilterOutcomeMap:
     def index(self):
         return self.scheme.index
 
+    @property
+    def desc(self):
+        return self.scheme.desc
+
     def __len__(self):
         return len(self.index)
 
@@ -1059,11 +1063,14 @@ class CodingSchemesManager(AbstractVxData):
             return self
         return type(self)(schemes=self.schemes + (scheme,), maps=self.maps, outcomes=self.outcomes)
 
-    def add_map(self, map: CodeMap) -> Self:
+    def add_map(self, map: CodeMap, overwrite: bool = False) -> Self:
         assert isinstance(map, CodeMap), f"{map} is not a CodeMap."
         if (map.source_name, map.target_name) in self.map:
-            logging.warning(f'Map {map.source_name}->{map.target_name} already exists')
-            return self
+            if not overwrite:
+                logging.warning(f'Map {map.source_name}->{map.target_name} already exists')
+                return self
+            logging.info(f'Map {map.source_name}->{map.target_name} already exists and will be overwritten')
+
         return type(self)(schemes=self.schemes, maps=self.maps + (map,), outcomes=self.outcomes)
 
     def add_outcome(self, outcome: FilterOutcomeMapData) -> Self:
@@ -1133,6 +1140,10 @@ class CodingSchemesManager(AbstractVxData):
         return MappingProxyType({o.name: o for o in self.outcomes})
 
     @cached_property
+    def outcome_scheme(self) -> Mapping[str, CodingScheme]:
+        return MappingProxyType({k: o_scheme for (_, k), o_scheme in self.outcome.items()})
+
+    @cached_property
     def outcome(self) -> Mapping[tuple[str, str], FilterOutcomeMap]:
         # get all outcome mappings possible.
         # basically includes any codemap that has as a target base_scheme. for all base_schemes.
@@ -1146,7 +1157,7 @@ class CodingSchemesManager(AbstractVxData):
                 results[(source_name, o.name)] = FilterOutcomeMap(o_scheme, o_map)
         return MappingProxyType(results)
 
-    def add_chained_map(self, s_scheme: str, inter_scheme: str, t_scheme: str) -> Self:
+    def add_chained_map(self, s_scheme: str, inter_scheme: str, t_scheme: str, overwrite: bool = False) -> Self:
         """
         Registers a chained CodeMap. The source and target coding schemes are chained together if there is an intermediate scheme that can act as a bridge between the two.
         There must be registered two CodeMaps, one that maps between the source and intermediate coding schemes and one that maps between the intermediate and target coding schemes.
@@ -1170,7 +1181,7 @@ class CodingSchemesManager(AbstractVxData):
         # Supported codes in the new map are the intersection of the source codes and the source codes of the first map
         new_source_codes = set(s_scheme_object.codes) & set(map1.data.keys())
         data = FrozenDict1N({c: bridge(c) for c in new_source_codes})
-        return self.add_map(CodeMap(source_name=s_scheme, target_name=t_scheme, data=data))
+        return self.add_map(CodeMap(source_name=s_scheme, target_name=t_scheme, data=data), overwrite=overwrite)
 
     def scheme_supported_targets(self, scheme: CodingScheme) -> tuple[str, ...]:
         return tuple(t for s, t in self.map.keys() if s == scheme.name)
