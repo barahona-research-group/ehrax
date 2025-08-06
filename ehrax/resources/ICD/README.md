@@ -1,0 +1,13 @@
+| Filename 				                 | Description                           | Host Page                                                                                | Download Link                                                                                                                             |
+|-------------------------------|---------------------------------------|------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `2018_gem_cm_I9I10.txt.gz`    | Mappings from ICD-9-CM to ICD-10-CM   | []()                                                                                     | []()                                                                                                                                      |
+| `2018_gem_cm_I10I9.txt.gz`    | Mappings from ICD-10-CM to ICD-9-CM   | []()                                                                                     | []()                                                                                                                                      |
+| `2018_gem_pcs_I9I10.txt.gz`   | Mappings from ICD-9-PCS to ICD-10-PCS | []()                                                                                     | []()                                                                                                                                      |
+| `2018_gem_pcs_I10I9.txt.gz`   | Mappings from ICD-10-PCS to ICD-9-PCS | []()                                                                                     | []()                                                                                                                                      |
+| `HOM-ICD9.csv.gz`             | ICD9 Hierarchical Description         | []()                                                                                     | []()                                                                                                                                      |
+| `icd10cm_tabular_2023.xml.gz` | ICD10-CM Hierarchical Description     | [ftp.cdc.gov](https://ftp.cdc.gov/pub/Health_Statistics/NCHS/Publications/ICD10CM/2023/) | [icd10cm-Tabular-Index-2023.zip](https://ftp.cdc.gov/pub/Health_Statistics/NCHS/Publications/ICD10CM/2023/icd10cm-Tabular-Index-2023.zip) |
+| `icd10pcs_codes_2023.txt.gz`  | ICD10-PCS Flat Description            | []()                                                                                     | []()                                                                                                                                      |
+
+
+
+

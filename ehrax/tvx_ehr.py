@@ -10,10 +10,10 @@ import numpy as np
 import pandas as pd
 
 from .base import AbstractConfig, AbstractVxData, HDFVirtualNode, fetch_at
-from .coding_scheme import CodeMap, CodesVector, CodingSchemesManager, GroupingData, OutcomeExtractor, ReducedCodeMapN1
+from .coding_scheme import CodeMap, CodesVector, CodingSchemesManager, GroupingData, FilterOutcomeMap, ReducedCodeMapN1
 from .dataset import AbstractDatasetPipeline, AbstractProcessedDataset, AbstractTransformation, COLUMN, Dataset, \
     DatasetSchemeConfig, DatasetSchemeProxy, PipelineReportTable, Report, ReportAttributes
-from .literals import SplitLiteral
+from ._literals import SplitLiteral
 from .tvx_concepts import (Admission, AdmissionDates, DemographicVectorConfig, InpatientInput, InpatientInterventions,
                            InpatientObservables, LeadingObservableExtractorConfig, Patient, SegmentedPatient,
                            StaticInfo)
@@ -227,19 +227,17 @@ class TVxEHRSchemeProxy(DatasetSchemeProxy):
     def __init__(self, config: TVxEHRSchemeConfig, schemes_context: CodingSchemesManager):
         super().__init__(config=config, schemes_context=schemes_context)
 
-    @property
-    def outcome(self) -> Optional[OutcomeExtractor]:
-        return self.schemes_context.outcome[self.config.outcome] if self.config.outcome else None
+    @cached_property
+    def outcome(self) -> Optional[FilterOutcomeMap]:
+        return self.schemes_context.outcome[self.config.dx_discharge, self.config.outcome] if self.config.outcome else None
 
     @cached_property
     def outcome_size(self) -> int | None:
-        return len(self.outcome.codes(self.schemes_context.scheme[self.outcome.base_name])) if self.outcome else None
+        return len(self.outcome) if self.outcome else None
 
     @cached_property
-    def outcome_base_mapper(self) -> Optional[CodeMap]:
-        if self.config.dx_discharge == self.outcome.base_name:
-            return None
-        return self.schemes_context.map[(self.config.dx_discharge, self.outcome.base_name)]
+    def outcome_base_mapper(self) -> CodeMap:
+        return self.outcome.codemap
 
     @staticmethod
     def validate_mapping(coding_scheme_manager: CodingSchemesManager, source: DatasetSchemeConfig,
@@ -400,7 +398,7 @@ _SplitsType = tuple[tuple[str, ...], ...]
 
 class TVxEHR(AbstractProcessedDataset):
     """
-    A class representing a collection of patients in the EHR system, in ML-compliant format.
+    A class representing a sequence of patients in the EHR system, in ML-compliant format.
 
     Attributes:
         config (TVxEHRConfig): the configuration for the interface.
@@ -461,7 +459,7 @@ class TVxEHR(AbstractProcessedDataset):
         if subject_ids is None:
             subject_ids = self.subject_ids
         # generating lambdas inside generators can lead to unexpected behaviour, e.g. all lambdas can be bounded
-        # to one value of subject_id (the last one of the collection).
+        # to one value of subject_id (the last one of the sequence).
         # https://stackoverflow.com/a/452660
         return fetch_at(tuple(map(lambda k: lambda x: x.subjects[k], subject_ids)), self)
 

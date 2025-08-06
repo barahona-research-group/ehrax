@@ -1,4 +1,3 @@
-import os
 from unittest import mock
 
 import pytest
@@ -6,10 +5,9 @@ import tables as tb
 
 import ehrax as rx
 from ehrax import CodeMap, CodingScheme, CodingSchemesManager, FrozenDict1N
-from ehrax.example_schemes.icd import CCSICDOutcomeSelection, CCSICDSchemeSelection, setup_icd_outcomes, \
-    setup_icd_schemes, setup_standard_icd_ccs
-
-_DIR = os.path.dirname(__file__)
+from ehrax.example_schemes.icd_ccs_integration import (setup_icd_schemes, setup_standard_icd_ccs, ICDSchemeSelection,
+                                                       CCSSchemeSelection, OutcomeSelection, setup_ccs_schemes,
+                                                       setup_outcomes)
 
 
 class TestFlatScheme:
@@ -87,53 +85,72 @@ class TestFlatScheme:
                                              desc=desc_mutated)
             assert not primitive_flat_scheme.equals(mutated_scheme)
 
-    @pytest.fixture(params=[('dx_icd10',), ('dx_icd9',), ('pr_icd9',), ('dx_flat_icd10',), ('pr_flat_icd10',),
-                            ('dx_ccs', 'dx_icd9'), ('pr_ccs', 'pr_icd9'), ('dx_flat_ccs', 'dx_icd9'),
-                            ('pr_flat_ccs', 'pr_icd9')],
-                    ids=lambda x: '_'.join(x), scope='class')
-    def scheme_selection(self, request):
-        return CCSICDSchemeSelection(**{k: True for k in request.param})
+    @pytest.fixture(params=[(('dx_icd10',), ()),
+                            (('dx_icd9',), ()),
+                            (('pr_icd9',), ()),
+                            (('dx_flat_icd10',), ()),
+                            (('pr_flat_icd10',), ()),
+                            (('dx_icd9',), ('dx_ccs',)),
+                            (('pr_icd9',), ('pr_ccs',)),
+                            (('dx_icd9',), ('dx_flat_ccs',)),
+                            (('pr_icd9',), ('pr_flat_ccs',))],
+                    ids=lambda x: '_'.join(sum(x, ())), scope='class')
+    def scheme_selection(self, request) -> tuple[ICDSchemeSelection, CCSSchemeSelection]:
+        kwargs = lambda p: {k: True for k in p}
+        return ICDSchemeSelection(**kwargs(request.param[0])), CCSSchemeSelection(**kwargs(request.param[1]))
 
-    @pytest.fixture(params=[('dx_icd10', 'dx_icd9'), ('dx_icd9', 'dx_icd10'), ('dx_icd9', 'dx_flat_icd10'),
-                            ('dx_flat_icd10', 'dx_icd9'),
-                            ('pr_flat_icd10', 'pr_icd9'), ('pr_icd9', 'pr_flat_icd10'), ('dx_ccs', 'dx_icd9'),
-                            ('pr_ccs', 'pr_icd9'), ('dx_flat_ccs', 'dx_icd9'), ('pr_flat_ccs', 'pr_icd9')],
-                    scope='class',
-                    ids=lambda x: '_'.join(x))
+    @pytest.fixture(params=[(('dx_icd10', 'dx_icd9'), ()),
+                            (('dx_icd9', 'dx_icd10'), ()),
+                            (('dx_icd9', 'dx_flat_icd10'), ()),
+                            (('dx_flat_icd10', 'dx_icd9'), ()),
+                            (('pr_flat_icd10', 'pr_icd9'), ()),
+                            (('pr_icd9', 'pr_flat_icd10'), ()),
+                            (('dx_icd9',), ('dx_ccs',)),
+                            (('pr_icd9',), ('pr_ccs',)),
+                            (('dx_icd9',), ('dx_flat_ccs',)),
+                            (('pr_icd9',), ('pr_flat_ccs',))],
+                    scope='class', ids=lambda x: '_'.join(sum(x, ())))
     def scheme_pair_selection(self, request):
-        return CCSICDSchemeSelection(**{k: True for k in request.param})
+        kwargs = lambda p: {k: True for k in p}
+        return ICDSchemeSelection(**kwargs(request.param[0])), CCSSchemeSelection(**kwargs(request.param[1]))
 
     @pytest.fixture(params=['dx_icd9_v1', 'dx_icd9_v2_groups', 'dx_icd9_v3_groups', 'dx_flat_ccs_mlhc_groups',
                             'dx_flat_ccs_v1'], scope='class')
     def outcome_selection(self, request):
-        return CCSICDOutcomeSelection(**{request.param: True})
+        return OutcomeSelection(**{request.param: True})
 
     @pytest.fixture(scope="class")
-    def outcome_selection_name(self, outcome_selection: CCSICDOutcomeSelection) -> str:
+    def outcome_selection_name(self, outcome_selection: OutcomeSelection) -> str:
         (name,) = outcome_selection.flag_set
         return name
 
     @pytest.fixture(scope="class")
-    def selection_names(self, scheme_selection: CCSICDSchemeSelection) -> tuple[str, ...]:
-        return tuple(scheme_selection.flag_set)
+    def selection_names(self, scheme_selection: tuple[ICDSchemeSelection, CCSSchemeSelection]) -> tuple[str, ...]:
+        return tuple(scheme_selection[0].flag_set) + tuple(scheme_selection[1].flag_set)
 
     @pytest.fixture(scope="class")
-    def icd_ccs_scheme_manager(self, scheme_selection: CCSICDSchemeSelection) -> rx.CodingSchemesManager:
-        return setup_icd_schemes(rx.CodingSchemesManager(), scheme_selection)
+    def icd_ccs_scheme_manager(self, scheme_selection: tuple[
+        ICDSchemeSelection, CCSSchemeSelection]) -> rx.CodingSchemesManager:
+        icd_selection, ccs_selection = scheme_selection
+        return setup_ccs_schemes(setup_icd_schemes(icd_selection), ccs_selection)
 
     @pytest.fixture(scope="class")
     def icd_ccs_outcome_manager_prerequisite(self,
-                                             outcome_selection: CCSICDOutcomeSelection) -> rx.CodingSchemesManager:
-        return setup_icd_schemes(rx.CodingSchemesManager(), CCSICDSchemeSelection(dx_icd9=True, dx_flat_ccs=True))
+                                             outcome_selection: OutcomeSelection) -> rx.CodingSchemesManager:
+        return setup_ccs_schemes(setup_icd_schemes(ICDSchemeSelection(dx_icd9=True)),
+                                 CCSSchemeSelection(dx_flat_ccs=True))
 
     @pytest.fixture(scope="class")
-    def icd_ccs_map_manager(self, scheme_pair_selection: CCSICDSchemeSelection) -> rx.CodingSchemesManager:
-        return setup_standard_icd_ccs(scheme_pair_selection, CCSICDOutcomeSelection())
+    def icd_ccs_map_manager(self, scheme_pair_selection: tuple[
+        ICDSchemeSelection, CCSSchemeSelection]) -> rx.CodingSchemesManager:
+        icd_selection, ccs_selection = scheme_pair_selection
+        return setup_standard_icd_ccs(icd_selection=icd_selection, ccs_selection=ccs_selection,
+                                      outcome_selection=OutcomeSelection())
 
     @pytest.fixture(scope='class')
     def icd_ccs_outcome_manager(self, icd_ccs_outcome_manager_prerequisite: rx.CodingSchemesManager,
-                                outcome_selection: CCSICDOutcomeSelection) -> rx.CodingSchemesManager:
-        return setup_icd_outcomes(icd_ccs_outcome_manager_prerequisite, outcome_selection)
+                                outcome_selection: OutcomeSelection) -> rx.CodingSchemesManager:
+        return setup_outcomes(icd_ccs_outcome_manager_prerequisite, outcome_selection)
 
     def test_icd_ccs_schemes(self, icd_ccs_scheme_manager, selection_names):
         assert len(icd_ccs_scheme_manager.schemes) == len(selection_names)
@@ -145,18 +162,19 @@ class TestFlatScheme:
 
     def test_icd_ccs_outcomes(self, icd_ccs_outcome_manager, outcome_selection_name):
         assert len(icd_ccs_outcome_manager.outcomes) == 1
-        assert len(icd_ccs_outcome_manager.outcome) == 1
+        assert len(icd_ccs_outcome_manager.outcome_data) == 1
 
-        assert outcome_selection_name in icd_ccs_outcome_manager.outcome
-        assert icd_ccs_outcome_manager.outcome[outcome_selection_name].name == outcome_selection_name
-        assert isinstance(icd_ccs_outcome_manager.outcome[outcome_selection_name], rx.OutcomeExtractor)
+        assert outcome_selection_name in icd_ccs_outcome_manager.outcome_data
+        assert icd_ccs_outcome_manager.outcome_data[outcome_selection_name].name == outcome_selection_name
+        assert isinstance(icd_ccs_outcome_manager.outcome_data[outcome_selection_name], rx.FilterOutcomeMapData)
 
     def test_icd_ccs_maps(self, icd_ccs_map_manager: rx.CodingSchemesManager,
-                          scheme_pair_selection: CCSICDSchemeSelection):
-        assert len(scheme_pair_selection.flag_set) == 2
+                          scheme_pair_selection: tuple[ICDSchemeSelection, CCSSchemeSelection]):
+        icd_selection, ccs_selection = scheme_pair_selection
+        assert len(icd_selection.flag_set) + len(ccs_selection.flag_set) == 2
         assert len(icd_ccs_map_manager.maps) == 2
         assert len(icd_ccs_map_manager.map) == 2 + 2  # the two identity maps
-        (a, b) = scheme_pair_selection.flag_set
+        (a, b) = icd_selection.flag_set + ccs_selection.flag_set
         assert (a, b) in icd_ccs_map_manager.map
         assert (b, a) in icd_ccs_map_manager.map
         m1 = icd_ccs_map_manager.map[(a, b)]
@@ -393,7 +411,7 @@ class TestCodingSchemesManager:
     def scheme2(self) -> CodingScheme:
         return CodingScheme(name='t', codes=('C', 'D'))
 
-    @pytest.fixture(scope='class') # to test chaining.
+    @pytest.fixture(scope='class')  # to test chaining.
     def scheme3(self) -> CodingScheme:
         return CodingScheme(name='q', codes=('E', 'F'))
 
@@ -402,21 +420,21 @@ class TestCodingSchemesManager:
         return CodeMap(source_name=scheme1.name, target_name=scheme2.name,
                        data=FrozenDict1N({'A': {'D'}}))
 
-    @pytest.fixture(scope='class') # to test chaining
+    @pytest.fixture(scope='class')  # to test chaining
     def map_b(self, scheme2: CodingScheme, scheme3: CodingScheme) -> CodeMap:
         return CodeMap(source_name=scheme2.name, target_name=scheme3.name,
                        data=FrozenDict1N({'D': {'F'}}))
 
     @pytest.fixture(scope='class')
-    def scheme_x(self) -> CodingScheme: # to test match map
+    def scheme_x(self) -> CodingScheme:  # to test match map
         return CodingScheme(name='x', codes=tuple(sorted(('xO', 'hY', ' zN'))))
 
     @pytest.fixture(scope='class')
-    def scheme_y(self) -> CodingScheme: # to test match map
+    def scheme_y(self) -> CodingScheme:  # to test match map
         return CodingScheme(name='y', codes=tuple(sorted((' Xo', 'Hy ', 'ZN'))))
 
     @pytest.fixture(scope='class')
-    def scheme_z(self) -> CodingScheme: # to test match map
+    def scheme_z(self) -> CodingScheme:  # to test match map
         return CodingScheme(name='z', codes=(' Xoo', 'iHy ', 'iiii'))
 
     @pytest.fixture(scope='class')
@@ -436,16 +454,18 @@ class TestCodingSchemesManager:
                       manager3: CodingSchemesManager) -> CodingSchemesManager:
         return manager1 + manager2 + manager3
 
-    @pytest.fixture(scope='class') # to test chaining
-    def manager_all(self, manager_union: CodingSchemesManager, scheme3: CodingScheme, map_b: CodeMap) -> CodingSchemesManager:
+    @pytest.fixture(scope='class')  # to test chaining
+    def manager_all(self, manager_union: CodingSchemesManager, scheme3: CodingScheme,
+                    map_b: CodeMap) -> CodingSchemesManager:
         return manager_union.add_scheme(scheme3).add_map(map_b)
 
-    @pytest.fixture(scope='class') # tot test chaining
+    @pytest.fixture(scope='class')  # tot test chaining
     def manager_with_chained_map(self, manager_all: CodingSchemesManager):
         return manager_all.add_chained_map('s', 't', 'q')
 
     @pytest.fixture(scope='class')
-    def manager4matchmap(self, scheme_x: CodingScheme, scheme_y: CodingScheme, scheme_z: CodingScheme) -> CodingSchemesManager:
+    def manager4matchmap(self, scheme_x: CodingScheme, scheme_y: CodingScheme,
+                         scheme_z: CodingScheme) -> CodingSchemesManager:
         return CodingSchemesManager().add_scheme(scheme_x).add_scheme(scheme_y).add_scheme(scheme_z)
 
     @pytest.fixture(scope='class')
@@ -456,7 +476,7 @@ class TestCodingSchemesManager:
         m = CodingSchemesManager()
         assert len(m.scheme) == 0
         assert len(m.map) == 0
-        assert len(m.outcome) == 0
+        assert len(m.outcome_data) == 0
         assert len(m.identity_maps) == 0
         assert m.equals(CodingSchemesManager())
 
@@ -484,7 +504,6 @@ class TestCodingSchemesManager:
         assert len(manager_union.schemes) == 2
         assert len(manager_union.identity_maps) == 2
         assert len(manager_union.map) == 3
-
 
     def test_chained_map(self, manager_all: CodingSchemesManager, manager_with_chained_map: CodingSchemesManager):
         assert ('s', 't') in manager_all.map

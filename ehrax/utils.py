@@ -1,20 +1,23 @@
 """Miscalleneous utility functions."""
 
 import json
+import logging
 import os
+from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pandas as pd
 from jax._src.tree_util import DictKey, FlattenedIndexKey, GetAttrKey, KeyEntry, SequenceKey
 from jaxlib._jax import ArrayImpl
 from tqdm import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
 
 ArrayTypes = (np.ndarray, jnp.ndarray, jax.Array, ArrayImpl)
-Array = np.ndarray | jnp.ndarray | jax.Array
+Array = np.ndarray | jnp.ndarray | jax.Array | ArrayImpl
 
 
 def _tqdm_backend():
@@ -88,7 +91,9 @@ def write_config(data, config_file):
         json.dump(data, outfile, indent=4, sort_keys=True, cls=NumpyEncoder)
 
 
-def path_from_getter(getter: Callable[[Any], Any]) -> list[str]:
+def path_from_getter(getter: Callable[[Any], Any],
+                     getattr_transform: Callable[[str], str] = lambda x: x,
+                     getitem_transform: Callable[[Any], str] = lambda x: x) -> list[str]:
     """
     Generate a sequence of attribute names or indices (converted to strings) recording the sequence of access steps
     applied by the function on its input.
@@ -113,25 +118,27 @@ def path_from_getter(getter: Callable[[Any], Any]) -> list[str]:
             try:
                 return object.__getattribute__(self, item)
             except AttributeError:
-                return _M(object.__getattribute__(self, '_x_path') + [item])
+                return _M(object.__getattribute__(self, '_x_path') + [getattr_transform(item)])
 
         def __getitem__(self, item: str):
-            return _M(object.__getattribute__(self, '_x_path') + [str(item)])
+            return _M(object.__getattribute__(self, '_x_path') + [str(getitem_transform(item))])
 
     return getter(_M([]))._x_path
 
 
-def path_from_jax_keypath(path: tuple[KeyEntry, ...]) -> list[str]:
+def path_from_jax_keypath(path: tuple[KeyEntry, ...],
+                          getattr_transform: Callable[[str], str] = lambda x: x,
+                          getitem_transform: Callable[[Any], str] = lambda x: x) -> list[str]:
     def _extract(entry: KeyEntry):
         match entry:
             case GetAttrKey(name):
-                return name
+                return getattr_transform(name)
             case SequenceKey(idx):
-                return str(idx)
+                return str(getitem_transform(idx))
             case DictKey(key):
-                return str(key)
+                return str(getitem_transform(key))
             case FlattenedIndexKey(key):
-                return str(key)
+                return str(getitem_transform(key))
             case _:
                 raise ValueError(f"Unexpected key {entry}")
 
@@ -183,3 +190,53 @@ def equal_arrays(a: Array, b: Array) -> bool:
         return True
     is_nan = _np.isnan(a) & _np.isnan(b)
     return _np.array_equal(a[~is_nan], b[~is_nan], equal_nan=False)  # type: ignore
+
+
+class DataFrameLogger(logging.LoggerAdapter):
+    @property
+    def extract_file_handler_names(self) -> Optional[tuple[str, str, str]]:
+        for handler in self.logger.handlers:
+            if isinstance(handler, logging.FileHandler):
+                # baseFilename is actually the absolute path.
+                # https://github.com/python/cpython/blob/801cf3fcdd27d8b6dd0fdd3c39e6c996e2b2f7fa/Lib/logging/__init__.py#L1200
+                file_title = Path(handler.baseFilename).stem
+                file_suffix = Path(handler.baseFilename).suffix
+                file_parent = str(Path(handler.baseFilename).parent)
+                return file_parent, file_title, file_suffix
+        return None
+
+    def process(self, msg: str,
+                kwargs: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        df, tag = kwargs.pop('dataframe'), kwargs.pop('tag', '')
+        assert tuple(map(type, (msg, df, tag))) == (str, pd.DataFrame, str)
+        if len(df) == 0:
+            return msg, kwargs
+
+        # timestamp representative and incremental id.
+        timestamp = pd.Timestamp.now().strftime('%Y_%m_%dT_%H_%M_%S')
+        if self.extra is None:
+            self.extra = {}
+        incremental_id = self.extra.get('incremental_id', 0) + 1
+        self.extra = dict(self.extra) | {'incremental_id': incremental_id}
+        filehandler_names = self.extract_file_handler_names
+        if filehandler_names is None:
+            return (f'{msg}. Appendix report will not be saved to disk because '
+                    f'no single file handler found in the logger. '
+                    f'To store the appendix report, configure the logger {self.logger.name} '
+                    f'by either adding a FileHandler manually or call logging.basicConfig '
+                    f'with setting the filename argument.'), kwargs
+        parent_dir, main_log_file, main_log_file_suffix = self.extract_file_handler_names
+        file_title = '_'.join((main_log_file, tag, timestamp, f'{incremental_id:03d}'))
+        file_path = Path(parent_dir, file_title).with_suffix(f'{main_log_file_suffix}.csv')
+        df.to_csv(file_path)
+        return (f'{msg}. Find the appendix report stored as a table of '
+                f'columns {df.columns.tolist()} and {len(df)} rows at ({file_path}).'), kwargs
+
+
+def attached_dataframe_logger(logger: logging.Logger, extra: Optional[dict[str, Any]] = None) -> DataFrameLogger:
+    if extra is None:
+        extra = {}
+    return DataFrameLogger(logger, extra)
+
+
+dataframe_log = attached_dataframe_logger(logging.getLogger())

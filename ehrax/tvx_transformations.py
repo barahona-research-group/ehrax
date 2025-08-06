@@ -3,7 +3,6 @@ import random
 from abc import ABCMeta
 from typing import Any, Callable, Hashable, Optional
 
-import dask.dataframe as dd
 import equinox as eqx
 import numpy as np
 import pandas as pd
@@ -11,12 +10,13 @@ import pandas as pd
 from .coding_scheme import CodeMap, CodingSchemesManager
 from .dataset import AbstractTransformation, AdmissionIntervalEventsTableColumns, AdmissionIntervalRatesTableColumns, \
     Dataset, Report
-from .literals import SplitLiteral
+from ._literals import SplitLiteral
 from .transformations import DatasetTransformation
 from .tvx_concepts import Admission, CodesVector, InpatientInput, InpatientInterventions, InpatientObservables, \
     LeadingObservableExtractor, Patient, StaticInfo
 from .tvx_ehr import CodedValueProcessor, CodedValueScaler, IQROutlierRemoverConfig, ScalerConfig, SegmentedTVxEHR, \
     TVxEHR, TVxReport, TVxReportAttributes
+from .utils import dataframe_log
 
 
 def dataset_surgery(getter: Callable[[TVxEHR], Any], dataset: TVxEHR, replacement: Any) -> TVxEHR:
@@ -584,15 +584,29 @@ class TVxConcepts(AbstractTransformation):
         tvx_scheme_proxy = tvx_ehr.scheme_proxy(schemes_context)
         c_adm_id = tvx_ehr.dataset.config.columns.dx_discharge.admission_id
         c_code = tvx_ehr.dataset.config.columns.dx_discharge.code
-        dx_discharge = tvx_ehr.dataset.tables.dx_discharge
+        df = tvx_ehr.dataset.tables.dx_discharge
         dx_mapper = tvx_scheme_proxy.dx_mapper(tvx_ehr.dataset.config.scheme)
         target_scheme = tvx_scheme_proxy.dx_discharge
-        n1 = len(dx_discharge)
-        dx_discharge = dx_discharge[dx_discharge[c_code].isin(dx_mapper.data)]
+        n1 = len(df)
+        dx_discharge = df[df[c_code].isin(dx_mapper.data)]
         n2 = len(dx_discharge)
         if n1 != n2:
-            logging.warning(f'Some codes are not in the target scheme. {n1 - n2} / {n1} codes were removed.')
-            # TODO: report removed codes.
+            unique_codes_a = set(df[c_code])
+            unique_codes_b = set(df[c_code]) & set(dx_mapper.data.keys())
+            unique_removed = unique_codes_a - unique_codes_b
+            n_uniq_a = len(unique_codes_a)
+            n_uniq_rem = len(unique_removed)
+            source_scheme = tvx_ehr.dataset.scheme_proxy(schemes_context).dx_discharge
+            dataframe_log.info(
+                f'In mapping ({dx_mapper.source_name}->{dx_mapper.target_name}), '
+                f'some codes are not mapped to the target scheme.\n'
+                f'{n1 - n2} / {n1} = {(n1 - n2) / n1: .2f} rows were removed.\n'
+                f'{n_uniq_rem} / {n_uniq_a} = {n_uniq_rem / n_uniq_a: .2f} '
+                f'unique codes were removed (see report).',
+                dataframe=pd.DataFrame([(code, source_scheme.desc[code]) for code in unique_removed],
+                                       columns=['code', 'description']),
+                tag='lost_dx_discharge_codes_unique'
+            )
 
         dx_codes_set = dx_discharge.groupby(c_adm_id)[c_code].apply(set).to_dict()
         dx_codes_set = {k: dx_mapper.map_codeset(v) for k, v in dx_codes_set.items()}
@@ -621,12 +635,7 @@ class TVxConcepts(AbstractTransformation):
     def _outcome(tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager,
                  dx_discharge: dict[str, set[str]]) -> dict[str, CodesVector]:
         tvx_scheme_proxy = tvx_ehr.scheme_proxy(schemes_context)
-        base_scheme = schemes_context.scheme[tvx_scheme_proxy.outcome.base_name]
-
-        outcome_extractor = tvx_scheme_proxy.outcome.codeset2vec_extractor(base_scheme,
-                                                                           tvx_scheme_proxy.outcome_base_mapper,
-                                                                           tvx_scheme_proxy.dx_discharge)
-        return {adm_id: outcome_extractor(codeset) for adm_id, codeset in dx_discharge.items()}
+        return {adm_id: tvx_scheme_proxy.outcome(codeset) for adm_id, codeset in dx_discharge.items()}
 
     @staticmethod
     def _icu_inputs(tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager) -> dict[str, InpatientInput]:
@@ -768,16 +777,18 @@ class TVxConcepts(AbstractTransformation):
             value = np.vstack(value.values).reshape((len(time), obs_dim))
             return InpatientObservables(time=time, value=value, mask=mask)
 
-        def partition_fun(part_df):
+        def partition_fun(part_df: pd.DataFrame) -> pd.Series:
             g = part_df.groupby([c_admission_id, c_timestamp], sort=True, as_index=False)
             return g.apply(val_mask).groupby(0).apply(gen_observation)
 
-        logging.debug("obs: dasking")
-        table = dd.from_pandas(table, npartitions=12, sort=True)
-        logging.debug("obs: groupby")
-        inpatient_observables_df = table.map_partitions(partition_fun, meta=(None, object))
-        logging.debug("obs: undasking")
-        inpatient_observables_df = inpatient_observables_df.compute()
+        # return these lines if we need dask as a dependency.
+        # logging.debug("obs: dasking")
+        # table = dd.from_pandas(table, npartitions=12, sort=True)
+        # logging.debug("obs: groupby")
+        # inpatient_observables_df = table.map_partitions(partition_fun, meta=(None, object))
+        # logging.debug("obs: undasking")
+        # inpatient_observables_df = inpatient_observables_df.compute()
+        inpatient_observables_df = partition_fun(table)
         logging.debug("obs: extract")
         assert len(inpatient_observables_df.index.tolist()) == len(set(inpatient_observables_df.index.tolist())), \
             "Duplicate admission ids in obs"

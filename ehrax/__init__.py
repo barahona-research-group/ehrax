@@ -19,8 +19,8 @@ from .coding_scheme import (
     CodingSchemesManager,
     NumericScheme,
     NumericalTypeHint,
-    OutcomeExtractor,
-    ExcludingOutcomeExtractor,
+    FilterOutcomeMapData,
+    FilterOutcomeMap,
     ReducedCodeMapN1,
     GroupingData,
     AggregationLiteral
@@ -112,8 +112,9 @@ from .tvx_transformations import (
 )
 
 from .utils import (
+    Array, ArrayTypes,
     path_from_getter,
     path_from_jax_keypath,
     load_config, write_config,
-    translate_path
+    translate_path,
 )

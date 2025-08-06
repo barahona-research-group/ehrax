@@ -278,8 +278,7 @@ class TestTVxConcepts:
         outcome_scheme = tvx_ehr_with_dx.scheme_proxy(DATASET_SCHEME_MANAGER).outcome
         for admission_id, outcome in admission_outcome.items():
             assert outcome.scheme == outcome_scheme.name
-            assert len(outcome.vec) == len(
-                outcome_scheme.codes(DATASET_SCHEME_MANAGER.scheme[outcome_scheme.base_name]))
+            assert len(outcome.vec) == len(outcome_scheme)
 
     @pytest.fixture(scope='class')
     def tvx_ehr_with_icu_inputs(self, tvx_ehr: rx.TVxEHR) -> rx.TVxEHR:
@@ -652,3 +651,31 @@ class TestExcludeShortAdmissions:
             len(s.admissions) for s in tvx_ehr_filtered.subjects.values())
         assert all(adm.interval_hours >= tvx_ehr_concept.config.admission_minimum_los for s in
                    tvx_ehr_filtered.subjects.values() for adm in s.admissions)
+
+#
+# class TestWideTVxEHR:
+#     BAD_PERFORMANCE_N_ATTRS = 5000
+#     BAD_PERFORMANCE_N_CHILDREN = 17000
+#
+#     @pytest.fixture(scope='class')
+#     def wide_tvx_ehr(self, segmented_patient: rx.SegmentedPatient):
+#         def array_thinner(x: Any):
+#             if isinstance(x, rx.Array):
+#                 return np.random.normal(size=())
+#             else:
+#                 return x
+#
+#         def obs_thinner(x: rx.InpatientObservables):
+#             return rx.InpatientObservables.empty(5)
+#
+#         segmented_patient = jtu.tree_map(obs_thinner, segmented_patient,
+#                                          is_leaf=lambda x: isinstance(x, rx.InpatientObservables))
+#         subjects = {f'k_{i}': jtu.tree_map(array_thinner, segmented_patient)
+#                     for i in range(self.BAD_PERFORMANCE_N_CHILDREN)}
+#         return rx.TVxEHR(dataset=None, config=None, subjects=subjects)
+#
+#     @pytest.mark.filterwarnings('error:.*maximum number of.*')
+#     def test_wide_tvx_ehr_serialization_performance_warnings(self, wide_tvx_ehr: rx.TVxEHR, tmpdir: str):
+#         wide_tvx_ehr.save(f'{tmpdir}/wide_tvx_ehr.h5', complevel=3, complib='lzo')
+#         loaded = wide_tvx_ehr.load(f'{tmpdir}/wide_tvx_ehr.h5')
+#         assert wide_tvx_ehr.equals(loaded)

@@ -612,9 +612,14 @@ class TestPatient:
     def test_outcome_frequency(self):
         pass
 
-    def test_hf5_group_serialization(self, patient: rx.Patient, hf5_group_writer: tb.Group):
-        patient.to_hdf_group(hf5_group_writer)
-        assert patient.equals(rx.Patient.from_hdf_group(hf5_group_writer))
+    def test_hf5_group_serialization(self, patient: rx.Patient, tmpdir: str):
+        path = f'{tmpdir}/patient.h5'
+        with tb.open_file(path, 'w') as f:
+            patient.to_hdf_group(f.create_group('/', 'patient'))
+
+        with tb.open_file(path, 'r') as f:
+            loaded_patient = rx.Patient.from_hdf_group(f.root.patient)
+        assert patient.equals(loaded_patient)
 
 
 class TestSegmentedPatient:
@@ -625,6 +630,11 @@ class TestSegmentedPatient:
     def test_outcome_frequency(self):
         pass
 
-    def test_hf5_group_serialization(self, segmented_patient: rx.SegmentedPatient, hf5_group_writer: tb.Group):
-        segmented_patient.to_hdf_group(hf5_group_writer)
-        assert segmented_patient.equals(rx.SegmentedPatient.from_hdf_group(hf5_group_writer))
+    def test_hf5_group_serialization(self, segmented_patient: rx.SegmentedPatient, tmpdir: str):
+        path = f'{tmpdir}/segmented_patient.h5'
+        with tb.open_file(path, 'w') as f:
+            segmented_patient.to_hdf_group(f.create_group('/', 'seg_patient'))
+
+        with tb.open_file(path, 'r') as f:
+            loaded_segmented_patient = rx.SegmentedPatient.from_hdf_group(f.root.seg_patient)
+        assert segmented_patient.equals(loaded_segmented_patient)

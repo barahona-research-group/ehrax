@@ -6,19 +6,20 @@ import math
 import re
 from abc import ABCMeta, abstractmethod
 from collections import OrderedDict, defaultdict
-from collections.abc import Iterable, Mapping, Sized
+from collections.abc import Collection, Iterable, Mapping, Sized
+from dataclasses import dataclass
 from functools import cached_property
 from types import MappingProxyType
-from typing import Callable, ClassVar, Optional, Self, cast
+from typing import ClassVar, Optional, Self, cast
 
 import numpy as np
 import pandas as pd
 import tables as tbl  # type: ignore
 
+from ._literals import AggregationLiteral, NumericalTypeHint
 from .base import AbstractVxData
 from .freezer import FrozenDict11, FrozenDict1N, FrozenDict1NM
-from .literals import AggregationLiteral, NumericalTypeHint
-from .utils import Array, load_config, resources_path, tqdm_constructor
+from .utils import Array, dataframe_log, load_config, resources_path, tqdm_constructor
 
 
 class CodesVector(AbstractVxData):
@@ -55,6 +56,22 @@ class CodesVector(AbstractVxData):
         assert self.scheme == other.scheme, "Schemes should be the same."
         assert self.vec.dtype == bool and other.vec.dtype == bool, "Vector types should be the same."
         return type(self)(self.vec | other.vec, self.scheme)
+
+
+class Formatter(metaclass=ABCMeta):
+    @staticmethod
+    @abstractmethod
+    def format(code: str) -> str:
+        raise NotImplementedError
+
+    @staticmethod
+    @abstractmethod
+    def deformat(code: str) -> str:
+        raise NotImplementedError
+
+    @classmethod
+    def reformat(cls, code: str) -> str:
+        return cls.format(cls.deformat(code))
 
 
 class CodingScheme(AbstractVxData):
@@ -161,7 +178,7 @@ class CodingScheme(AbstractVxData):
 
         return CodingScheme.vector_cls(vec, self.name)
 
-    def codeset2vec(self, codeset: set[str]) -> CodesVector:
+    def codeset2vec(self, codeset: Iterable[str]) -> CodesVector:
         """
         Convert a codeset to a vector representation.
         Args:
@@ -185,15 +202,16 @@ class CodingScheme(AbstractVxData):
         assert len(vec) == len(self), f"Vector length should be {len(self)}."
         return set(map(lambda idx: self.index2code[int(idx)], np.where(vec)[0]))
 
-    def as_dataframe(self) -> pd.DataFrame:
+    def as_dataframe(self, codes: Optional[Collection[str]] = None) -> pd.DataFrame:
         """
         Returns the scheme as a Pandas DataFrame.
         The DataFrame contains the following columns:
             - code: the code string
             - desc: the code description
         """
-
-        index = list(range(len(self)))
+        if codes is None:
+            codes = self.codes
+        index = list(map(self.index.get, codes))
         return pd.DataFrame(
             {
                 "code": self.index2code,
@@ -341,7 +359,7 @@ class HierarchicalScheme(CodingScheme):
         assert isinstance(self.ch2pt, FrozenDict1N), f"{self}: ch2pt should be a dict."
         for collection in [self.dag_codes, self.dag_desc.values(), self.dag_desc.keys(), self.code2dag.keys(),
                            self.dag_desc.values(), self.code2dag.values(), self.ch2pt.keys(),
-                           frozenset().union(*self.ch2pt.values())]:
+                           frozenset(v for vs in self.ch2pt.values() for v in vs)]:
             assert all(
                 isinstance(c, str) for c in collection
             ), f"{self}: All name types should be str."
@@ -398,7 +416,7 @@ class HierarchicalScheme(CodingScheme):
         return code in self.dag_codes or code in self.codes
 
     @staticmethod
-    def reverse_connection(connection: Mapping[str, set[str]]) -> FrozenDict1N[str]:
+    def reverse_connection(connection: Mapping[str, frozenset[str]]) -> FrozenDict1N[str]:
         """
         Reverses a connection dictionary.
 
@@ -415,7 +433,7 @@ class HierarchicalScheme(CodingScheme):
         return FrozenDict1N(rev_connection)
 
     @staticmethod
-    def _bfs_traversal(connection: FrozenDict1N, code: str, include_itself: bool) -> list[str]:
+    def _bfs_traversal(connection: Mapping[str, frozenset[str]], code: str, include_itself: bool) -> list[str]:
         """
         Performs a breadth-first traversal of the hierarchy.
 
@@ -455,16 +473,16 @@ class HierarchicalScheme(CodingScheme):
         Returns:
             list[str]: A list of codes visited during the traversal.
         """
-        result = {code} if include_itself else set()
+        result = [code] if include_itself else []
 
         def _traversal(_node):
             for conn in connection.get(_node) or ():
-                result.add(conn)
+                result.append(conn)
                 _traversal(conn)
 
         _traversal(code)
 
-        return list(result)
+        return list(set(result))
 
     @staticmethod
     def _dfs_edges(connection: FrozenDict1N, code: str) -> set[tuple[str, str]]:
@@ -478,16 +496,16 @@ class HierarchicalScheme(CodingScheme):
         Returns:
             set[tuple[str, str]]: a set of edges in the hierarchy.
         """
-        result = set()
+        result = []
 
         def _edges(_node):
             connections = connection.get(_node) or ()
             for conn in connections:
-                result.add((_node, conn))
+                result.append((_node, conn))
                 _edges(conn)
 
         _edges(code)
-        return result
+        return set(result)
 
     def code_ancestors_bfs(self, code: str, include_itself: bool) -> list[str]:
         """
@@ -653,7 +671,7 @@ class CodeMap(AbstractVxData):
         assert target_scheme.name == self.target_name, "The target scheme must be the same as the target name."
         if not isinstance(target_scheme, HierarchicalScheme) or target_scheme.dag_codes is target_scheme.codes:
             return False
-        map_target_codes = frozenset().union(*self.data.values())
+        map_target_codes = frozenset([v for vs in self.data.values() for v in vs])
         target_codes = set(target_scheme.codes)
         target_dag_codes = set(target_scheme.dag_codes)
         is_code_subset = map_target_codes.issubset(target_codes)
@@ -680,7 +698,8 @@ class CodeMap(AbstractVxData):
             float: the range ratio of the CodeMap.
         """
         assert self.target_name == target_scheme.name, "The target scheme must be the same as the target name."
-        return len(frozenset().union(*self.data.values()) & frozenset(target_scheme.codes)) / len(target_scheme.codes)
+        target_set = frozenset([v for vs in self.data.values() for v in vs])
+        return len(target_set & frozenset(target_scheme.codes)) / len(target_scheme.codes)
 
     def log_ratios(self, source_scheme: CodingScheme, target_scheme: CodingScheme) -> float:
         """
@@ -785,7 +804,7 @@ class CodeMap(AbstractVxData):
 
     @cached_property
     def range(self) -> frozenset[str]:
-        return frozenset().union(*tuple(self.data.values()))
+        return frozenset(v for vs in self.data.values() for v in vs)
 
     def map_codeset(self, codeset: Iterable[str]) -> frozenset:
         """
@@ -801,17 +820,22 @@ class CodeMap(AbstractVxData):
         if len(supported_set) == 0 and len(cast(Sized, codeset)) > 0:
             logging.debug(f'No code in ({codeset}) maps to the target coding scheme.')
             return frozenset()
-        return frozenset().union(*tuple(self[c] for c in supported_set))
+        return frozenset(t for c in supported_set for t in self[c])
 
     def map_dataframe(self, df: pd.DataFrame, code_column: str) -> pd.DataFrame:
         df = df.iloc[:, :]
         code2list = {k: list(v) if len(v) > 1 else next(iter(v)) for k, v in self.data.items()}
         df[code_column] = df[code_column].map(code2list)
-
-        if df[code_column].isna().sum() > 0:
-            logging.warning(
-                f"Some codes are not mapped to the target scheme: {df[code_column].isna().sum()} / {len(df)}")
-            # TODO: Add to the report the conversion misses.
+        invalid_rows = df[code_column].isna()
+        if invalid_rows.sum() > 0:
+            unique_codes = df.loc[invalid_rows, code_column].unique()
+            total_unique_codes = df[code_column].unique()
+            dataframe_log.info(
+                (f"Some codes are not mapped to the target scheme: "
+                 f"Total rows removed {invalid_rows.sum()} / {len(invalid_rows)} = {invalid_rows.mean(): .3f}. "
+                 f"Unique codes dropped: {len(unique_codes)} / {len(total_unique_codes)} = "
+                 f"{len(unique_codes) / len(total_unique_codes): .3f}.",
+                 pd.DataFrame(unique_codes, columns=[code_column]), 'unique_columns_missed'))
             df = df[~df[code_column].isna()]
         return df.explode(code_column)
 
@@ -935,65 +959,7 @@ class ReducedCodeMapN1(CodeMap):
                             aggregation=self.groups_aggregation)
 
 
-class OutcomeExtractor(AbstractVxData, metaclass=ABCMeta):
-    name: str
-    base_name: str
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}({self.name})"
-
-    @abstractmethod
-    def codes(self, base_scheme: CodingScheme) -> tuple[str, ...]:
-        ...
-
-    def desc(self, base_scheme: CodingScheme) -> FrozenDict11:
-        return FrozenDict11({c: base_scheme.desc[c] for c in self.codes(base_scheme)})
-
-    def index(self, base_scheme: CodingScheme) -> dict[str, int]:
-        return {c: i for i, c in enumerate(self.codes(base_scheme))}
-
-    def outcome_dim(self, base_scheme: CodingScheme) -> int:
-        """
-        Gets the dimension of the outcome.
-
-        Returns:
-            int: the dimension of the outcome.
-
-        """
-
-        return len(self.index(base_scheme))
-
-    def codeset2vec_extractor(self, base_scheme: CodingScheme, codemap: Optional[CodeMap],
-                              source_scheme: CodingScheme) -> Callable[[set[str]], CodesVector]:
-        if codemap is None:
-            assert base_scheme.name == self.base_name == source_scheme.name, (
-                "Base scheme name mismatch. "
-                "Should provide a codemap "
-                f"({base_scheme.name} -> {self.base_name}).")
-        else:
-            assert codemap.source_name == source_scheme.name and codemap.target_name == self.base_name, (
-                "Code map mismatch.")
-
-        codes = set(self.codes(base_scheme))
-        index = self.index(base_scheme)
-
-        def _apply(codeset: set[str]):
-            codeset = codemap.map_codeset(codeset) & codes
-            vec = np.zeros(len(codes), dtype=bool)
-            for c in codeset:
-                vec[index[c]] = True
-            return CodesVector(vec, self.name)
-
-        def _apply_without_conversion(codeset: set[str]):
-            vec = np.zeros(len(codes), dtype=bool)
-            for c in codeset & codes:
-                vec[index[c]] = True
-            return CodesVector(vec, self.name)
-
-        return _apply if codemap is not None else _apply_without_conversion
-
-
-class ExcludingOutcomeExtractor(OutcomeExtractor):
+class FilterOutcomeMapData(AbstractVxData):
     name: str
     base_name: str
     exclude_codes: tuple[str, ...]
@@ -1003,12 +969,8 @@ class ExcludingOutcomeExtractor(OutcomeExtractor):
         self.exclude_codes = exclude_codes
         self.base_name = base_name
 
-    def codes(self, base_scheme: CodingScheme) -> tuple[str, ...]:
-        assert base_scheme.name == self.base_name, "Base scheme mismatch."
-        return tuple(c for c in base_scheme.codes if c not in self.exclude_codes)
-
     @classmethod
-    def from_spec_json(cls, available_schemes: dict[str, CodingScheme], json_file: str) -> Self:
+    def from_spec_json(cls, available_schemes: Mapping[str, CodingScheme], json_file: str) -> Self:
         conf = load_config(json_file, relative_to=resources_path('outcomes'))
         exclude_codes = []
         if 'exclude_branches' in conf:
@@ -1022,17 +984,68 @@ class ExcludingOutcomeExtractor(OutcomeExtractor):
             exclude_codes.extend(conf['exclude_codes'])
 
         name = conf.get('name', json_file.split('.')[0])
-
         return cls(name=name, base_name=conf['code_scheme'], exclude_codes=tuple(exclude_codes))
+
+    def as_coding_scheme(self, base_scheme: CodingScheme) -> CodingScheme:
+        assert base_scheme.name == self.base_name, "Base scheme mismatch."
+        codes = tuple(c for c in base_scheme.codes if c not in self.exclude_codes)
+        desc = FrozenDict11({c: base_scheme.desc[c] for c in codes})
+        return CodingScheme(name=self.name, codes=codes, desc=desc)
+
+    def as_code_map(self,
+                    outcome_scheme: CodingScheme,
+                    source_scheme: CodingScheme,
+                    base_scheme: CodingScheme,
+                    source2base: CodeMap) -> CodeMap:
+        assert source2base.source_name == source_scheme.name
+        assert source2base.target_name == base_scheme.name == self.base_name, "Base scheme mismatch."
+        # as_scheme = self.as_coding_scheme(base_scheme)
+        map_data = {s_code: t_codes.intersection(outcome_scheme.codes) for s_code, t_codes in source2base.data.items()}
+        return CodeMap(source_name=source_scheme.name, target_name=self.name, data=FrozenDict1N(map_data))
+
+
+@dataclass
+class FilterOutcomeMap:
+    scheme: CodingScheme
+    codemap: CodeMap
+
+    def __init__(self, scheme: CodingScheme, codemap: CodeMap):
+        self.scheme = scheme
+        self.codemap = codemap
+
+    @property
+    def name(self) -> str:
+        return self.scheme.name
+
+    @property
+    def index(self):
+        return self.scheme.index
+
+    @property
+    def desc(self):
+        return self.scheme.desc
+
+    def __len__(self):
+        return len(self.index)
+
+    def map_codeset(self, codeset: Iterable[str]):
+        return self.codemap.map_codeset(codeset)
+
+    def __call__(self, codeset: Iterable[str]) -> CodesVector:
+        codeset = self.map_codeset(codeset)
+        vec = np.zeros(len(self), dtype=bool)
+        for c in codeset:
+            vec[self.index[c]] = True
+        return CodesVector(vec, self.name)
 
 
 class CodingSchemesManager(AbstractVxData):
     schemes: tuple[CodingScheme, ...]
     maps: tuple[CodeMap, ...]
-    outcomes: tuple[OutcomeExtractor, ...]
+    outcomes: tuple[FilterOutcomeMapData, ...]
 
     def __init__(self, schemes: tuple[CodingScheme, ...] = (), maps: tuple[CodeMap, ...] = (),
-                 outcomes: tuple[OutcomeExtractor, ...] = ()):
+                 outcomes: tuple[FilterOutcomeMapData, ...] = ()):
         self.schemes = tuple(sorted(schemes, key=lambda s: s.name))
         self.maps = tuple(sorted(maps, key=lambda m: m.source_name + m.target_name))
         self.outcomes = tuple(sorted(outcomes, key=lambda o: o.name))
@@ -1050,28 +1063,31 @@ class CodingSchemesManager(AbstractVxData):
             return self
         return type(self)(schemes=self.schemes + (scheme,), maps=self.maps, outcomes=self.outcomes)
 
-    def add_map(self, map: CodeMap) -> Self:
+    def add_map(self, map: CodeMap, overwrite: bool = False) -> Self:
         assert isinstance(map, CodeMap), f"{map} is not a CodeMap."
         if (map.source_name, map.target_name) in self.map:
-            logging.warning(f'Map {map.source_name}->{map.target_name} already exists')
-            return self
+            if not overwrite:
+                logging.warning(f'Map {map.source_name}->{map.target_name} already exists')
+                return self
+            logging.info(f'Map {map.source_name}->{map.target_name} already exists and will be overwritten')
+
         return type(self)(schemes=self.schemes, maps=self.maps + (map,), outcomes=self.outcomes)
 
-    def add_outcome(self, outcome: OutcomeExtractor) -> Self:
-        assert isinstance(outcome, OutcomeExtractor), f"{outcome} is not an OutcomeExtractor."
-        if outcome.name in self.outcome:
+    def add_outcome(self, outcome: FilterOutcomeMapData) -> Self:
+        assert isinstance(outcome, FilterOutcomeMapData), f"{outcome} is not an OutcomeExtractor."
+        if outcome.name in self.outcome_data:
             logging.warning(f'Outcome {outcome.name} already exists')
             return self
         return type(self)(schemes=self.schemes, maps=self.maps, outcomes=self.outcomes + (outcome,))
 
-    def supported_outcome(self, outcome_name: str, supporting_scheme: str) -> bool:
-        assert outcome_name in self.outcome, (f"This outcome ({outcome_name}) doesn't exist. "
-                                              f"Current outcomes: {self.outcomes}")
+    def supported_outcome(self, outcome_name: str, source_scheme: str) -> bool:
+        assert outcome_name in self.outcome_data, (f"This outcome ({outcome_name}) doesn't exist. "
+                                                   f"Current outcomes: {list(self.outcome_data.keys())}")
 
-        return outcome_name in self.outcome and (supporting_scheme, self.outcome[outcome_name].base_name) in self.map
+        return (source_scheme, outcome_name) in self.outcome
 
-    def supported_outcomes(self, supporting_scheme: str) -> tuple[str, ...]:
-        return tuple(o for o in self.outcome if self.supported_outcome(o, supporting_scheme))
+    def supported_outcomes(self, source_scheme: str) -> tuple[str, ...]:
+        return tuple(o.name for o in self.outcomes if self.supported_outcome(o.name, source_scheme))
 
     def union(self, other: Self) -> Self:
         updated = self
@@ -1079,7 +1095,7 @@ class CodingSchemesManager(AbstractVxData):
             updated = updated.add_scheme(s)
         for m in (m for m in other.maps if (m.source_name, m.target_name) not in updated.map):
             updated = updated.add_map(m)
-        for o in (o for o in other.outcomes if o.name not in updated.outcome):
+        for o in (o for o in other.outcomes if o.name not in updated.outcome_data):
             updated = updated.add_outcome(o)
         return updated
 
@@ -1120,10 +1136,28 @@ class CodingSchemesManager(AbstractVxData):
         return MappingProxyType({(m.source_name, m.target_name): m for m in self.maps} | self.identity_maps)
 
     @cached_property
-    def outcome(self) -> Mapping[str, OutcomeExtractor]:
+    def outcome_data(self) -> Mapping[str, FilterOutcomeMapData]:
         return MappingProxyType({o.name: o for o in self.outcomes})
 
-    def add_chained_map(self, s_scheme: str, inter_scheme: str, t_scheme: str) -> Self:
+    @cached_property
+    def outcome_scheme(self) -> Mapping[str, CodingScheme]:
+        return MappingProxyType({k: o_scheme for (_, k), o_scheme in self.outcome.items()})
+
+    @cached_property
+    def outcome(self) -> Mapping[tuple[str, str], FilterOutcomeMap]:
+        # get all outcome mappings possible.
+        # basically includes any codemap that has as a target base_scheme. for all base_schemes.
+        results = {}
+        for o in self.outcomes:
+            t_scheme = o.base_name
+            o_scheme = o.as_coding_scheme(self.scheme[t_scheme])
+            feasible_maps = {k: m for k, m in self.map.items() if m.target_name == t_scheme}
+            for (source_name, target_name), m in feasible_maps.items():
+                o_map = o.as_code_map(o_scheme, self.scheme[source_name], self.scheme[target_name], m)
+                results[(source_name, o.name)] = FilterOutcomeMap(o_scheme, o_map)
+        return MappingProxyType(results)
+
+    def add_chained_map(self, s_scheme: str, inter_scheme: str, t_scheme: str, overwrite: bool = False) -> Self:
         """
         Registers a chained CodeMap. The source and target coding schemes are chained together if there is an intermediate scheme that can act as a bridge between the two.
         There must be registered two CodeMaps, one that maps between the source and intermediate coding schemes and one that maps between the intermediate and target coding schemes.
@@ -1142,12 +1176,12 @@ class CodingSchemesManager(AbstractVxData):
         assert not map1.mapped_to_dag_space(i_scheme_object)
         assert not map2.mapped_to_dag_space(t_scheme_object)
 
-        bridge = lambda x: frozenset().union(*[map2[c] for c in map1[x]])
+        bridge = lambda x: frozenset(c for b in map1[x] for c in map2[b])
 
         # Supported codes in the new map are the intersection of the source codes and the source codes of the first map
         new_source_codes = set(s_scheme_object.codes) & set(map1.data.keys())
         data = FrozenDict1N({c: bridge(c) for c in new_source_codes})
-        return self.add_map(CodeMap(source_name=s_scheme, target_name=t_scheme, data=data))
+        return self.add_map(CodeMap(source_name=s_scheme, target_name=t_scheme, data=data), overwrite=overwrite)
 
     def scheme_supported_targets(self, scheme: CodingScheme) -> tuple[str, ...]:
         return tuple(t for s, t in self.map.keys() if s == scheme.name)
@@ -1170,4 +1204,3 @@ class CodingSchemesManager(AbstractVxData):
         m_ba = CodeMap(scheme_b.name, scheme_a.name,
                        data=FrozenDict1N({b: {a} for a, b in zip(codes_a, codes_b)}))
         return self.add_map(m_ab).add_map(m_ba)
-

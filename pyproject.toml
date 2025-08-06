@@ -17,12 +17,11 @@ keywords = ["electronic-health-records", "ehr", "coding-schemes", "ICD", "ICD9",
 ]
 requires-python = ">= 3.12"
 dependencies = [
-    "equinox>=0.12.2",
-    "numpy==2.3.0",
-    "pandas==2.3.0",
+    "equinox>=0.13.0",
+    "numpy>=2.3.2",
+    "pandas>=2.3.1",
     "tables==3.10.2",
-    "dask[complete]==2025.5.1",
-    "scipy==1.15.3",
+    "scipy==1.16.1",
     "tqdm==4.67.1",
     "networkx==3.5",
     "SQLAlchemy==2.0.41",
