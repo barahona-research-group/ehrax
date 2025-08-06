@@ -55,7 +55,7 @@ class TargetHistogram:
         table = self.adapt_aggregation_level(self.dataset.tables.admissions, self.dataset.config.columns.admissions,
                                              table, cols.admission_id, aggregation_level)
         hist = self.compute(table, cols.admission_id, cols.code, codemap).to_dict()
-        return pd.Series(lambda c: hist.get(c, 0), index=target_codes)
+        return pd.Series(list(map(lambda c: hist.get(c, 0), target_codes)), index=target_codes)
 
 
     def dx_discharge(self, target_scheme: str, aggregation_level: TableAggregationLiteral = 'admission') -> pd.Series:

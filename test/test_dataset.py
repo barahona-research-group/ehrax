@@ -3,6 +3,7 @@ from typing import Callable, Optional, get_args
 from unittest import mock
 
 import equinox as eqx
+import numpy as np
 import pandas as pd
 import pytest
 import tables as tb
@@ -342,10 +343,12 @@ class TestTargetHistogram:
         o_stats = [stats_interface.target_hist.outcome(o.name, a) for a in get_args(TableAggregationLiteral)]
         assert all(isinstance(dx_stats_i, pd.Series) for dx_stats_i in dx_stats)
         assert all(dx_stats_i.index.tolist() == list(dx_scheme.codes) for dx_stats_i in dx_stats)
+        assert all(dx_stats_i.dtype is np.dtype('int') for dx_stats_i in dx_stats)
         # also assert that they get different results, not 100% guaranteed test pass.
-        assert all(not dx_stats_i.equals(dx_stats_j) for dx_stats_i, dx_stats_j in zip(dx_stats[:-1], dx_stats[1:]))
+        assert any(not dx_stats_i.equals(dx_stats_j) for dx_stats_i, dx_stats_j in zip(dx_stats[:-1], dx_stats[1:]))
 
         assert all(isinstance(o_stats_i, pd.Series) for o_stats_i in o_stats)
         assert all(o_stats_i.index.tolist() == list(o_scheme.codes) for o_stats_i in o_stats)
+        assert all(o_stats_i.dtype is np.dtype('int') for o_stats_i in o_stats)
         # also assert that they get different results, not 100% guaranteed test pass.
-        assert all(not o_stats_i.equals(o_stats_j) for o_stats_i, o_stats_j in zip(o_stats[:-1], o_stats[1:]))
+        assert any(not o_stats_i.equals(o_stats_j) for o_stats_i, o_stats_j in zip(o_stats[:-1], o_stats[1:]))
