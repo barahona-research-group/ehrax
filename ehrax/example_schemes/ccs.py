@@ -5,13 +5,13 @@ from typing import Final, Optional
 import pandas as pd
 
 from .icd import ICDScheme
-from .icd10 import DxHierarchicalICD10, DxFlatICD10, PrFlatICD10
-from .icd9 import DxHierarchicalICD9, PrHierarchicalICD9
-from .literals import DxHierarchicalICD9Name, PrHierarchicalICD9Name, PrFlatCCSName, \
-    DxFlatCCSName, DxFlatICD10Name, DxHierarchicalICD10Name, PrFlatICD10Name, DxMultiCCSName, PrMultiCCSName
+from .icd10 import ICD10CM, ICD10PCS
+from .icd9 import ICD9CM, ICD9PCS
+from .literals import DxFlatCCSName, DxMultiCCSName, ICD10CMName, ICD10PCSName, ICD9CMName, ICD9PCSName, PrFlatCCSName, \
+    PrMultiCCSName
 from ..coding_scheme import (CodeMap, CodingScheme, CodingSchemesManager, FrozenDict11,
                              FrozenDict1N, HierarchicalScheme)
-from ..utils import resources_path, dataframe_log
+from ..utils import dataframe_log, resources_path
 
 
 class CommonPreprocess:  # mixin
@@ -141,17 +141,17 @@ class MultiLevelCCSICD9MapOps(CommonMultiLevelCCS):
 
     @classmethod
     def register_dx_ccs_maps(cls, manager: CodingSchemesManager,
-                             icd_scheme: DxHierarchicalICD9Name) -> CodingSchemesManager:  # expose
+                             icd_scheme: ICD9CMName) -> CodingSchemesManager:  # expose
         scheme = manager.scheme[icd_scheme]
-        assert isinstance(scheme, DxHierarchicalICD9), (f"Expected DxHierarchicalICD9, got {type(scheme)}.")
+        assert isinstance(scheme, ICD9CM), f"Expected ICD9CM, got {type(scheme)}."
         return cls.register_multi_level_mappings(manager, 'dx_ccs', icd_scheme,
                                                  cls.process_dx_ccs_icd_table(scheme))
 
     @classmethod
     def register_pr_ccs_maps(cls, manager: CodingSchemesManager,
-                             icd_scheme: PrHierarchicalICD9Name) -> CodingSchemesManager:  # expose
+                             icd_scheme: ICD9PCSName) -> CodingSchemesManager:  # expose
         scheme = manager.scheme[icd_scheme]
-        assert isinstance(scheme, PrHierarchicalICD9), (f"Expected PrHierarchicalICD9, got {type(scheme)}.")
+        assert isinstance(scheme, ICD9PCS), f"Expected ICD9PCS, got {type(scheme)}."
         return cls.register_multi_level_mappings(manager, 'pr_ccs',
                                                  icd_scheme, cls.process_pr_ccs_icd_table(scheme))
 
@@ -214,16 +214,16 @@ class FlatCCS2ICD9MapOps(CommonFlatCCS):
 
     @classmethod
     def register_dx_flat_ccs_maps(cls, manager: CodingSchemesManager,
-                                  icd_scheme: DxHierarchicalICD9Name) -> CodingSchemesManager:  # expose
+                                  icd_scheme: ICD9CMName) -> CodingSchemesManager:  # expose
         scheme = manager.scheme[icd_scheme]
-        assert isinstance(scheme, DxHierarchicalICD9), f"Expected DxHierarchicalICD9, got {type(scheme)}."
+        assert isinstance(scheme, ICD9CM), f"Expected ICD9CM. got {type(scheme)}."
         return cls.register_flat_mappings(manager, 'dx_flat_ccs', icd_scheme, cls.process_dx_ccs_icd_table(scheme))
 
     @classmethod
     def register_pr_flat_ccs_maps(cls, manager: CodingSchemesManager,
-                                  icd_scheme: PrHierarchicalICD9Name) -> CodingSchemesManager:  # expose
+                                  icd_scheme: ICD9PCSName) -> CodingSchemesManager:  # expose
         scheme = manager.scheme[icd_scheme]
-        assert isinstance(scheme, PrHierarchicalICD9), f"Expected PrHierarchicalICD9, got {type(scheme)}."
+        assert isinstance(scheme, ICD9PCS), f"Expected PrHierarchicalICD9, got {type(scheme)}."
         return cls.register_flat_mappings(manager, 'pr_flat_ccs', icd_scheme, cls.process_pr_ccs_icd_table(scheme))
 
 
@@ -259,61 +259,57 @@ class CCS2ICD10MapOps(CommonMultiLevelCCS):
         return colmap
 
     @classmethod
-    def process_dx_ccs_icd_table(cls, icd10_scheme: DxHierarchicalICD10 | DxFlatICD10):
+    def process_dx_ccs_icd_table(cls, icd10_scheme: ICD10CM):
         return cls.process_ccs_icd_table(icd10_scheme,
                                          cls.process_ccs_table(cls.raw_table(cls.DX_FILE),
                                                                cls.dx_colmap(cls.DX_N_LEVELS)))
 
     @classmethod
-    def process_pr_ccs_icd_table(cls, icd10_scheme: PrFlatICD10):
+    def process_pr_ccs_icd_table(cls, icd10_scheme: ICD10PCS):
         return cls.process_ccs_icd_table(icd10_scheme,
                                          cls.process_ccs_table(cls.raw_table(cls.PR_FILE),
                                                                cls.pr_colmap(cls.PR_N_LEVELS)))
 
     @classmethod
     def register_dx_flat_ccs_maps(cls, manager: CodingSchemesManager,
-                                  icd_scheme: DxFlatICD10Name | DxHierarchicalICD10Name) -> CodingSchemesManager:  # expose
+                                  icd_scheme: ICD10CMName) -> CodingSchemesManager:  # expose
         scheme = manager.scheme[icd_scheme]
-        assert isinstance(scheme, (DxFlatICD10, DxHierarchicalICD10)), (f"Expected "
-                                                                        f"DxFlatICD10/DxHierarchicalICD10, "
-                                                                        f"got {type(scheme)}.")
+        assert isinstance(scheme, ICD10CM), f"Expected ICD10CM got {type(scheme)}."
 
         return CommonFlatCCS.register_flat_mappings(manager, 'dx_flat_ccs', icd_scheme,
                                                     cls.process_dx_ccs_icd_table(scheme))
 
     @classmethod
     def register_pr_flat_ccs_maps(cls, manager: CodingSchemesManager,
-                                  icd_scheme: PrFlatICD10Name) -> CodingSchemesManager:  # expose
+                                  icd_scheme: ICD10PCSName) -> CodingSchemesManager:  # expose
         scheme = manager.scheme[icd_scheme]
-        assert isinstance(scheme, PrFlatICD10), f"Expected PrFlatICD10, got {type(scheme)}."
+        assert isinstance(scheme, ICD10PCS), f"Expected PrFlatICD10, got {type(scheme)}."
         return CommonFlatCCS.register_flat_mappings(manager, 'pr_flat_ccs', icd_scheme,
                                                     cls.process_pr_ccs_icd_table(scheme))
 
     @classmethod
     def register_dx_ccs_maps(cls, manager: CodingSchemesManager,
-                             icd_scheme: DxHierarchicalICD10Name | DxFlatICD10Name) -> CodingSchemesManager:  # expose
+                             icd_scheme: ICD10CMName) -> CodingSchemesManager:  # expose
         scheme = manager.scheme[icd_scheme]
-        assert isinstance(scheme, (DxFlatICD10, DxHierarchicalICD10)), (f"Expected "
-                                                                        f"DxHierarchicalICD10/DxFlatICD10, "
-                                                                        f"got {type(scheme)}.")
+        assert isinstance(scheme, ICD10CM), f"Expected ICD10CM got {type(scheme)}."
         return cls.register_multi_level_mappings(manager, 'dx_ccs', icd_scheme,
                                                  cls.process_dx_ccs_icd_table(scheme))
 
     @classmethod
     def register_pr_ccs_maps(cls, manager: CodingSchemesManager,
-                             icd_scheme: PrFlatICD10Name) -> CodingSchemesManager:  # expose
+                             icd_scheme: ICD10PCSName) -> CodingSchemesManager:  # expose
         scheme = manager.scheme[icd_scheme]
-        assert isinstance(scheme, PrFlatICD10), f"Expected PrFlatICD10, got {type(scheme)}."
+        assert isinstance(scheme, ICD10PCS), f"Expected PrFlatICD10, got {type(scheme)}."
         return cls.register_multi_level_mappings(manager, 'pr_ccs', icd_scheme,
                                                  cls.process_pr_ccs_icd_table(scheme))
 
 
 class CCSMapRegistration:
     @staticmethod
-    def dx_icd9_maps(manager: CodingSchemesManager,
-                     icd9_scheme: DxHierarchicalICD9Name,
-                     dx_ccs: bool,
-                     dx_flat_ccs: bool) -> CodingSchemesManager:
+    def icd9cm_maps(manager: CodingSchemesManager,
+                    icd9_scheme: ICD9CMName,
+                    dx_ccs: bool,
+                    dx_flat_ccs: bool) -> CodingSchemesManager:
         if not any((dx_ccs, dx_flat_ccs)):
             return manager
 
@@ -328,8 +324,8 @@ class CCSMapRegistration:
         return manager
 
     @staticmethod
-    def pr_icd9_maps(manager: CodingSchemesManager,
-                     icd9_scheme: PrHierarchicalICD9Name,
+    def icd9pcs_maps(manager: CodingSchemesManager,
+                     icd9_scheme: ICD9PCSName,
                      pr_ccs: bool,
                      pr_flat_ccs: bool) -> CodingSchemesManager:
         if pr_ccs:
@@ -343,10 +339,10 @@ class CCSMapRegistration:
         return manager
 
     @staticmethod
-    def dx_icd10_maps(manager: CodingSchemesManager,
-                      icd10_scheme: DxHierarchicalICD10Name | DxFlatICD10Name,
-                      dx_ccs: bool,
-                      dx_flat_ccs: bool) -> CodingSchemesManager:
+    def icd10cm_maps(manager: CodingSchemesManager,
+                     icd10_scheme: ICD10CMName,
+                     dx_ccs: bool,
+                     dx_flat_ccs: bool) -> CodingSchemesManager:
         if dx_ccs:
             logging.debug(f"[BEGIN] mapping from {icd10_scheme} to dx_ccs")
             manager = CCS2ICD10MapOps.register_dx_ccs_maps(manager, icd10_scheme)
@@ -358,8 +354,8 @@ class CCSMapRegistration:
         return manager
 
     @staticmethod
-    def pr_icd10_maps(manager: CodingSchemesManager,
-                      icd10_scheme: PrFlatICD10Name,
+    def icd10pcs_maps(manager: CodingSchemesManager,
+                      icd10_scheme: ICD10PCSName,
                       pr_ccs: bool,
                       pr_flat_ccs: bool) -> CodingSchemesManager:
         if pr_ccs:
@@ -374,8 +370,8 @@ class CCSMapRegistration:
 
     @staticmethod
     def ccs_flat_to_multi_maps(manager: CodingSchemesManager,
-                               dx_bridge: Optional[DxHierarchicalICD9Name] = None,
-                               pr_bridge: Optional[PrHierarchicalICD9Name] = None):
+                               dx_bridge: Optional[ICD9CMName] = None,
+                               pr_bridge: Optional[ICD9PCSName] = None):
         if dx_bridge is not None:
             logging.debug(f"[BEGIN] mapping from dx_flat_ccs to dx_ccs via {dx_bridge}")
             manager = manager.add_chained_map('dx_ccs', dx_bridge, 'dx_flat_ccs')

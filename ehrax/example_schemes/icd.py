@@ -2,11 +2,19 @@ import logging
 
 import pandas as pd
 
-from ..coding_scheme import (CodeMap, CodingScheme, CodingSchemesManager, FrozenDict1N, HierarchicalScheme, Formatter)
-from ..utils import resources_path, dataframe_log
+from ..coding_scheme import (CodeMap, CodingScheme, CodingSchemesManager, Formatter, FrozenDict1N, HierarchicalScheme)
+from ..utils import dataframe_log, resources_path
 
 
 class ICDScheme(CodingScheme, Formatter):
+
+    # def __check_init__(self):
+    #     # assert formatted codes.
+    #     assert tuple(map(self.reformat, self.legacy_map.keys())) == tuple(self.legacy_map.keys())
+    #     assert tuple(map(self.reformat, self.legacy_map.values())) == tuple(self.legacy_map.values())
+    #     # assert existence of values in codes.
+    #     assert all(c in self.codes for c in self.legacy_map.values())
+
     @staticmethod
     def deformat(code: str) -> str:
         return code.strip().replace('.', '')
@@ -56,8 +64,8 @@ class ICDMapOps:
             f"Expected ICDScheme subclasses. Got {type(source_scheme)} and {type(target_scheme)} instead."
         )
         df = ICDMapOps.load_conversion_table(conversion_filename=conversion_filename).reset_index(drop=True)
-        df = df.assign(source=df['source'].map(source_scheme.format),
-                       target=df['target'].map(target_scheme.format))
+        df = df.assign(source=df['source'].map(source_scheme.reformat),
+                       target=df['target'].map(target_scheme.reformat))
         valid_target = df['target'].isin(target_scheme.index).values
         valid_source = df['source'].isin(source_scheme.index).values
 

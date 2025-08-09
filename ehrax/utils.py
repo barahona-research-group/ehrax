@@ -226,6 +226,7 @@ class DataFrameLogger(logging.LoggerAdapter):
                     f'by either adding a FileHandler manually or call logging.basicConfig '
                     f'with setting the filename argument.'), kwargs
         parent_dir, main_log_file, main_log_file_suffix = self.extract_file_handler_names
+        tag = tag.replace('.', '_')
         file_title = '_'.join((main_log_file, tag, timestamp, f'{incremental_id:03d}'))
         file_path = Path(parent_dir, file_title).with_suffix(f'{main_log_file_suffix}.csv')
         df.to_csv(file_path)

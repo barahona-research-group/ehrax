@@ -3,14 +3,17 @@ from typing import Any, Final, Optional
 import pandas as pd
 
 from .icd import ICDHierarchicalScheme
-from ..coding_scheme import (CodingSchemesManager, FrozenDict11,
+from ..coding_scheme import (FrozenDict11,
                              HierarchicalScheme)
 from ..utils import resources_path
 
 
-class DxHierarchicalICD9(ICDHierarchicalScheme):
+class ICD9CM(ICDHierarchicalScheme):
+
     @staticmethod
     def format(code: str) -> str:
+        if '-' in code:
+            return '-'.join(map(ICD9CM.format, code.split('-')))
         if '.' in code:
             # logging.debug(f'Code {code} already is in decimal format')
             return code
@@ -26,10 +29,12 @@ class DxHierarchicalICD9(ICDHierarchicalScheme):
             return code
 
 
-class PrHierarchicalICD9(ICDHierarchicalScheme):
+class ICD9PCS(ICDHierarchicalScheme):
 
     @staticmethod
     def format(code: str) -> str:
+        if '-' in code:
+            return '-'.join(map(ICD9PCS.format, code.split('-')))
         if '.' in code:
             # logging.debug(f'Code {code} already is in decimal format')
             return code
@@ -39,11 +44,11 @@ class PrHierarchicalICD9(ICDHierarchicalScheme):
             return code
 
 
-class ICD9:
-    ICD9CM_FILE: Final[str] = resources_path('ICD', 'HOM-ICD9.csv.gz')
-    DUMMY_ROOT_CLASS_ID: Final[str] = 'owl#Thing'
-    PR_ROOT_CLASS_ID: Final[str] = 'MM_CLASS_2'
-    DX_ROOT_CLASS_ID: Final[str] = 'MM_CLASS_21'
+class ICD9PCSFactory:
+    ICD9_FILE: str = resources_path('ICD', 'HOM-ICD9.csv.gz')
+    DUMMY_ROOT_CLASS_ID: str = 'owl#Thing'
+    PCS_ROOT_CLASS_ID: str = 'MM_CLASS_2'
+    CM_ROOT_CLASS_ID: str = 'MM_CLASS_21'
 
     @classmethod
     def create_scheme_data(cls, processed_icd_table: pd.DataFrame,
@@ -67,16 +72,16 @@ class ICD9:
         return cls.generate_dictionaries(df) | {'ch2pt': HierarchicalScheme.reverse_connection(pt2ch)}
 
     @classmethod
-    def create_dx_scheme_data(cls, processed_icd_table: pd.DataFrame,
+    def create_cm_scheme_data(cls, processed_icd_table: pd.DataFrame,
                               all_parent_to_children_map: dict[str, frozenset[str]]) -> dict[str, Any]:
         return cls.create_scheme_data(processed_icd_table, all_parent_to_children_map,
-                                      deselect_tree=cls.PR_ROOT_CLASS_ID)
+                                      deselect_tree=cls.PCS_ROOT_CLASS_ID)
 
     @classmethod
-    def create_pr_scheme_data(cls, processed_icd_table: pd.DataFrame,
-                              all_parent_to_children_map: dict[str, frozenset[str]]) -> dict[str, Any]:
+    def create_pcs_scheme_data(cls, processed_icd_table: pd.DataFrame,
+                               all_parent_to_children_map: dict[str, frozenset[str]]) -> dict[str, Any]:
         return cls.create_scheme_data(processed_icd_table, all_parent_to_children_map,
-                                      select_tree=cls.PR_ROOT_CLASS_ID)
+                                      select_tree=cls.PCS_ROOT_CLASS_ID)
 
     @staticmethod
     def deselect_subtree(pt2ch: dict[str, frozenset[str]], sub_root: str) -> dict[str, frozenset[str]]:
@@ -93,7 +98,11 @@ class ICD9:
     @classmethod
     def load_raw_table(cls) -> pd.DataFrame:
         # https://bioportal.bioontology.org/ontologies/HOM-ICD9
-        return pd.read_csv(cls.ICD9CM_FILE, dtype=str)
+        return pd.read_csv(cls.ICD9_FILE, dtype=str)
+
+    @classmethod
+    def extract_icd9_codes(cls, df: pd.DataFrame) -> list[str]:
+        return list(df['C_BASECODE'].apply(lambda c: c.split(':')[-1]))
 
     @classmethod
     def process_icd_table(cls, table: pd.DataFrame) -> pd.DataFrame:
@@ -109,17 +118,11 @@ class ICD9:
         df = df.map(retain_suffix)
         df.columns = list(map(retain_suffix, df.columns))
 
-        df['level'] = 0
-        for j in range(1, 7):
-            level_rows = df[f'ICD9_LEVEL{j}'] != ''
-            df.loc[level_rows, 'level'] = j
-
         return pd.DataFrame({
-            'ICD9': list(df['C_BASECODE'].apply(lambda c: c.split(':')[-1])),
+            'ICD9': cls.extract_icd9_codes(df),
             'NODE_IDX': list(df['Class ID']),
             'PARENT_IDX': list(df['Parents']),
             'LABEL': list(df['Preferred Label']),
-            'LEVEL': list(df['level'])
         })
 
     @classmethod
@@ -155,19 +158,28 @@ class ICD9:
         }
 
     @classmethod
-    def create_schemes(cls, dx: bool, pr: bool) -> CodingSchemesManager:
+    def create_scheme(cls) -> ICD9PCS:
         # to reduce time of redundant processing.
-        if not any((dx, pr)):
-            return CodingSchemesManager()
-        manager = CodingSchemesManager()
         processed_icd_table = cls.process_icd_table(cls.load_raw_table())
         all_parent_to_children_map = cls.parent_child_mappings(processed_icd_table)
-        if dx:
-            manager = manager.add_scheme(
-                DxHierarchicalICD9(name='dx_icd9',
-                                   **cls.create_dx_scheme_data(processed_icd_table, all_parent_to_children_map)))
-        if pr:
-            manager = manager.add_scheme(
-                PrHierarchicalICD9(name='pr_icd9',
-                                   **cls.create_pr_scheme_data(processed_icd_table, all_parent_to_children_map)))
-        return manager
+        return ICD9PCS(name='icd9pcs',
+                       **cls.create_pcs_scheme_data(processed_icd_table, all_parent_to_children_map))
+
+
+class ICD9CMFactory(ICD9PCSFactory):
+    ICD9_FILE: Final[str] = resources_path('ICD', 'ICD9CM.csv.gz')
+    DUMMY_ROOT_CLASS_ID: Final[str] = 'owl#Thing'
+    PCS_ROOT_CLASS_ID: Final[str] = '00-99.99'
+    CM_ROOT_CLASS_ID: Final[str] = '001-999.99'
+
+    @classmethod
+    def extract_icd9_codes(cls, df: pd.DataFrame) -> list[str]:
+        return df['Class ID'].tolist()
+
+    @classmethod
+    def create_scheme(cls) -> ICD9CM:
+        # to reduce time of redundant processing.
+        processed_icd_table = cls.process_icd_table(cls.load_raw_table())
+        all_parent_to_children_map = cls.parent_child_mappings(processed_icd_table)
+        return ICD9CM(name='icd9cm',
+                      **cls.create_cm_scheme_data(processed_icd_table, all_parent_to_children_map))

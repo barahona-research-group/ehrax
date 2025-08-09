@@ -73,12 +73,12 @@ def tvx_schemes_config(config: DatasetSchemeConfig, scoped_names: ScopedSchemeNa
     return TVxEHRSchemeConfig(
         gender=config.gender,
         ethnicity=names.ethnicity,
-        dx_discharge='dx_icd9',
+        dx_discharge='icd9cm',
         obs=config.obs,
         icu_inputs=names.icu_inputs,
         icu_procedures=names.icu_procedures,
         hosp_procedures=names.hosp_procedures,
-        outcome='dx_icd9_v1')
+        outcome='icd9cm_v1')
 
 
 def tvx_ehr_config(scoped_names: ScopedSchemeNames) -> TVxEHRConfig:

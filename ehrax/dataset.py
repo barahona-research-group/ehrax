@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from ._literals import NumericalTypeHint, SplitLiteral
-from ._stats import DatasetStatsInterface, MultiDatasetsStatsInterface, TwoDatasetsStatsInterface
+from ._stats.dataset import DatasetStatsInterface, MultiDatasetsStatsInterface, TwoDatasetsStatsInterface
 from .base import AbstractConfig, AbstractVxData, HDFVirtualNode
 from .coding_scheme import CodingScheme, CodingSchemeWithUOM, CodingSchemesManager, NumericScheme
 from .utils import tqdm_constructor

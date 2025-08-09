@@ -85,36 +85,33 @@ class TestFlatScheme:
                                              desc=desc_mutated)
             assert not primitive_flat_scheme.equals(mutated_scheme)
 
-    @pytest.fixture(params=[(('dx_icd10',), ()),
-                            (('dx_icd9',), ()),
-                            (('pr_icd9',), ()),
-                            (('dx_flat_icd10',), ()),
-                            (('pr_flat_icd10',), ()),
-                            (('dx_icd9',), ('dx_ccs',)),
-                            (('pr_icd9',), ('pr_ccs',)),
-                            (('dx_icd9',), ('dx_flat_ccs',)),
-                            (('pr_icd9',), ('pr_flat_ccs',))],
+    @pytest.fixture(params=[(('icd10cm',), ()),
+                            (('icd9cm',), ()),
+                            (('icd10pcs',), ()),
+                            (('icd9pcs',), ()),
+                            (('icd9cm',), ('dx_ccs',)),
+                            (('icd9pcs',), ('pr_ccs',)),
+                            (('icd9cm',), ('dx_flat_ccs',)),
+                            (('icd9pcs',), ('pr_flat_ccs',))],
                     ids=lambda x: '_'.join(sum(x, ())), scope='class')
     def scheme_selection(self, request) -> tuple[ICDSchemeSelection, CCSSchemeSelection]:
         kwargs = lambda p: {k: True for k in p}
         return ICDSchemeSelection(**kwargs(request.param[0])), CCSSchemeSelection(**kwargs(request.param[1]))
 
-    @pytest.fixture(params=[(('dx_icd10', 'dx_icd9'), ()),
-                            (('dx_icd9', 'dx_icd10'), ()),
-                            (('dx_icd9', 'dx_flat_icd10'), ()),
-                            (('dx_flat_icd10', 'dx_icd9'), ()),
-                            (('pr_flat_icd10', 'pr_icd9'), ()),
-                            (('pr_icd9', 'pr_flat_icd10'), ()),
-                            (('dx_icd9',), ('dx_ccs',)),
-                            (('pr_icd9',), ('pr_ccs',)),
-                            (('dx_icd9',), ('dx_flat_ccs',)),
-                            (('pr_icd9',), ('pr_flat_ccs',))],
+    @pytest.fixture(params=[(('icd10cm', 'icd9cm'), ()),
+                            (('icd9cm', 'icd10cm'), ()),
+                            (('icd10pcs', 'icd9pcs'), ()),
+                            (('icd10pcs', 'icd9pcs'), ()),
+                            (('icd9cm',), ('dx_ccs',)),
+                            (('icd9pcs',), ('pr_ccs',)),
+                            (('icd9cm',), ('dx_flat_ccs',)),
+                            (('icd9pcs',), ('pr_flat_ccs',))],
                     scope='class', ids=lambda x: '_'.join(sum(x, ())))
     def scheme_pair_selection(self, request):
         kwargs = lambda p: {k: True for k in p}
         return ICDSchemeSelection(**kwargs(request.param[0])), CCSSchemeSelection(**kwargs(request.param[1]))
 
-    @pytest.fixture(params=['dx_icd9_v1', 'dx_icd9_v2_groups', 'dx_icd9_v3_groups', 'dx_flat_ccs_mlhc_groups',
+    @pytest.fixture(params=['icd9cm_v1', 'icd9cm_v2_groups', 'icd9cm_v3_groups', 'dx_flat_ccs_mlhc_groups',
                             'dx_flat_ccs_v1'], scope='class')
     def outcome_selection(self, request):
         return OutcomeSelection(**{request.param: True})
@@ -137,7 +134,7 @@ class TestFlatScheme:
     @pytest.fixture(scope="class")
     def icd_ccs_outcome_manager_prerequisite(self,
                                              outcome_selection: OutcomeSelection) -> rx.CodingSchemesManager:
-        return setup_ccs_schemes(setup_icd_schemes(ICDSchemeSelection(dx_icd9=True)),
+        return setup_ccs_schemes(setup_icd_schemes(ICDSchemeSelection(icd9cm=True)),
                                  CCSSchemeSelection(dx_flat_ccs=True))
 
     @pytest.fixture(scope="class")
@@ -175,6 +172,8 @@ class TestFlatScheme:
         assert len(icd_ccs_map_manager.maps) == 2
         assert len(icd_ccs_map_manager.map) == 2 + 2  # the two identity maps
         (a, b) = icd_selection.flag_set + ccs_selection.flag_set
+        s_a = icd_ccs_map_manager.scheme[a]
+        s_b = icd_ccs_map_manager.scheme[b]
         assert (a, b) in icd_ccs_map_manager.map
         assert (b, a) in icd_ccs_map_manager.map
         m1 = icd_ccs_map_manager.map[(a, b)]
@@ -190,10 +189,10 @@ class TestFlatScheme:
         assert m1.target_name == b
         assert m2.source_name == b
         assert m2.target_name == a
-        assert m1.support_ratio(icd_ccs_map_manager.scheme[a]) > 0.2
-        assert m2.support_ratio(icd_ccs_map_manager.scheme[b]) > 0.2
-        assert m1.range_ratio(icd_ccs_map_manager.scheme[b]) > 0.2
-        assert m2.range_ratio(icd_ccs_map_manager.scheme[a]) > 0.2
+        assert m1.support_ratio(s_a) > 0.7
+        assert m2.support_ratio(s_b) > 0.7
+        assert m1.range_ratio(s_b) > 0.15
+        assert m2.range_ratio(s_a) > 0.15
 
     def test_primitive_scheme_serialization(self, primitive_flat_scheme: rx.CodingScheme, tmpdir: str):
         path = f'{tmpdir}/coding_scheme.h5'

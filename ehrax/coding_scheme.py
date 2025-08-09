@@ -74,6 +74,17 @@ class Formatter(metaclass=ABCMeta):
         return cls.format(cls.deformat(code))
 
 
+@dataclass
+class LegacyUpdater(metaclass=ABCMeta):
+    legacy_map: FrozenDict11[str]
+
+    def __init__(self, legacy_map: FrozenDict11[str]):
+        self.legacy_map = legacy_map
+
+    def update(self, code: str) -> str:
+        return self.legacy_map.get(code, code)
+
+
 class CodingScheme(AbstractVxData):
     name: str
     codes: tuple[str, ...]
@@ -345,7 +356,7 @@ class HierarchicalScheme(CodingScheme):
     def __init__(self, name: str, codes: tuple[str, ...], desc: Optional[FrozenDict11[str]] = None,
                  dag_codes: Optional[Iterable[str]] = None, dag_desc: Optional[FrozenDict11[str]] = None,
                  code2dag: Optional[FrozenDict11[str]] = None, *, ch2pt: FrozenDict1N[str]):
-        super().__init__(name, codes, desc)
+        CodingScheme.__init__(self, name, codes, desc)
         self.ch2pt = ch2pt
         self.dag_codes = tuple(dag_codes or self.codes)
         self.dag_desc = dag_desc or self.desc
@@ -353,10 +364,10 @@ class HierarchicalScheme(CodingScheme):
 
     def __check_init__(self):
         # Check types
-        assert isinstance(self.dag_codes, tuple), f"{self}: codes should be a list."
-        assert isinstance(self.dag_desc, FrozenDict11), f"{self}: desc should be a dict."
-        assert isinstance(self.code2dag, FrozenDict11), f"{self}: code2dag should be a dict."
-        assert isinstance(self.ch2pt, FrozenDict1N), f"{self}: ch2pt should be a dict."
+        assert isinstance(self.dag_codes, tuple), f"{self.dag_codes}: codes should be a list."
+        assert isinstance(self.dag_desc, FrozenDict11), f"{self.dag_desc}: desc should be a dict."
+        assert isinstance(self.code2dag, FrozenDict11), f"{self.code2dag}: code2dag should be a dict."
+        assert isinstance(self.ch2pt, FrozenDict1N), f"{self.ch2pt}: ch2pt should be a dict."
         for collection in [self.dag_codes, self.dag_desc.values(), self.dag_desc.keys(), self.code2dag.keys(),
                            self.dag_desc.values(), self.code2dag.values(), self.ch2pt.keys(),
                            frozenset(v for vs in self.ch2pt.values() for v in vs)]:
@@ -676,7 +687,7 @@ class CodeMap(AbstractVxData):
         target_dag_codes = set(target_scheme.dag_codes)
         is_code_subset = map_target_codes.issubset(target_codes)
         is_dag_subset = map_target_codes.issubset(target_dag_codes)
-        assert is_code_subset != is_dag_subset, "The target codes are not a subset " \
+        assert is_code_subset or is_dag_subset, "The target codes are not a subset " \
                                                 "of the target codes or the DAG codes."
         return is_dag_subset
 
@@ -688,7 +699,8 @@ class CodeMap(AbstractVxData):
             float: the support ratio of the CodeMap.
         """
         assert self.source_name == source_scheme.name, "The source scheme must be the same as the source name."
-        return len(set(self.data.keys()) & set(source_scheme.codes)) / len(source_scheme.codes)
+        assert self.domain.issubset(source_scheme.codes)
+        return len(self.domain) / len(source_scheme.codes)
 
     def range_ratio(self, target_scheme: CodingScheme) -> float:
         """
@@ -698,8 +710,8 @@ class CodeMap(AbstractVxData):
             float: the range ratio of the CodeMap.
         """
         assert self.target_name == target_scheme.name, "The target scheme must be the same as the target name."
-        target_set = frozenset([v for vs in self.data.values() for v in vs])
-        return len(target_set & frozenset(target_scheme.codes)) / len(target_scheme.codes)
+        assert self.range.issubset(target_scheme.codes)
+        return len(self.range) / len(target_scheme.codes)
 
     def log_ratios(self, source_scheme: CodingScheme, target_scheme: CodingScheme) -> float:
         """
@@ -1067,7 +1079,8 @@ class CodingSchemesManager(AbstractVxData):
         assert isinstance(map, CodeMap), f"{map} is not a CodeMap."
         if (map.source_name, map.target_name) in self.map:
             if not overwrite:
-                logging.warning(f'Map {map.source_name}->{map.target_name} already exists')
+                logging.warning(f'Map {map.source_name}->{map.target_name} already exists. '
+                                f'If you want to replace it, use overwrite=True.')
                 return self
             logging.info(f'Map {map.source_name}->{map.target_name} already exists and will be overwritten')
 
@@ -1157,6 +1170,33 @@ class CodingSchemesManager(AbstractVxData):
                 results[(source_name, o.name)] = FilterOutcomeMap(o_scheme, o_map)
         return MappingProxyType(results)
 
+    def make_chained_map(self, chain: tuple[str, ...]) -> CodeMap:
+        """
+        Registers a chained CodeMap. The source and target coding schemes are chained together if there is an intermediate scheme that can act as a bridge between the two.
+        There must be registered two CodeMaps, one that maps between the source and intermediate coding schemes and one that maps between the intermediate and target coding schemes.
+        Args:
+            s_scheme (str): the source coding scheme.
+            inter_scheme (str): the intermediate coding scheme.
+            t_scheme (str): the target coding scheme.
+        """
+        assert len(chain) > 2
+        scheme = tuple(map(lambda n: self.scheme[n], chain))
+        maps = tuple(self.map[si, sj] for si, sj in zip(chain[:-1], chain[1:]))
+        assert all(len(m.range.intersection(sj.codes)) > 0 for m, sj in zip(maps, scheme[1:]))
+        assert all(len(m.domain.intersection(si.codes)) > 0 for m, si in zip(maps, scheme[:-1]))
+
+        def bridge(c: str) -> frozenset[str]:
+            codeset = (c,)
+            for m in maps:
+                codeset = m.map_codeset(codeset)
+                if len(codeset) == 0:
+                    return frozenset()
+            return codeset
+
+        data = {c: bridge(c) for c in scheme[0].codes}
+        data = FrozenDict1N({c: target for c, target in data.items() if len(target) > 0})
+        return CodeMap(source_name=chain[0], target_name=chain[-1], data=data)
+
     def add_chained_map(self, s_scheme: str, inter_scheme: str, t_scheme: str, overwrite: bool = False) -> Self:
         """
         Registers a chained CodeMap. The source and target coding schemes are chained together if there is an intermediate scheme that can act as a bridge between the two.
@@ -1166,22 +1206,7 @@ class CodingSchemesManager(AbstractVxData):
             inter_scheme (str): the intermediate coding scheme.
             t_scheme (str): the target coding scheme.
         """
-        assert len({s_scheme, inter_scheme, t_scheme}) == 3, "The schemes should be different."
-
-        s_scheme_object = self.scheme[s_scheme]
-        i_scheme_object = self.scheme[inter_scheme]
-        t_scheme_object = self.scheme[t_scheme]
-        map1 = self.map[(s_scheme, inter_scheme)]
-        map2 = self.map[(inter_scheme, t_scheme)]
-        assert not map1.mapped_to_dag_space(i_scheme_object)
-        assert not map2.mapped_to_dag_space(t_scheme_object)
-
-        bridge = lambda x: frozenset(c for b in map1[x] for c in map2[b])
-
-        # Supported codes in the new map are the intersection of the source codes and the source codes of the first map
-        new_source_codes = set(s_scheme_object.codes) & set(map1.data.keys())
-        data = FrozenDict1N({c: bridge(c) for c in new_source_codes})
-        return self.add_map(CodeMap(source_name=s_scheme, target_name=t_scheme, data=data), overwrite=overwrite)
+        return self.add_map(self.make_chained_map((s_scheme, inter_scheme, t_scheme)), overwrite=overwrite)
 
     def scheme_supported_targets(self, scheme: CodingScheme) -> tuple[str, ...]:
         return tuple(t for s, t in self.map.keys() if s == scheme.name)

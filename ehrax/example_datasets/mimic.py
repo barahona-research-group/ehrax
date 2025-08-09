@@ -192,15 +192,13 @@ class MixedICDTableResource(CodedTableResource):
     def __init__(self):
         super().__init__(MixedVersionICDSummaryTableColumns())
 
-    def setup_schemes(self, manager: CodingSchemesManager,
-                      data_connection: Any, name: str,
+    def setup_schemes(self, manager: CodingSchemesManager, name: str,
                       component_schemes: dict[str, str],
                       infer_maps: tuple[str, ...],
                       target_name: Optional[str],
                       mapping: Optional[pd.DataFrame],
                       selection: Optional[pd.DataFrame]) -> CodingSchemesManager:
         scheme = self.register_scheme(name=name,
-                                      supported_space=self.space(data_connection),
                                       selection=selection,
                                       component_schemes={k: manager.scheme[v] for k, v in component_schemes.items()})
         manager = manager.add_scheme(scheme)
@@ -213,28 +211,7 @@ class MixedICDTableResource(CodedTableResource):
     @staticmethod
     def register_scheme(name: str,
                         component_schemes: dict[str, MultiVersionScheme],
-                        supported_space: pd.DataFrame,
                         selection: Optional[pd.DataFrame]) -> MultiVersionScheme:
-        c_code = str(COLUMN.code)
-        c_version = str(COLUMN.version)
-        c_desc = str(COLUMN.description)
-
-        if selection is None:
-            selection = supported_space[[c_version, c_code, c_desc]].drop_duplicates()
-            selection = selection.astype(str)
-        else:
-            if c_desc not in selection.columns:
-                selection = pd.merge(selection,
-                                     supported_space[[c_version, c_code, c_desc]],
-                                     on=[c_version, c_code], how='left')
-            selection = selection[[c_version, c_code, c_desc]]
-            selection = selection.drop_duplicates()
-            selection = selection.astype(str)
-            for version, codes in selection.groupby(c_version):
-                support_subset = supported_space[supported_space[c_version] == version]
-                unsupported_codes = codes[~codes[c_code].isin(support_subset[c_code])]
-
-                assert len(unsupported_codes) == 0, f'Codes {unsupported_codes} are not supported for version {version}'
         return MultiVersionScheme.from_selection(name, selection, component_schemes=component_schemes)
 
     @staticmethod
@@ -759,39 +736,42 @@ class MIMICSchemeResources(AbstractConfig):
             manager = manager.add_scheme(target_scheme).add_map(code_map)
         return manager
 
-    def make_hosp_procedures_scheme(self, manager: CodingSchemesManager, data_connection: Any) -> CodingSchemesManager:
+    def make_hosp_procedures_scheme(self, manager: CodingSchemesManager) -> CodingSchemesManager:
         table = self.tables.hosp_procedures
         name = self.scheme.hosp_procedures
         target_name = self.aux.scoped_names.hosp_procedures
         mapping = self.aux.maps.hosp_procedures
         selection = self.aux.selections.hosp_procedures
-        return table.setup_schemes(manager, data_connection, name=name,
-                                   component_schemes={'9': 'pr_icd9', '10': 'pr_flat_icd10'},
-                                   infer_maps=('pr_icd9', 'pr_flat_icd10', 'pr_ccs', 'pr_flat_ccs'),
+        return table.setup_schemes(manager, name=name,
+                                   component_schemes={'9': 'icd9pcs', '10': 'icd10pcs'},
+                                   infer_maps=('icd9pcs', 'icd10pcs', 'pr_ccs', 'pr_flat_ccs'),
                                    target_name=target_name,
                                    mapping=mapping,
                                    selection=selection)
 
-    def make_dx_discharge_scheme(self, manager: CodingSchemesManager, data_connection: Any) -> CodingSchemesManager:
+    def make_dx_discharge_scheme(self, manager: CodingSchemesManager) -> CodingSchemesManager:
         table = self.tables.dx_discharge
         name = self.scheme.dx_discharge
         target_name = self.aux.scoped_names.dx_discharge
         mapping = self.aux.maps.dx_discharge
         selection = self.aux.selections.dx_discharge
-        return table.setup_schemes(manager, data_connection, name=name,
-                                   component_schemes={'9': 'dx_icd9', '10': 'dx_flat_icd10'},
-                                   infer_maps=('dx_icd9', 'dx_flat_icd10', 'dx_ccs', 'dx_flat_ccs'),
-                                   target_name=target_name,
-                                   mapping=mapping,
-                                   selection=selection)
+        m = table.setup_schemes(manager, name=name,
+                                component_schemes={'9': 'icd9cm', '10': 'icd10cm'},
+                                infer_maps=('icd9cm', 'icd10cm', 'dx_ccs', 'dx_flat_ccs'),
+                                target_name=target_name,
+                                mapping=mapping,
+                                selection=selection)
+        # OVERRIDE the low-quality mapping icd10cm->dx_ccs with a chained map icd10cm->icd9cm->dx_ccs
+        m = m.add_chained_map(name, 'icd9cm', 'dx_ccs', overwrite=True)
+        return m
 
     def make_all_schemes(self, data_connection: Any) -> CodingSchemesManager:
         # make standard ones.
         manager = setup_standard_icd_ccs()
         if self.scheme.hosp_procedures is not None:
-            manager += self.make_hosp_procedures_scheme(manager, data_connection)
+            manager += self.make_hosp_procedures_scheme(manager)
         if self.scheme.dx_discharge is not None:
-            manager += self.make_dx_discharge_scheme(manager, data_connection)
+            manager += self.make_dx_discharge_scheme(manager)
         if self.scheme.gender is not None:
             manager += self.make_gender_scheme(data_connection)
         if self.scheme.ethnicity is not None:

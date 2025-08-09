@@ -3,8 +3,8 @@ from typing import Self
 
 from .ccs import CCSMapRegistration, FlatCCS2ICD9MapOps, MultiLevelCCSICD9MapOps
 from .icd import ICDMapOps
-from .icd10 import ICD10CM, ICD10PCS
-from .icd9 import ICD9
+from .icd10 import ICD10CMFactory, ICD10PCSFactory
+from .icd9 import ICD9CMFactory, ICD9PCSFactory
 from ..base import AbstractConfig
 from ..coding_scheme import (CodingSchemesManager, FilterOutcomeMapData)
 
@@ -21,19 +21,17 @@ class Flags(AbstractConfig):
 
 
 class ICDSchemeSelection(Flags):
-    dx_icd9: bool
-    pr_icd9: bool
-    dx_icd10: bool
-    dx_flat_icd10: bool
-    pr_flat_icd10: bool
+    icd9cm: bool
+    icd9pcs: bool
+    icd10cm: bool
+    icd10pcs: bool
 
-    def __init__(self, dx_icd9: bool = False, dx_icd10: bool = False, pr_icd9: bool = False,
-                 dx_flat_icd10: bool = False, pr_flat_icd10: bool = False):
-        self.dx_icd9 = dx_icd9
-        self.dx_icd10 = dx_icd10
-        self.pr_icd9 = pr_icd9
-        self.dx_flat_icd10 = dx_flat_icd10
-        self.pr_flat_icd10 = pr_flat_icd10
+    def __init__(self, icd9cm: bool = False, icd9pcs: bool = False, icd10cm: bool = False,
+                 icd10pcs: bool = False):
+        self.icd9cm = icd9cm
+        self.icd10cm = icd10cm
+        self.icd9pcs = icd9pcs
+        self.icd10pcs = icd10pcs
 
 
 class CCSSchemeSelection(Flags):
@@ -52,28 +50,33 @@ class CCSSchemeSelection(Flags):
 
 
 class OutcomeSelection(Flags):
-    dx_icd9_v1: bool
-    dx_icd9_v2_groups: bool
-    dx_icd9_v3_groups: bool
+    icd9cm_v1: bool
+    icd9cm_v2_groups: bool
+    icd9cm_v3_groups: bool
     dx_flat_ccs_mlhc_groups: bool
     dx_flat_ccs_v1: bool
 
-    def __init__(self, dx_icd9_v1: bool = False, dx_icd9_v2_groups: bool = False,
-                 dx_icd9_v3_groups: bool = False,
+    def __init__(self, icd9cm_v1: bool = False, icd9cm_v2_groups: bool = False,
+                 icd9cm_v3_groups: bool = False,
                  dx_flat_ccs_mlhc_groups: bool = False,
                  dx_flat_ccs_v1: bool = False):
-        self.dx_icd9_v1 = dx_icd9_v1
-        self.dx_icd9_v2_groups = dx_icd9_v2_groups
-        self.dx_icd9_v3_groups = dx_icd9_v3_groups
+        self.icd9cm_v1 = icd9cm_v1
+        self.icd9cm_v2_groups = icd9cm_v2_groups
+        self.icd9cm_v3_groups = icd9cm_v3_groups
         self.dx_flat_ccs_mlhc_groups = dx_flat_ccs_mlhc_groups
         self.dx_flat_ccs_v1 = dx_flat_ccs_v1
 
 
 def setup_icd_schemes(icd_selection: ICDSchemeSelection) -> CodingSchemesManager:
-    manager = ICD9.create_schemes(dx=icd_selection.dx_icd9, pr=icd_selection.pr_icd9)
-    manager += ICD10CM.create_schemes(flat=icd_selection.dx_flat_icd10, hierarchical=icd_selection.dx_icd10)
-    if icd_selection.pr_flat_icd10:
-        manager = manager.add_scheme(ICD10PCS.create_scheme())
+    manager = CodingSchemesManager()
+    if icd_selection.icd9cm:
+        manager = manager.add_scheme(ICD9CMFactory.create_scheme())
+    if icd_selection.icd9pcs:
+        manager = manager.add_scheme(ICD9PCSFactory.create_scheme())
+    if icd_selection.icd10cm:
+        manager = manager.add_scheme(ICD10CMFactory.create_scheme())
+    if icd_selection.icd10pcs:
+        manager = manager.add_scheme(ICD10PCSFactory.create_scheme())
     return manager
 
 
@@ -98,19 +101,14 @@ def setup_outcomes(manager: CodingSchemesManager,
 
 def setup_icd_icd_maps(manager: CodingSchemesManager, scheme_selection: ICDSchemeSelection) -> CodingSchemesManager:
     # ICD9 <-> ICD10s
-    if scheme_selection.dx_icd9 and scheme_selection.dx_icd10:
-        manager = ICDMapOps.register_mappings(manager, 'dx_icd10', 'dx_icd9', '2018_gem_cm_I10I9.txt.gz')
-        manager = ICDMapOps.register_mappings(manager, 'dx_icd9', 'dx_icd10', '2018_gem_cm_I9I10.txt.gz')
+    if scheme_selection.icd9cm and scheme_selection.icd10cm:
+        manager = ICDMapOps.register_mappings(manager, 'icd10cm', 'icd9cm', '2018_gem_cm_I10I9.txt.gz')
+        manager = ICDMapOps.register_mappings(manager, 'icd9cm', 'icd10cm', '2018_gem_cm_I9I10.txt.gz')
 
-    if scheme_selection.dx_flat_icd10 and scheme_selection.dx_icd9:
-        manager = ICDMapOps.register_mappings(manager, 'dx_icd9', 'dx_flat_icd10',
-                                              '2018_gem_cm_I9I10.txt.gz')
-        manager = ICDMapOps.register_mappings(manager, 'dx_flat_icd10', 'dx_icd9',
-                                              '2018_gem_cm_I10I9.txt.gz')
-    if scheme_selection.pr_icd9 and scheme_selection.pr_flat_icd10:
-        manager = ICDMapOps.register_mappings(manager, 'pr_flat_icd10', 'pr_icd9',
+    if scheme_selection.icd10pcs and scheme_selection.icd9pcs:
+        manager = ICDMapOps.register_mappings(manager, 'icd10pcs', 'icd9pcs',
                                               '2018_gem_pcs_I10I9.txt.gz')
-        manager = ICDMapOps.register_mappings(manager, 'pr_icd9', 'pr_flat_icd10',
+        manager = ICDMapOps.register_mappings(manager, 'icd9pcs', 'icd10pcs',
                                               '2018_gem_pcs_I9I10.txt.gz')
     return manager
 
@@ -120,7 +118,7 @@ def setup_icd_ccs_maps(manager: CodingSchemesManager, icd_selection: ICDSchemeSe
     """
     Enables the following two-way mappings (if all selected):
 
-    |                   | dx_icd9   | pr_icd9   | dx_icd10  | dx_flat_icd10 | pr_flat_icd10 |
+    |                   | icd9cm   | icd9pcs   | icd10cm  | dx_flat_icd10 | icd9pcs |
     |-------------------|-----------|-----------|-----------|---------------|---------------|
     | dx_ccs            |   X       |           |   X       |      X        |               |
     | dx_flat_ccs       |   X       |           |   X       |      X        |               |
@@ -130,33 +128,29 @@ def setup_icd_ccs_maps(manager: CodingSchemesManager, icd_selection: ICDSchemeSe
     In addition to dx_ccs <-> dx_flat_ccs and pr_ccs <-> pr_flat_ccs.
     """
 
-    if icd_selection.dx_icd9:
-        manager = CCSMapRegistration.dx_icd9_maps(manager, 'dx_icd9',
-                                                  dx_ccs=ccs_selection.dx_ccs,
-                                                  dx_flat_ccs=ccs_selection.dx_flat_ccs)
-    if icd_selection.pr_icd9:
-        manager = CCSMapRegistration.pr_icd9_maps(manager, 'pr_icd9',
+    if icd_selection.icd9cm:
+        manager = CCSMapRegistration.icd9cm_maps(manager, 'icd9cm',
+                                                 dx_ccs=ccs_selection.dx_ccs,
+                                                 dx_flat_ccs=ccs_selection.dx_flat_ccs)
+    if icd_selection.icd9pcs:
+        manager = CCSMapRegistration.icd9pcs_maps(manager, 'icd9pcs',
                                                   pr_ccs=ccs_selection.pr_ccs,
                                                   pr_flat_ccs=ccs_selection.pr_flat_ccs)
-    if icd_selection.dx_icd10:
-        manager = CCSMapRegistration.dx_icd10_maps(manager, 'dx_icd10',
-                                                   dx_ccs=ccs_selection.dx_ccs,
-                                                   dx_flat_ccs=ccs_selection.dx_flat_ccs)
-    if icd_selection.dx_flat_icd10:
-        manager = CCSMapRegistration.dx_icd10_maps(manager, 'dx_flat_icd10',
-                                                   dx_ccs=ccs_selection.dx_ccs,
-                                                   dx_flat_ccs=ccs_selection.dx_flat_ccs)
-    if icd_selection.pr_flat_icd10:
-        manager = CCSMapRegistration.pr_icd10_maps(manager, 'pr_flat_icd10',
+    if icd_selection.icd10cm:
+        manager = CCSMapRegistration.icd10cm_maps(manager, 'icd10cm',
+                                                  dx_ccs=ccs_selection.dx_ccs,
+                                                  dx_flat_ccs=ccs_selection.dx_flat_ccs)
+    if icd_selection.icd10pcs:
+        manager = CCSMapRegistration.icd10pcs_maps(manager, 'icd10pcs',
                                                    pr_ccs=ccs_selection.pr_ccs,
                                                    pr_flat_ccs=ccs_selection.pr_flat_ccs)
 
     # cross-maps
     dx_bridge, pr_bridge = None, None
-    if icd_selection.dx_icd9 and ccs_selection.dx_ccs and ccs_selection.dx_flat_ccs:
-        dx_bridge = 'dx_icd9'
-    if icd_selection.pr_icd9 and ccs_selection.pr_ccs and ccs_selection.pr_flat_ccs:
-        pr_bridge = 'pr_icd9'
+    if icd_selection.icd9cm and ccs_selection.dx_ccs and ccs_selection.dx_flat_ccs:
+        dx_bridge = 'icd9cm'
+    if icd_selection.icd9pcs and ccs_selection.pr_ccs and ccs_selection.pr_flat_ccs:
+        pr_bridge = 'icd9pcs'
     manager = CCSMapRegistration.ccs_flat_to_multi_maps(manager, dx_bridge=dx_bridge, pr_bridge=pr_bridge)
 
     return manager

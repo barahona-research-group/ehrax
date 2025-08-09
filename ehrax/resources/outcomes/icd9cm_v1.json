@@ -1,5 +1,5 @@
 {
-  "code_scheme": "dx_icd9",
+  "code_scheme": "icd9cm",
   "exclude_codes": [
     "800",
     "800.0",

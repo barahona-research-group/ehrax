@@ -1,5 +1,5 @@
 {
-  "code_scheme": "dx_icd9",
+  "code_scheme": "icd9cm",
   "selected_codes": [
     "380.30",
     "188.8",

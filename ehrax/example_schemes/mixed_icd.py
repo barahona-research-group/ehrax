@@ -1,8 +1,8 @@
-from typing import Self
+from typing import Optional, Self
 
 import pandas as pd
 
-from ..coding_scheme import CodeMap, CodingScheme, CodingSchemesManager, FrozenDict11, FrozenDict1N, Formatter
+from ..coding_scheme import CodeMap, CodingScheme, CodingSchemesManager, Formatter, FrozenDict11, FrozenDict1N
 from ..dataset import COLUMN
 from ..utils import dataframe_log
 
@@ -33,8 +33,14 @@ class MultiVersionScheme(CodingScheme):
         return df
 
     @classmethod
-    def from_selection(cls, name: str, multi_version_selection: pd.DataFrame,
+    def from_selection(cls, name: str, multi_version_selection: Optional[pd.DataFrame],
                        component_schemes: dict[str, CodingScheme]) -> Self:
+        if multi_version_selection is None:
+            multi_version_selection = pd.concat([
+                pd.DataFrame({str(COLUMN.code): list(si.codes), str(COLUMN.version): [v] * len(si),
+                              str(COLUMN.description): list(map(si.desc.get, si.codes))})
+                for v, si in component_schemes.items()
+            ])
         selection = multi_version_selection.sort_values([str(COLUMN.version), str(COLUMN.code)])
         selection = selection.drop_duplicates([str(COLUMN.version), str(COLUMN.code)]).astype(str)
         assert selection[COLUMN.version].isin(component_schemes.keys()).all(), \
@@ -76,7 +82,7 @@ class MultiVersionScheme(CodingScheme):
     def report_lost_codes(self, dataframe: pd.DataFrame, target_name: str, mixed2target: dict[str, str]):
         lost_codes_df = dataframe[~dataframe['code'].isin(mixed2target.keys())]
         dataframe_log.info(
-            f"Lost {len(lost_codes_df)} codes when generating the mapping between the Mixed {self.name} "
+            f"Lost {len(lost_codes_df)} codes when generating the mapping between the Mixed  "
             f"({self.name})) and the standard ({target_name}). ",
             dataframe=lost_codes_df, tag=f'mixed_{self.name}_to_{target_name}_lost_codes')
 

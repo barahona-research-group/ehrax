@@ -5,11 +5,11 @@ import numpy as np
 import pandas as pd
 import scipy.stats.distributions as dist
 
-from ._literals import TableAggregationLiteral
-from .coding_scheme import CodeMap, CodingSchemesManager
+from .._literals import TableAggregationLiteral
+from ..coding_scheme import CodeMap, CodingSchemesManager
 
 if TYPE_CHECKING:
-    from .dataset import (AdmissionsTableColumns, Dataset, DatasetSchemeProxy)  # type: ignore
+    from ..dataset import (AdmissionsTableColumns, Dataset, DatasetSchemeProxy)  # type: ignore
 
 
 @dataclass
@@ -48,7 +48,7 @@ class TargetHistogram:
                 return table[table[c_admission_id].isin(first_admissions)], len(first_admissions)
             case 'subject':
                 # Apply the statistics on the level of each subject as a whole.
-                # to adapt to the same function of `compute`, we just rename admission ids of each subject
+                # To adapt to the same function of `compute`, we just rename admission ids of each subject
                 # to have the same dummy value. We just set the values of admission ids to the subject ids.
                 table = table.assign(**{c_admission_id: table[c_admission_id].map(admissions[c_subject_id].to_dict())})
                 return table, admissions[c_subject_id].nunique()
@@ -62,18 +62,35 @@ class TargetHistogram:
         cols = self.dataset.config.columns.dx_discharge
         table, n = self.adapt_aggregation_level(self.dataset.tables.admissions, self.dataset.config.columns.admissions,
                                                 table, cols.admission_id, aggregation_level)
-        hist = self.compute(table, cols.admission_id, cols.code, codemap).to_dict()
-        return pd.Series(list(map(lambda c: hist.get(c, 0), target_codes)),
-                         index=pd.Index(target_codes, name=cols.code)), n
+        hist = self.compute(table, cols.admission_id, cols.code, codemap)
+        return hist.reindex(pd.Index(target_codes, name=cols.code), fill_value=0), n
 
-    def dx_discharge(self, target_scheme: str,
+    def dx_discharge(self, target_scheme: str | tuple[str, ...],
                      aggregation_level: TableAggregationLiteral = 'admission') -> tuple[pd.Series, int]:
-        codemap = self.schemes_manager.map[self.dataset.config.scheme.dx_discharge, target_scheme]
+        if isinstance(target_scheme, str):
+            codemap = self.schemes_manager.map[self.dataset.config.scheme.dx_discharge, target_scheme]
+        elif isinstance(target_scheme, tuple):
+            path = (self.dataset.config.scheme.dx_discharge,) + target_scheme
+            codemap = self.schemes_manager.make_chained_map(path)
+            target_scheme = target_scheme[-1]
+        else:
+            raise ValueError(f"Expected a string or a tuple of strings, got {type(target_scheme)}.")
+
         codes = self.schemes_manager.scheme[target_scheme].codes
         return self._dx_discharge(codemap, codes, aggregation_level)
 
-    def outcome(self, outcome: str, aggregation_level: TableAggregationLiteral = 'admission') -> tuple[pd.Series, int]:
-        o = self.schemes_manager.outcome[self.dataset.config.scheme.dx_discharge, outcome]
+    def outcome(self, outcome: str | tuple[str, ...],
+                aggregation_level: TableAggregationLiteral = 'admission') -> tuple[pd.Series, int]:
+        dx_scheme = self.dataset.config.scheme.dx_discharge
+        if isinstance(outcome, str):
+            o = self.schemes_manager.outcome[dx_scheme, outcome]
+        elif isinstance(outcome, tuple):
+            chain, outcome = outcome[:-1], outcome[-1]
+            chain = (dx_scheme, *chain, self.schemes_manager.outcome_data[outcome].base_name)
+            m = self.schemes_manager.make_chained_map(chain)
+            o = self.schemes_manager.add_map(m, overwrite=True).outcome[dx_scheme, outcome]
+        else:
+            raise ValueError(f"Expected a string or a tuple of strings, got {type(outcome)}.")
         return self._dx_discharge(o.codemap, o.scheme.codes, aggregation_level)
 
 
@@ -180,13 +197,18 @@ class TwoSamplesTest:
         n = stats.shape[0]
         return pd.Series({'total': n, 'divergent': n_divergent, 'convergent': n_convergent, 'skip_test': n_skip_test})
 
-    def dx_discharge(self, target_scheme: str,
+    def dx_discharge(self, target_scheme: str | tuple[str, ...],
                      aggregation_level: TableAggregationLiteral = 'admission') -> pd.DataFrame:
         counts, n = self.target_hist.dx_discharge(target_scheme, aggregation_level)
+        if isinstance(target_scheme, tuple):
+            target_scheme = target_scheme[-1]
         return self.proportion_tests(counts, n, self.target_hist.schemes_manager.scheme[target_scheme].desc)
 
-    def outcome(self, target_scheme: str, aggregation_level: TableAggregationLiteral = 'admission'):
+    def outcome(self, target_scheme: str | tuple[str, ...],
+                aggregation_level: TableAggregationLiteral = 'admission') -> pd.DataFrame:
         counts, n = self.target_hist.outcome(target_scheme, aggregation_level)
+        if isinstance(target_scheme, tuple):
+            target_scheme = target_scheme[-1]
         return self.proportion_tests(counts, n, self.target_hist.schemes_manager.outcome_scheme[target_scheme].desc)
 
 

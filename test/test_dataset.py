@@ -10,7 +10,7 @@ import tables as tb
 
 import ehrax as rx
 from ehrax._literals import TableAggregationLiteral
-from ehrax._stats import DatasetStatsInterface, TargetHistogram
+from ehrax._stats.dataset import DatasetStatsInterface, TargetHistogram
 from ehrax.dataset import AdmissionsTableColumns
 from ehrax.testing.common_setup import DATASET_SCHEME_CONF, DATASET_SCHEME_MANAGER, OUTCOME_DATA
 

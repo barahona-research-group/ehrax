@@ -10,26 +10,26 @@ from ehrax import COLUMN, CodingScheme, CodingSchemesManager, FrozenDict11, Froz
 from ehrax.example_datasets.mimic import MIMICDatasetSchemeSuffixes, MixedICDTableResource, \
     MixedICDTableResource_MIMICIII, ScopedSchemeNames, TableResource
 from ehrax.example_datasets.mimic_in_memory import MIMICIII_DX_DISCHARGE_RESOURCES
-from ehrax.example_schemes.icd10 import DxFlatICD10
-from ehrax.example_schemes.icd9 import DxHierarchicalICD9
-from ehrax.example_schemes.icd_ccs_integration import setup_standard_icd_ccs, ICDSchemeSelection
+from ehrax.example_schemes.icd10 import ICD10CM
+from ehrax.example_schemes.icd9 import ICD9CM
+from ehrax.example_schemes.icd_ccs_integration import ICDSchemeSelection, setup_standard_icd_ccs
 from ehrax.example_schemes.mixed_icd import MultiVersionScheme
 from ehrax.utils import resources_path
 
 
 @pytest.fixture(scope="module")
 def standard_icd_manager() -> CodingSchemesManager:
-    return setup_standard_icd_ccs(icd_selection=ICDSchemeSelection(dx_icd9=True, dx_icd10=True))
+    return setup_standard_icd_ccs(icd_selection=ICDSchemeSelection(icd9cm=True, icd10cm=True))
 
 
 @pytest.fixture(scope="module")
-def dx_icd9(standard_icd_manager: CodingSchemesManager) -> CodingScheme:
-    return standard_icd_manager.scheme['dx_icd9']
+def icd9cm(standard_icd_manager: CodingSchemesManager) -> CodingScheme:
+    return standard_icd_manager.scheme['icd9cm']
 
 
 @pytest.fixture(scope="module")
-def dx_icd10(standard_icd_manager: CodingSchemesManager) -> CodingScheme:
-    return standard_icd_manager.scheme['dx_icd10']
+def icd10cm(standard_icd_manager: CodingSchemesManager) -> CodingScheme:
+    return standard_icd_manager.scheme['icd10cm']
 
 
 class TestTableResource:
@@ -57,7 +57,7 @@ MIXED_SCHEME_NAME = 'tesTooOO'
 class TestMixedICDTableResource:
     @pytest.fixture(scope='class')
     def icd_version_schemes(self) -> FrozenDict11:
-        return FrozenDict11({ICD9_KEY: 'dx_icd9', ICD10_KEY: 'dx_icd10'})
+        return FrozenDict11({ICD9_KEY: 'icd9cm', ICD10_KEY: 'icd10cm'})
 
     @pytest.fixture(scope='class')
     def supported_space(self, standard_icd_manager: CodingSchemesManager,
@@ -77,7 +77,7 @@ class TestMixedICDTableResource:
         scheme = MixedICDTableResource.register_scheme(MIXED_SCHEME_NAME,
                                                        {k: standard_icd_manager.scheme[v]
                                                         for k, v in icd_version_schemes.items()},
-                                                       supported_space, None)
+                                                       supported_space)
         manager = standard_icd_manager.add_scheme(scheme)
         for name in icd_version_schemes.values():
             manager = scheme.register_infer_map(manager, name)
@@ -93,10 +93,10 @@ class TestMixedICDTableResource:
         return mixed_scheme.mixed_code_format_table(registered_schemes, supported_space)
 
     def test_mixed_code_space(self, supported_space: pd.DataFrame, mixed_code_space: pd.DataFrame,
-                              mixed_scheme: MultiVersionScheme, dx_icd9: CodingScheme, dx_icd10: CodingScheme):
+                              mixed_scheme: MultiVersionScheme, icd9cm: CodingScheme, icd10cm: CodingScheme):
         assert supported_space.shape == mixed_code_space.shape
         codes = supported_space[COLUMN.code]
-        assert (codes.isin(dx_icd9.codes).astype(int) + codes.isin(dx_icd10.codes).astype(int) == 1).all()
+        assert (codes.isin(icd9cm.codes).astype(int) + codes.isin(icd10cm.codes).astype(int) == 1).all()
         assert mixed_code_space[COLUMN.code].isin(mixed_scheme.codes).all()
 
     def test_mixed_scheme_properties(self, mixed_scheme: MultiVersionScheme):
@@ -104,15 +104,15 @@ class TestMixedICDTableResource:
         assert len(mixed_scheme) == N_CODES_PER_SCHEME * 2
 
     def test_mixed_schemes_maps(self, mixed_scheme: MultiVersionScheme, registered_schemes: CodingSchemesManager,
-                                dx_icd9: CodingScheme, dx_icd10: CodingScheme):
-        assert (mixed_scheme.name, dx_icd9.name) in registered_schemes.map
-        assert (mixed_scheme.name, dx_icd10.name) in registered_schemes.map
+                                icd9cm: CodingScheme, icd10cm: CodingScheme):
+        assert (mixed_scheme.name, icd9cm.name) in registered_schemes.map
+        assert (mixed_scheme.name, icd10cm.name) in registered_schemes.map
 
     def test_mixed_codes_reversal(self, mixed_scheme: MultiVersionScheme, registered_schemes: CodingSchemesManager,
                                   mixed_code_space: pd.DataFrame, supported_space: pd.DataFrame):
         mixed_codes = mixed_code_space[COLUMN.code]
-        mixed_as_icd9 = mixed_codes.map(registered_schemes.map[MIXED_SCHEME_NAME, 'dx_icd9'].data).to_numpy()
-        mixed_as_icd10 = mixed_codes.map(registered_schemes.map[MIXED_SCHEME_NAME, 'dx_icd10'].data).to_numpy()
+        mixed_as_icd9 = mixed_codes.map(registered_schemes.map[MIXED_SCHEME_NAME, 'icd9cm'].data).to_numpy()
+        mixed_as_icd10 = mixed_codes.map(registered_schemes.map[MIXED_SCHEME_NAME, 'icd10cm'].data).to_numpy()
         versions = supported_space[COLUMN.version].to_numpy()
 
         df = supported_space.copy()
@@ -219,13 +219,13 @@ class TestMIMIC3Diagnoses:
     def light_icd9_scheme(self, d_icd_diagnoses: pd.DataFrame) -> CodingScheme:
         codes = d_icd_diagnoses["ICD9_CODE"]
         codes = codes[codes.notnull()].tolist()
-        codes = list(map(DxHierarchicalICD9.format, codes))
-        return DxHierarchicalICD9(name="light_icd9", codes=tuple(sorted(codes)),
-                                  ch2pt=FrozenDict1N({c: {codes[-1]} for c in codes[:-1]}))
+        codes = list(map(ICD9CM.format, codes))
+        return ICD9CM(name="light_icd9", codes=tuple(sorted(codes)),
+                      ch2pt=FrozenDict1N({c: {codes[-1]} for c in codes[:-1]}))
 
     @pytest.fixture(scope='class')
     def light_icd10_scheme(self, d_icd_diagnoses: pd.DataFrame) -> CodingScheme:
-        return DxFlatICD10(name="light_icd10", codes=())
+        return ICD10CM(name="light_icd10", codes=(), ch2pt=FrozenDict1N({}))
 
     @pytest.fixture(scope='class')
     def init_manager(self, light_icd9_scheme: CodingScheme, light_icd10_scheme: CodingScheme) -> CodingSchemesManager:
@@ -235,9 +235,8 @@ class TestMIMIC3Diagnoses:
     def updated_manager(self, init_manager: CodingSchemesManager, in_memory_data: Any,
                         table_resource: MixedICDTableResource) -> CodingSchemesManager:
         scheme = table_resource.register_scheme(name=MIXED_SCHEME_NAME,
-                                                supported_space=table_resource.space(in_memory_data),
                                                 component_schemes={'9': init_manager.scheme['light_icd9']},
-                                                selection=None)
+                                                selection=table_resource.space(in_memory_data))
         manager = init_manager.add_scheme(scheme)
         manager = scheme.register_infer_map(manager, 'light_icd9')
         return manager
@@ -327,7 +326,7 @@ class TestMIMIC3Diagnoses:
         rest_cols = list(set(pure_format.columns) - {COLUMN.code})
         assert pure_format[rest_cols].reset_index(drop=True).equals(mixed_format[rest_cols].reset_index(drop=True))
         mix_map = updated_manager.map[(MIXED_SCHEME_NAME, 'light_icd9')]
-        pure_codes = tuple(map(DxHierarchicalICD9.format, pure_format[COLUMN.code].tolist()))
+        pure_codes = tuple(map(ICD9CM.format, pure_format[COLUMN.code].tolist()))
         mixed_codes = mixed_format[COLUMN.code].tolist()
         unmixed_codes, = zip(*list(map(mix_map.data.get, mixed_codes)))
         assert unmixed_codes == pure_codes
