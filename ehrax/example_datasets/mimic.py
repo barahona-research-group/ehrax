@@ -757,7 +757,8 @@ class MIMICSchemeResources(AbstractConfig):
         selection = self.aux.selections.dx_discharge
         m = table.setup_schemes(manager, name=name,
                                 component_schemes={'9': 'icd9cm', '10': 'icd10cm'},
-                                infer_maps=('icd9cm', 'icd10cm', 'dx_ccs', 'dx_flat_ccs'),
+                                infer_maps=('icd9cm', 'icd10cm', #'dx_ccs',
+                                            'dx_flat_ccs'),
                                 target_name=target_name,
                                 mapping=mapping,
                                 selection=selection)
