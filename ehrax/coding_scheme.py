@@ -10,7 +10,7 @@ from collections.abc import Collection, Iterable, Mapping, Sized
 from dataclasses import dataclass
 from functools import cached_property
 from types import MappingProxyType
-from typing import ClassVar, Optional, Self, cast
+from typing import Optional, Self, cast
 
 import numpy as np
 import pandas as pd
@@ -89,12 +89,11 @@ class CodingScheme(AbstractVxData):
     name: str
     codes: tuple[str, ...]
     desc: FrozenDict11[str]
-    vector_cls: ClassVar[type[CodesVector]] = CodesVector
 
     def __init__(self, name: str, codes: tuple[str, ...], desc: Optional[FrozenDict11[str]] = None):
         self.name = name
-        self.codes = codes
         self.desc = desc or FrozenDict11({c: c for c in codes})
+        self.codes = codes
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.name}, codes({len(self.codes)}), desc({len(self.desc)}))"
@@ -105,6 +104,7 @@ class CodingScheme(AbstractVxData):
         # Check types.
         assert isinstance(self.name, str), "Scheme name must be a string."
         assert isinstance(self.codes, tuple), "Scheme codes must be a tuple."
+        assert all(type(c) is str for c in self.codes), "Scheme codes must be str."
         assert isinstance(self.desc, FrozenDict11), "Scheme description must be a FrozenDict11."
 
         assert tuple(sorted(self.codes)) == self.codes, "Scheme codes must be sorted."
@@ -114,6 +114,7 @@ class CodingScheme(AbstractVxData):
 
         # Check sizes.
         assert len(self.codes) == len(self.desc), f"{self}: Codes and descriptions should have the same size."
+
 
     def _check_types(self):
         for collection in [self.codes, self.desc]:
@@ -176,26 +177,13 @@ class CodingScheme(AbstractVxData):
         """
         return set(filter(lambda c: re.findall(query, self.desc[c], flags=regex_flags), self.codes))
 
-    def wrap_vector(self, vec: Array) -> CodesVector:
-        """
-        Wrap a numpy array as a vector representation of the current scheme.
-        Args:
-            vec (Array): the numpy array to wrap.
-        Returns:
-            CodingScheme.vector_cls: a vector representation of the current scheme.
-        """
-        assert len(vec) == len(self), f"Vector length should be {len(self)}."
-        assert vec.ndim == 1, f"Vector should be 1-dimensional."
-
-        return CodingScheme.vector_cls(vec, self.name)
-
     def codeset2vec(self, codeset: Iterable[str]) -> CodesVector:
         """
         Convert a codeset to a vector representation.
         Args:
             codeset (set[str]): the codeset to convert.
         Returns:
-            CodingScheme.vector_cls: a vector representation of the current scheme.
+            CodesVector: a vector representation of the current scheme.
         """
         vec = np.zeros(len(self), dtype=bool)
         try:

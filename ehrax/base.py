@@ -452,15 +452,8 @@ MAX_SEGMENT_SIZE = 500
 
 
 class AbstractVxData(AbstractHDFSerializable):
-    """
-    AbstractVxData class represents vectorized data object, which inherits from eqx.AbstractVxData.
+    # TODO: doc: all subclasses of AbstractVxData must be initable from its attributes.
 
-    Methods:
-
-        to_cpu() - Copy arrays in module to CPU.
-
-        to_device() - Copy arrays in module to device.
-    """
 
     def __check_init__(self):
         for f in (k for k in self.fields):
