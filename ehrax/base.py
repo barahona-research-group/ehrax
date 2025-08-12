@@ -42,7 +42,12 @@ class _ModuleMeta(type(eqx.Module)):
             return f"{cls.__module__}.{cls.__qualname__}"
 
         def __get_factory__(type_str: str) -> type[Self]:
-            return _factory_registry[type_str]
+            try:
+                return _factory_registry[type_str]
+            except KeyError:
+                raise KeyError(f"{type_str} is not a valid factory type. "
+                               f"You may need to import a module that was used during the construction of "
+                               f"{type_str} object(s).")
 
         cls.__class_key__ = classmethod(__class_key__)
         cls.__get_factory__ = __get_factory__
@@ -453,7 +458,6 @@ MAX_SEGMENT_SIZE = 500
 
 class AbstractVxData(AbstractHDFSerializable):
     # TODO: doc: all subclasses of AbstractVxData must be initable from its attributes.
-
 
     def __check_init__(self):
         for f in (k for k in self.fields):
