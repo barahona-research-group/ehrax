@@ -1,4 +1,6 @@
 import json
+import os
+from collections import defaultdict
 from typing import Optional, Self
 
 import networkx as nx
@@ -90,3 +92,166 @@ class SNOMEDCT(HierarchicalScheme):
                 for attr_name, attr_dict in node_attrs.items():
                     dag.nodes[node][attr_name] = attr_dict.get(node, '')
         return dag
+
+
+TERMS_DICT = {
+    "T-00000": "SNOMED RT+CTV3",
+    "T-01000": "body structure",
+    "T-01100": "morphologic abnormality",
+    "T-01200": "cell structure",
+    "T-01210": "cell",
+    "T-02000": "finding",
+    "T-02100": "disorder",
+    "T-03000": "environment / location",
+    "T-03100": "environment",
+    "T-03200": "geographic location",
+    "T-04000": "event",
+    "T-05000": "observable entity",
+    "T-06000": "organism",
+    "T-07000": "product",
+    "T-07100": "medicinal product",
+    "T-07110": "medicinal product form",
+    "T-07111": "clinical drug",
+    "T-08000": "physical force",
+    "T-09000": "physical object",
+    "T-10000": "procedure",
+    "T-10100": "regime/therapy",
+    "T-11000": "qualifier value",
+    "T-11100": "administration method",
+    "T-11200": "disposition",
+    "T-11300": "intended site",
+    "T-11800": "supplier",
+    "T-11900": "product name",
+    "T-11400": "release characteristic",
+    "T-11500": "transformation",
+    "T-11020": "basic dose form",
+    "T-11030": "dose form",
+    "T-11600": "role",
+    "T-11700": "state of matter",
+    "T-11040": "unit of presentation",
+    "T-12000": "record artifact",
+    "T-13000": "situation",
+    "T-14000": "metadata",
+    "T-14100": "core metadata concept",
+    "T-14200": "foundation metadata concept",
+    "T-14300": "linkage concept",
+    "T-14310": "attribute",
+    "T-14320": "link assertion",
+    "T-14400": "namespace concept",
+    "T-14500": "OWL metadata concept",
+    "T-15000": "social concept",
+    "T-15100": "life style",
+    "T-15010": "racial group",
+    "T-15020": "ethnic group",
+    "T-15200": "occupation",
+    "T-15300": "person",
+    "T-15400": "religion/philosophy",
+    "T-16000": "special concept",
+    "T-16100": "inactive concept",
+    "T-16200": "navigational concept",
+    "T-17000": "specimen",
+    "T-18000": "staging scale",
+    "T-18100": "assessment scale",
+    "T-18200": "tumor staging",
+    "T-19000": "substance",
+}
+
+DESCRIPTION_RELATION = '900000000000003001'
+SYNONYM_RELATION = '900000000000013009'
+
+
+def link_with_desc(terms: pd.DataFrame, desc: pd.DataFrame) -> pd.DataFrame:
+    # Create a MedCAT concept database including all synonyms
+    with_desc = pd.merge(terms, desc[desc['typeId'] == DESCRIPTION_RELATION], left_on=['id'],
+                         right_on=['conceptId'], how='inner')
+    # drop duplicates
+    _with_desc = with_desc.drop_duplicates(['id_x'], keep='first')
+    assert len(with_desc) == len(terms)
+    with_desc = with_desc.assign(tui=with_desc['term'].str.extract("\((\w+\s?.?\s?\w+.?\w+.?\w+.?)\)$"))
+    _ = pd.merge(terms, with_desc, left_on=['id'], right_on=['conceptId'], how='inner')
+    with_primary_desc = _[_['typeId'] == DESCRIPTION_RELATION]
+    with_primary_desc = with_primary_desc.drop_duplicates(['id_x'], keep='first')
+    with_synonym_desc = _[_['typeId'] == SYNONYM_RELATION]
+    with_desc = pd.concat([with_primary_desc, with_synonym_desc])
+    # Check if there are the same amount of active concepts
+    assert len(with_desc[with_desc['typeId'] == DESCRIPTION_RELATION]) == len(terms)
+    snomed_cdb = pd.merge(with_desc,  left_on=['id_x'], right_on=['conceptId'], how='inner')
+    # clean up the merge and rename the columns to fit the medcat Concept database criteria
+    snomed_cdb = snomed_cdb.loc[:, ['id_x_x', 'term_x', 'typeId_x', 'tui']]
+    snomed_cdb.columns = ['cui', 'str', 'tty', 'sty']
+    snomed_cdb['onto'] = 'SNOMED-CT'
+    snomed_cdb['tty'] = snomed_cdb['tty'].replace([DESCRIPTION_RELATION, SYNONYM_RELATION],
+                                                  [1, 0])
+    snomed_cdb['cui'] = 'S-' + snomed_cdb['cui'].astype(str)
+
+    # Check if all Semantic Tags are assigned a term unique identifier (TUI)
+    # Add tui codes
+    dict2 = {v: k for k, v in TERMS_DICT.items()}
+    snomed_cdb["tui"] = snomed_cdb["sty"].map(dict2)
+    return snomed_cdb
+
+
+def load_snomed_ct_uk_monolith(monolith_dir: str) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, list[str]]]:
+    """
+    # TODO: cleanup + factorise.
+    To understand the SNOMED-CT organisation/philosophy: https://confluence.ihtsdotools.org/display/DOCRELFMT
+    ## SNOMED CT Design
+
+        ### SNOMED CT Components
+        SNOMED CT is a clinical terminology containing concepts with unique meanings and formal logic based definitions organised into hierarchies.
+        For further information please see: https://confluence.ihtsdotools.org/display/DOCSTART/4.+SNOMED+CT+Basics
+
+        SNOMED CT content is represented into 3 main types of components:
+        - __Concepts__ representing clinical meanings that are organised into hierarchies.
+        - __Descriptions__ which link appropriate human-readable terms to concepts
+        - __Relationships__ which link each concept to other related concepts
+    
+    """
+
+    def parse_file(filename, first_row_header=True, columns=None) -> pd.DataFrame:
+        with open(filename, encoding='utf-8') as f:
+            entities = [[n.strip() for n in line.split('\t')] for line in f]
+            return pd.DataFrame(entities[1:], columns=entities[0] if first_row_header else columns)
+
+    def filename(l: list[str], prefix: str) -> str:
+        match = [f for f in l if f.lower().startswith(prefix)]
+        assert len(match) == 1
+        return match[0]
+
+    term_dir = f'{monolith_dir}/Snapshot/Terminology'
+    term_dir_files = os.listdir(term_dir)
+    concept_file = os.path.join(term_dir, filename(term_dir_files, 'sct2_concept'))
+    description_file = os.path.join(term_dir, filename(term_dir_files, 'sct2_description'))
+    terms = parse_file(concept_file)
+    desc = parse_file(description_file)
+
+    active_terms = terms[terms.active == '1']  # active concepts are represented with 1
+    inactive_terms = terms[terms.active != '1']
+    active_descs = desc[desc.active == '1']
+    inactive_descs = desc[desc.active != '1']
+
+    # Write the clinical terms to csv
+    snomed_cdb_active_df = link_with_desc(active_terms, active_descs)
+    snomed_cdb_inactive_df = link_with_desc(inactive_terms, inactive_descs)
+    snomed_cdb_active_df.to_csv(f'snomed_cdb_active.csv.gz', compression='gzip')
+    snomed_cdb_inactive_df.to_csv(f'snomed_cdb_inactive.csv.gz', compression='gzip')
+
+    ###################
+    ### Relations
+    ###################
+    relations_file = os.path.join(term_dir, filename(term_dir_files, 'sct2_relationship'))
+    relations = parse_file(relations_file)
+    active_relat = relations[relations.active == '1']
+    active_relat[['sourceId', 'destinationId', 'typeId']] = 'S-' + active_relat[
+        ['sourceId', 'destinationId', 'typeId']].astype(str)
+
+    ch2pt = defaultdict(list)
+    for index, v in active_relat[active_relat.typeId == "S-116680003"].iterrows():
+        # Children to Parent dictionary ("Is a" relationships)
+        ch2pt[v['sourceId']].append(v['destinationId'])
+
+    # Write to 'isa' relationships to file
+    with open(f'isa_active_rela_ch2pt.json', 'w') as outfile:
+        json.dump(dict(ch2pt), outfile)
+
+    return snomed_cdb_active_df, snomed_cdb_inactive_df, ch2pt
