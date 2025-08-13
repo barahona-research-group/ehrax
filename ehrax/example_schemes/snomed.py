@@ -1,6 +1,9 @@
 import json
 import os
-from typing import Optional, Self
+from collections.abc import Mapping
+from functools import cached_property
+from types import MappingProxyType
+from typing import Iterable, Optional, Self
 
 import networkx as nx
 import pandas as pd
@@ -74,6 +77,17 @@ DESCRIPTION_RELATION = '900000000000003001'
 SYNONYM_RELATION = '900000000000013009'
 IS_A_RELATION = '116680003'
 
+OTHER_RELATIONS = {
+    'scale_type': 'S-370132008',  # Scale type
+    'property': 'S-370130000',  # Property
+    'inheres_in': 'S-704319004',  # Inheres-in
+    'inherent_location': 'S-718497002',  # Inherent location
+    'characterizes': 'S-704321009',  # Characterises
+    'direct_site': 'S-704327008',  # Direct-Site
+    'process_output': 'S-704324001',  # Process-output
+    'units': 'S-246514001',  # Units
+}
+
 
 class SNOMEDCTGBMonolith:
     @staticmethod
@@ -135,9 +149,15 @@ class SNOMEDCTGBMonolith:
             cui='S-' + snomed_cdb_df['cui'].astype(str),
             tui=snomed_cdb_df["sty"].map(dict2))
 
+    @staticmethod
+    def parse_file(fname, first_row_header=True, columns=None) -> pd.DataFrame:
+        with open(fname, encoding='utf-8') as f:
+            entities = [[n.strip() for n in line.split('\t')] for line in f]
+            return pd.DataFrame(entities[1:], columns=entities[0] if first_row_header else columns)
+
     @classmethod
     def load(cls, monolith_dir: str, write_disk: bool = True) -> tuple[
-        pd.DataFrame, pd.DataFrame, dict[str, list[str]]]:
+        pd.DataFrame, pd.DataFrame, dict[str, list[str]], Mapping[str, Mapping[str, str]]]:
         """
         # TODO: cleanup + factorise.
         To understand the SNOMED-CT organisation/philosophy: https://confluence.ihtsdotools.org/display/DOCRELFMT
@@ -154,11 +174,6 @@ class SNOMEDCTGBMonolith:
 
         """
 
-        def parse_file(fname, first_row_header=True, columns=None) -> pd.DataFrame:
-            with open(fname, encoding='utf-8') as f:
-                entities = [[n.strip() for n in line.split('\t')] for line in f]
-                return pd.DataFrame(entities[1:], columns=entities[0] if first_row_header else columns)
-
         def filename(l: list[str], prefix: str) -> str:
             match = [f for f in l if f.lower().startswith(prefix)]
             assert len(match) == 1
@@ -168,8 +183,8 @@ class SNOMEDCTGBMonolith:
         term_dir_files = os.listdir(term_dir)
         concept_file = os.path.join(term_dir, filename(term_dir_files, 'sct2_concept_'))
         description_file = os.path.join(term_dir, filename(term_dir_files, 'sct2_description_'))
-        terms = parse_file(concept_file)
-        desc = parse_file(description_file)
+        terms = cls.parse_file(concept_file)
+        desc = cls.parse_file(description_file)
 
         active_terms = terms[terms.active == '1']  # active concepts are represented with 1
         inactive_terms = terms[terms.active != '1']
@@ -195,7 +210,7 @@ class SNOMEDCTGBMonolith:
         # |characteristicTypeId |SCTID      |A concept enumeration value that identifies the characteristic type of the relationship version (i.e. whether the relationship version is defining, qualifying, etc.) This field is set to a descendant of 900000000000449001|Characteristic type|in the metadata hierarchy.|YES|NO|
         # |modifierId           |SCTID      |A concept enumeration value that identifies the type of Description Logic(DL) restriction (some, all, etc.). Set to a child of 900000000000450001|Modifier| in the metadata hierarchy.<br> __Note__ Currently the only value used in this column is 900000000000451002|Some| and thus in practical terms this column can be ignored.|YES|NO|
         relations_file = os.path.join(term_dir, filename(term_dir_files, 'sct2_relationship_'))
-        rel = parse_file(relations_file)
+        rel = cls.parse_file(relations_file)
         is_a = rel.loc[(rel.active == '1') & (rel.typeId == IS_A_RELATION), ['sourceId', 'destinationId']].astype(str)
         is_a = 'S-' + is_a
         ch2pt = is_a.groupby('sourceId')['destinationId'].apply(list).to_dict()
@@ -209,26 +224,79 @@ class SNOMEDCTGBMonolith:
             with open(f'isa_active_rela_ch2pt.json', 'w') as outfile:
                 json.dump(dict(ch2pt), outfile)
 
-        return snomed_cdb_active_df, snomed_cdb_inactive_df, ch2pt
+        # Other relations.
+        other_rel = rel.loc[rel.active == '1', ['sourceId', 'destinationId', 'typeId']]
+        other_rel = 'S-' + other_rel
+        other_rel = other_rel.loc[other_rel['typeId'].isin(OTHER_RELATIONS.values()), :]
+        relation_label = {v: k for k, v in OTHER_RELATIONS.items()}
+        other_relations = {relation_label[relation_type_id]: relations.set_index('sourceId')['destinationId'].to_dict()
+                           for relation_type_id, relations in other_rel.groupby('typeId')}
+
+        return snomed_cdb_active_df, snomed_cdb_inactive_df, ch2pt, other_relations
+
+    @classmethod
+    def process_refset(cls, filename: str) -> pd.DataFrame:
+        df = cls.parse_file(filename)
+        df = df[df.active == '1']
+        df = df.rename(columns={'referencedComponentId': 'member', 'refsetId': 'refset'})
+        df = df[['member', 'refset']]
+        for c in df.columns:
+            df.loc[:, c] = df.loc[:, c].str.strip()
+        return 'S-' + df
 
 
 class SNOMEDCT(HierarchicalScheme):
     cdb_df: pd.DataFrame
     cdb_inactive_df: pd.DataFrame
     active_terms: frozenset[str]
+    other_relations: Optional[MappingProxyType[str, FrozenDict11[str]]]
 
     def __init__(self, name: str, codes: tuple[str, ...], desc: FrozenDict11,
                  cdb_df: pd.DataFrame,
                  cdb_inactive_df: pd.DataFrame,
-                 active_terms: set[str], ch2pt: FrozenDict1N, **kwargs) -> None:
+                 active_terms: set[str], ch2pt: FrozenDict1N,
+                 other_relations: Optional[Mapping[str, Mapping[str, str]]] = None,
+                 **kwargs) -> None:
         super().__init__(name=name, codes=codes, desc=desc, ch2pt=ch2pt, **kwargs)
         self.cdb_df = cdb_df
         self.cdb_inactive_df = cdb_inactive_df
         self.active_terms = frozenset(active_terms)
+        if other_relations is None:
+            other_relations = MappingProxyType({k: MappingProxyType({}) for k in OTHER_RELATIONS.keys()})
+
+        self.other_relations = other_relations
+
+    def to_desc(self, m: Mapping[str, str]) -> Mapping[str, str]:
+        return {k: self.desc.get(v) for k, v in m.items()}
+
+    @cached_property
+    def code_inheres_in(self) -> Mapping[str, str]:
+        return self.to_desc(self.other_relations['inheres_in'])
+
+    @cached_property
+    def code_property(self) -> Mapping[str, str]:
+        return self.to_desc(self.other_relations['property'])
+
+    @cached_property
+    def code_inherent_location(self) -> Mapping[str, str]:
+        return self.to_desc(self.other_relations['inherent_location'])
+
+    @cached_property
+    def code_characterizes(self) -> Mapping[str, str]:
+        return self.to_desc(self.other_relations['characterizes'])
+
+    @cached_property
+    def code_direct_site(self) -> Mapping[str, str]:
+        return self.to_desc(self.other_relations['direct_site'])
+
+    @cached_property
+    def code_units(self) -> Mapping[str, str]:
+        return self.to_desc(self.other_relations['units'])
 
     @classmethod
     def from_tables(cls, name: str, cdb_active: pd.DataFrame, cdb_inactive: pd.DataFrame,
-                    ch2pt: dict[str, list[str]]) -> Self:
+                    ch2pt: dict[str, list[str]],
+                    other_relations: Mapping[str, Mapping[str, str]]) -> Self:
         cdb_df, active_terms, active_desc = cls.cdb_table(cdb_active)
         cdb_inactive_df, inactive_terms, inactive_desc = cls.cdb_table(cdb_inactive)
         # the active replaces inactive for any overlap
@@ -238,7 +306,8 @@ class SNOMEDCT(HierarchicalScheme):
             codes=tuple(sorted(active_terms | inactive_terms)),
             desc=FrozenDict11(desc),
             cdb_df=cdb_df, cdb_inactive_df=cdb_inactive_df, active_terms=active_terms,
-            ch2pt=FrozenDict1N({k: frozenset(v) for k, v in ch2pt.items()}))
+            ch2pt=FrozenDict1N({k: frozenset(v) for k, v in ch2pt.items()}),
+            other_relations=MappingProxyType({k: MappingProxyType(v) for k, v in other_relations.items()}))
 
     @classmethod
     def cdb_table(cls, cdb: pd.DataFrame) -> tuple[pd.DataFrame, set[str], pd.DataFrame]:
@@ -256,8 +325,8 @@ class SNOMEDCT(HierarchicalScheme):
 
     @classmethod
     def from_gb_monolith_dir(cls, name: str, gb_monolith_dir: str) -> Self:
-        cdb_active, cdb_inactive, ch2pt = SNOMEDCTGBMonolith.load(gb_monolith_dir, write_disk=False)
-        return cls.from_tables(name, cdb_active, cdb_inactive, ch2pt)
+        cdb_active, cdb_inactive, ch2pt, other_relations = SNOMEDCTGBMonolith.load(gb_monolith_dir, write_disk=False)
+        return cls.from_tables(name, cdb_active, cdb_inactive, ch2pt, other_relations=other_relations)
 
     def to_networkx(self,
                     codes: tuple[str, ...] = None,
@@ -303,3 +372,27 @@ class SNOMEDCT(HierarchicalScheme):
                 for attr_name, attr_dict in node_attrs.items():
                     dag.nodes[node][attr_name] = attr_dict.get(node, '')
         return dag
+
+    def as_dataframe(self, codes: Optional[Iterable[str]] = None) -> pd.DataFrame:
+        """
+        Returns the scheme as a Pandas DataFrame.
+        The DataFrame contains the following columns:
+            - code: the code string
+            - desc: the code description
+        """
+        if codes is None:
+            codes = self.codes
+        index = codes
+        return pd.DataFrame(
+            {
+                "code": codes,
+                "desc": list(map(self.desc.get, codes)),
+                "inheres_in": self.code_inheres_in,
+                "property": self.code_property,
+                "units": self.code_units,
+                "characetrizes": self.code_characterizes,
+                "direct_site": self.code_direct_site,
+                "inherent_location": self.code_inherent_location,
+            },
+            index=index,
+        )
