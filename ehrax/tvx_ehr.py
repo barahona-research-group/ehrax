@@ -17,7 +17,7 @@ from ._literals import SplitLiteral
 from .tvx_concepts import (Admission, AdmissionDates, DemographicVectorConfig, InpatientInput, InpatientInterventions,
                            InpatientObservables, LeadingObservableExtractorConfig, Patient, SegmentedPatient,
                            StaticInfo)
-from .utils import tqdm_constructor
+from .utils import tqdm_constructor, Array
 
 
 class ScalerConfig(AbstractConfig):
@@ -164,7 +164,7 @@ class CodedValueScaler(CodedValueProcessor, ABC):
         pass
 
 
-def outcome_first_occurrence(sorted_admissions: list[Admission]):
+def outcome_first_occurrence(sorted_admissions: list[Admission]) -> str:
     """
     Find the first occurrence admission index of each outcome in a list of sorted admissions.
 
@@ -778,7 +778,7 @@ class TVxEHR(AbstractProcessedDataset):
             if m is not None else 0, self.subjects[subject_id], is_arr)
         return sum(jtu.tree_leaves(arr_size))
 
-    def outcome_frequency_vec(self, subjects: list[str]):
+    def outcome_frequency_vec(self, subjects: Iterable[str]) -> Array:
         """Get the outcome frequency vector for a list of subjects.
 
         Args:
@@ -789,7 +789,7 @@ class TVxEHR(AbstractProcessedDataset):
         """
         return sum(self.subjects[i].outcome_frequency_vec() for i in subjects)
 
-    def outcome_frequency_partitions(self, n_partitions, subjects: list[str]):
+    def outcome_frequency_partitions(self, n_partitions: int, subjects: Iterable[str]) -> tuple[tuple[int,...], ...]:
         """
         Get the outcome codes partitioned by their frequency of occurrence into `n_partitions` partitions. The codes in each partition contributes to 1 / n_partitions of the all outcome occurrences.
         
@@ -808,9 +808,9 @@ class TVxEHR(AbstractProcessedDataset):
         cumsum = np.cumsum(frequency_vec)
         partitions = np.linspace(0, 1, n_partitions + 1)[1:-1]
         splitters = np.searchsorted(cumsum, partitions)
-        return np.hsplit(sorted_codes, splitters)
+        return tuple(tuple(p.astype(int)) for p in np.hsplit(sorted_codes, splitters))
 
-    def outcome_first_occurrence(self, subject_id):
+    def outcome_first_occurrence(self, subject_id: str) -> str:
         """Get the first occurrence admission index of each outcome for a subject. If an outcome does not occur, the index is set to -1.
 
         Args:
@@ -821,7 +821,7 @@ class TVxEHR(AbstractProcessedDataset):
         """
         return outcome_first_occurrence(self.subjects[subject_id].admissions)
 
-    def outcome_first_occurrence_masks(self, subject_id):
+    def outcome_first_occurrence_masks(self, subject_id: str) -> tuple[Array, ...]:
         """Get a list of masks indicating whether an outcome occurs for a subject for the first time.
 
         Args:
@@ -833,16 +833,16 @@ class TVxEHR(AbstractProcessedDataset):
         """
         adms = self.subjects[subject_id].admissions
         first_occ_adm_id = outcome_first_occurrence(adms)
-        return [first_occ_adm_id == a.admission_id for a in adms]
+        return tuple(first_occ_adm_id == a.admission_id for a in adms)
 
-    def outcome_all_masks(self, subject_id):
+    def outcome_all_masks(self, subject_id: str) -> tuple[Array, ...]:
         """Get a list of full-masks with the same shape as the outcome vector."""
         adms = self.subjects[subject_id].admissions
         if isinstance(adms[0].outcome.vec, jnp.ndarray):
             _np = jnp
         else:
             _np = np
-        return [_np.ones_like(a.outcome.vec, dtype=bool) for a in adms]
+        return tuple(_np.ones_like(a.outcome.vec, dtype=bool) for a in adms)
 
 
 class SegmentedTVxEHR(TVxEHR):
