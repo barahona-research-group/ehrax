@@ -469,7 +469,7 @@ class TVxEHR(AbstractProcessedDataset):
             subject_ids = self.subject_ids
 
         # only fetch those not loaded already.
-        subject_ids = tuple(i for i in subject_ids if not isinstance(self.subjects[i], HDFVirtualNode))
+        subject_ids = tuple(i for i in subject_ids if isinstance(self.subjects[i], HDFVirtualNode))
         return fetch_at(tuple(map(lambda k: lambda x: x.subjects[k], subject_ids)), self)
 
     def scheme_proxy(self, schemes_context: CodingSchemesManager) -> TVxEHRSchemeProxy:
