@@ -9,11 +9,11 @@ import jax.tree_util as jtu
 import numpy as np
 import pandas as pd
 
+from ._literals import SplitLiteral
 from .base import AbstractConfig, AbstractVxData, HDFVirtualNode, fetch_at
 from .coding_scheme import CodeMap, CodesVector, CodingSchemesManager, GroupingData, FilterOutcomeMap, ReducedCodeMapN1
 from .dataset import AbstractDatasetPipeline, AbstractProcessedDataset, AbstractTransformation, COLUMN, Dataset, \
     DatasetSchemeConfig, DatasetSchemeProxy, PipelineReportTable, Report, ReportAttributes
-from ._literals import SplitLiteral
 from .tvx_concepts import (Admission, AdmissionDates, DemographicVectorConfig, InpatientInput, InpatientInterventions,
                            InpatientObservables, LeadingObservableExtractorConfig, Patient, SegmentedPatient,
                            StaticInfo)
@@ -229,7 +229,8 @@ class TVxEHRSchemeProxy(DatasetSchemeProxy):
 
     @cached_property
     def outcome(self) -> Optional[FilterOutcomeMap]:
-        return self.schemes_context.outcome[self.config.dx_discharge, self.config.outcome] if self.config.outcome else None
+        return self.schemes_context.outcome[
+            self.config.dx_discharge, self.config.outcome] if self.config.outcome else None
 
     @cached_property
     def outcome_size(self) -> int | None:
@@ -547,9 +548,9 @@ class TVxEHR(AbstractProcessedDataset):
         return ehr, eqx.tree_at(lambda x: x.subjects, self, device_subjects)
 
     def epoch_splits(self,
-                     subject_ids: Optional[list[str]],
+                     subject_ids: Optional[Iterable[str]],
                      batch_n_admissions: int,
-                     discount_first_admission: bool = False):
+                     discount_first_admission: bool = False) -> tuple[tuple[str, ...], ...]:
         """Generate epoch splits for training.
 
         Args:
@@ -560,68 +561,24 @@ class TVxEHR(AbstractProcessedDataset):
         Returns:
             list[list[str]]: list of lists containing the split subject IDs.
         """
-        if subject_ids is None:
-            subject_ids = list(self.subjects.keys())
-
-        n_splits = self.n_admissions(
-            subject_ids, discount_first_admission) // batch_n_admissions
-        if n_splits == 0:
-            n_splits = 1
-        p_splits = np.linspace(0, 1, n_splits + 1)[1:-1]
-
-        subject_ids = np.array(subject_ids,
-                               dtype=type(list(self.subjects.keys())[0]))
 
         n_adms = self.dataset.subjects_n_admissions
         if discount_first_admission:
             n_adms = n_adms - 1
+        subject_ids = n_adms.index if subject_ids is None else n_adms.loc[subject_ids].index
+
+        n_splits = n_adms.loc[subject_ids].sum() // batch_n_admissions
+        if n_splits == 0:
+            n_splits = 1
+        p_splits = np.linspace(0, 1, n_splits + 1)[1:-1]
 
         w_adms = n_adms.loc[subject_ids] / n_adms.loc[subject_ids].sum()
         weights = w_adms.values.cumsum()
         splits = np.searchsorted(weights, p_splits)
-        splits = [a.tolist() for a in np.split(subject_ids, splits)]
-        splits = [s for s in splits if len(s) > 0]
-        return splits
+        splits = (a.tolist() for a in np.split(subject_ids, splits))
+        return tuple(tuple(s) for s in splits if len(s) > 0)
 
-    def batch_gen(self,
-                  subject_ids,
-                  batch_n_admissions: int,
-                  ignore_first_admission: bool = False):
-        """Generate batches of subjects.
-
-        Args:
-            subject_ids: list of subject IDs.
-            batch_n_admissions (int): number of admissions per batch.
-            ignore_first_admission (bool, optional): whether to ignore the first admission from the counts. Defaults to False.
-
-        Yields:
-            Patients: Patients object with a batch of subjects.
-        """
-        splits = self.epoch_splits(subject_ids, batch_n_admissions,
-                                   ignore_first_admission)
-        for split in splits:
-            yield self.fetch_device_batch(split)
-
-    def n_admissions(self,
-                     subject_ids=None,
-                     ignore_first_admission: bool = False):
-        """Get the total number of admissions.
-
-        Args:
-            subject_ids: list of subject IDs.
-            ignore_first_admission (bool, optional): Whether to ignore the first admission from the counts. Defaults to False.
-
-        Returns:
-            int: Total number of admissions.
-        """
-        if subject_ids is None:
-            subject_ids = self.subjects.keys()
-        if ignore_first_admission:
-            return sum(
-                len(self.subjects[s].admissions) - 1 for s in subject_ids)
-        return sum(len(self.subjects[s].admissions) for s in subject_ids)
-
-    def iter_obs(self, subject_ids=None) -> Iterable[InpatientObservables]:
+    def iter_obs(self, subject_ids: Optional[Iterable[str]] = None) -> Iterable[InpatientObservables]:
         """Iterate over the observables for the given subject IDs.
 
         Args:
@@ -636,7 +593,7 @@ class TVxEHR(AbstractProcessedDataset):
             for adm in self.subjects[s].admissions:
                 yield adm.observables
 
-    def iter_lead_obs(self, subject_ids=None) -> Iterable[InpatientObservables]:
+    def iter_lead_obs(self, subject_ids: Optional[Iterable[str]] = None) -> Iterable[InpatientObservables]:
         """Iterate over the leading observables for the given subject IDs.
 
         Args:
@@ -651,7 +608,7 @@ class TVxEHR(AbstractProcessedDataset):
             for adm in self.subjects[s].admissions:
                 yield adm.leading_observable
 
-    def n_obs_times(self, subject_ids=None):
+    def n_obs_times(self, subject_ids: Optional[Iterable[str]] = None) -> int:
         """Get the total number of observation times.
 
         Args:
@@ -662,7 +619,7 @@ class TVxEHR(AbstractProcessedDataset):
         """
         return sum(len(obs) for obs in self.iter_obs(subject_ids))
 
-    def d2d_interval_days(self, subject_ids=None):
+    def d2d_interval_days(self, subject_ids: Optional[Iterable[str]] = None) -> float:
         """Get the total number of days between first discharge and last discharge.
 
         Args:
@@ -676,7 +633,7 @@ class TVxEHR(AbstractProcessedDataset):
 
         return sum(self.subjects[s].d2d_interval_days for s in subject_ids)
 
-    def interval_days(self, subject_ids=None):
+    def interval_days(self, subject_ids: Optional[Iterable[str]] = None) -> float:
         """Get the total number of days in-hospital.
 
         Args:
@@ -690,7 +647,7 @@ class TVxEHR(AbstractProcessedDataset):
 
         return sum(a.interval_days for s in subject_ids for a in self.subjects[s].admissions)
 
-    def interval_hours(self, subject_ids=None):
+    def interval_hours(self, subject_ids: Optional[Iterable[str]] = None) -> float:
         """Get the total number of hours in-hospital.
 
         Args:
@@ -704,7 +661,7 @@ class TVxEHR(AbstractProcessedDataset):
 
         return sum(a.interval_hours for s in subject_ids for a in self.subjects[s].admissions)
 
-    def p_obs(self, subject_ids: list[str] = None) -> float:
+    def p_obs(self, subject_ids: Optional[Iterable[str]] = None) -> float:
         """For a colelction of subjects, compute a measure that is proportional to rate of presence per observation timestamp.
 
         Args:
@@ -715,7 +672,7 @@ class TVxEHR(AbstractProcessedDataset):
         """
         return sum(obs.mask.sum() for obs in self.iter_obs(subject_ids)) / self.n_obs_times()
 
-    def obs_coocurrence_matrix(self, subject_ids=None):
+    def obs_coocurrence_matrix(self, subject_ids: Optional[Iterable[str]] = None) -> jnp.ndarray:
         """Compute the co-occurrence (or co-presence) matrix of observables.
 
         Returns:
@@ -725,7 +682,7 @@ class TVxEHR(AbstractProcessedDataset):
         obs = jnp.vstack(obs, dtype=int)
         return obs.T @ obs
 
-    def size_in_bytes(self):
+    def size_in_bytes(self) -> int:
         """Get the size of the Patients object in bytes.
 
         Returns:
@@ -750,7 +707,7 @@ class TVxEHR(AbstractProcessedDataset):
         value = obs_scaler.unscale(obs.value)
         return InpatientObservables(time=obs.time, value=value, mask=obs.mask)
 
-    def _unscaled_leading_observable(self, lead: InpatientObservables, code_index: int):
+    def _unscaled_leading_observable(self, lead: InpatientObservables, code_index: int) -> InpatientObservables:
         """Unscale the leading observable values, undo the preprocessing scaling.
 
         Args:
@@ -763,7 +720,7 @@ class TVxEHR(AbstractProcessedDataset):
         value = lead_scaler.unscale_code(lead.value, code_index)
         return InpatientObservables(time=lead.time, value=value, mask=lead.mask)
 
-    def subject_size_in_bytes(self, subject_id):
+    def subject_size_in_bytes(self, subject_id: str) -> int:
         """Get the size of the subject object in bytes.
 
         Args:
@@ -789,7 +746,7 @@ class TVxEHR(AbstractProcessedDataset):
         """
         return sum(self.subjects[i].outcome_frequency_vec() for i in subjects)
 
-    def outcome_frequency_partitions(self, n_partitions: int, subjects: Iterable[str]) -> tuple[tuple[int,...], ...]:
+    def outcome_frequency_partitions(self, n_partitions: int, subjects: Iterable[str]) -> tuple[tuple[int, ...], ...]:
         """
         Get the outcome codes partitioned by their frequency of occurrence into `n_partitions` partitions. The codes in each partition contributes to 1 / n_partitions of the all outcome occurrences.
         
