@@ -622,7 +622,7 @@ class AbstractVxData(AbstractHDFSerializable):
 
     @classmethod
     def make_hdf_segment_key(cls, item: str | int) -> str:
-        return f'S#{item}'
+        return f'_x_segment_{item}'
 
     @classmethod
     def create_bookkeeping_segments(cls, parent_group: tb.Group,
