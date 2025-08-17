@@ -535,3 +535,11 @@ class TestLargeDataSegmentation:
         wide_data.save(filename, complevel=0)
         loaded = VxData.load(filename)
         assert wide_data.equals(loaded)
+
+    def test_lazy_loading(self, wide_data: VxData, tmp_path_factory):
+        filename = tmp_path_factory.mktemp('wide').joinpath('data.h5')
+        wide_data.save(filename, complevel=0)
+        # node
+        loaded = VxData.load(filename, defer=(lambda x: x.c,), levels=(1, ))
+        assert wide_data.equals(rx.fetch_all(loaded))
+
