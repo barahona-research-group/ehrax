@@ -738,7 +738,7 @@ class AbstractVxData(AbstractHDFSerializable):
     @classmethod
     def load(cls, hf5_filename_or_group: str | Path | tb.Group,
              defer: tuple[Callable[[Self], Any], ...] = (),
-             levels: Optional[tuple[int]] = None) -> Self:
+             levels: Optional[tuple[int, ...]] = None) -> Self:
         if not isinstance(hf5_filename_or_group, tb.Group):
             with tb.open_file(str(Path(hf5_filename_or_group).with_suffix('.h5')), 'r') as hf5_file:
                 return cls.load(hf5_file.root, defer, levels=levels)
