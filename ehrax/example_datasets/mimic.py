@@ -101,6 +101,13 @@ class StaticTableResource(TableResource):
     def __init__(self):
         super().__init__(StaticTableColumns())
 
+    @staticmethod
+    def substitute_null_function(column: str, replace: str) -> Callable[[pd.DataFrame], pd.DataFrame]:
+        def _apply(df: pd.DataFrame) -> pd.DataFrame:
+            return df.assign(**{column: df[column].fillna(value=replace).astype(str)})
+
+        return _apply
+
     @abstractmethod
     def load_gender_space_table(self, data_connection: Any) -> pd.DataFrame:
         raise NotImplementedError()
@@ -128,15 +135,19 @@ class StaticTableResource(TableResource):
         return None
 
     def gender_space(self, date_source: Any) -> pd.DataFrame:
-        return self.load_gender_space_table(date_source)
+        p = self.substitute_null_function(str(COLUMN.gender), 'MISSING_GENDER')
+        return p(self.load_gender_space_table(date_source))
 
     def ethnicity_space(self, data_connection: Any) -> pd.DataFrame:
-        return self.load_ethnicity_space_table(data_connection)
+        p = self.substitute_null_function(str(COLUMN.race), 'MISSING_ETHNICITY')
+        return p(self.load_ethnicity_space_table(data_connection))
 
     def __call__(self, data_connection: Any, **kwargs) -> pd.DataFrame:
         assert 'admissions' in kwargs, "Pass the processed admissions table."
         admissions = kwargs.pop('admissions')
-        pipeline = (self._coerce_id_to_str, self._add_shifted_date_of_birth(admissions=admissions))
+        pipeline = (self._coerce_id_to_str, self._add_shifted_date_of_birth(admissions=admissions),
+                    self.substitute_null_function(str(COLUMN.race), 'MISSING_ETHNICITY'),
+                    self.substitute_null_function(str(COLUMN.gender), 'MISSING_GENDER'))
         return self.apply_pipeline(pipeline, self.load_standard_columns_table(data_connection, **kwargs))
 
 
@@ -248,7 +259,8 @@ class MixedICDTableResource(CodedTableResource):
         return None
 
     def space(self, data_connection: Any) -> pd.DataFrame:
-        pipeline = (self._coerce_code_to_str, self._strip_icd_codes,
+        pipeline = (self._coerce_code_to_str, self._filter_null_codes,
+                    self._strip_icd_codes,
                     self._add_version_column_if_not_exists, self._coerce_version_to_str)
         return self.apply_pipeline(pipeline, self.load_space_table(data_connection))
 
@@ -652,6 +664,9 @@ class MIMICSchemeResources(AbstractConfig):
     def _make_demographic_scheme(self, name: str, space_table: pd.DataFrame,
                                  c_code: str, selection: pd.DataFrame, target_name: str,
                                  map_table: Optional[pd.DataFrame] = None) -> CodingSchemesManager:
+        # TODO: handle missing values. Options:
+        # 1. A missingness-aware CodingScheme (not preferred, requires new class, new logic, new tests).
+        # 2. Hard-code replacement here (preferred, just replace 'nan' with 'MISSING').
         source_scheme = CodingScheme.from_table(name=name,
                                                 table=space_table,
                                                 code_selection=selection,
@@ -669,14 +684,14 @@ class MIMICSchemeResources(AbstractConfig):
         return manager
 
     def make_gender_scheme(self, data_connection: Any) -> CodingSchemesManager:
-        gender_space_table = self.tables.static.load_gender_space_table(data_connection)
+        gender_space_table = self.tables.static.gender_space(data_connection)
         return self._make_demographic_scheme(name=self.scheme.gender, space_table=gender_space_table,
                                              c_code=COLUMN.gender,
                                              selection=self.aux.selections.gender,
                                              target_name=self.aux.scoped_names.gender)
 
     def make_ethnicity_scheme(self, data_connection: Any) -> CodingSchemesManager:
-        race_space_table = self.tables.static.load_ethnicity_space_table(data_connection)
+        race_space_table = self.tables.static.ethnicity_space(data_connection)
         return self._make_demographic_scheme(name=self.scheme.ethnicity, space_table=race_space_table,
                                              c_code=COLUMN.race,
                                              selection=self.aux.selections.ethnicity,
