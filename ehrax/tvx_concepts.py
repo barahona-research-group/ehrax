@@ -1,17 +1,17 @@
 """Data Model for Subjects in MIMIC-III and MIMIC-IV"""
 
 import functools
-from datetime import date
 from functools import cached_property
 from typing import Callable, ClassVar, Iterator, Optional, Self
 
 import jax.numpy as jnp
 import numpy as np
+import pandas as pd
 import scipy
 
+from ._literals import NumericalTypeHint
 from .base import AbstractConfig, AbstractVxData
 from .coding_scheme import (CodesVector, NumericScheme)
-from ._literals import NumericalTypeHint
 from .utils import Array, np_module
 
 
@@ -474,7 +474,7 @@ class LeadingObservableExtractor(AbstractVxData):
         return mask
 
     @staticmethod
-    def _nan_agg_nonzero(x, axis):
+    def _nan_agg_nonzero(x: Array, axis: Optional[int]) -> Array:
         """
         Aggregates the values in a given array along the specified axis, treating NaN values as zero.
 
@@ -490,7 +490,7 @@ class LeadingObservableExtractor(AbstractVxData):
         return np.where(all_nan, np.nan, np.any(replaced_nan, axis=axis) * 1.0)
 
     @staticmethod
-    def _nan_agg_max(x, axis):
+    def _nan_agg_max(x: Array, axis: Optional[int]):
         """
         Aggregates the values in a given array along the specified axis, treating NaN values as zero.
 
@@ -794,14 +794,14 @@ class SegmentedInpatientInterventions(AbstractVxData):
 
 
 class AdmissionDates(AbstractVxData):
-    admission: date
-    discharge: date
+    admission: pd.Timestamp
+    discharge: pd.Timestamp
 
-    def __init__(self, admission: date, discharge: date):
+    def __init__(self, admission: pd.Timestamp, discharge: pd.Timestamp):
         self.admission = admission
         self.discharge = discharge
 
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> pd.Timestamp:
         if item == 0:
             return self.admission
         elif item == 1:
@@ -912,7 +912,7 @@ class Admission(AbstractVxData):
         """
         return self.interval_hours / 24
 
-    def days_since(self, date: date) -> tuple[float, float]:
+    def days_since(self, date: pd.Timestamp) -> tuple[float, float]:
         """
         Calculates the number of days from a reference date to admission and discharge dates, respectively.
 
@@ -1024,10 +1024,10 @@ class StaticInfo(AbstractVxData):
     """
     gender: Optional[CodesVector]
     ethnicity: Optional[CodesVector]
-    date_of_birth: Optional[date]
+    date_of_birth: Optional[pd.Timestamp]
 
     def __init__(self, gender: Optional[CodesVector], ethnicity: Optional[CodesVector],
-                 date_of_birth: Optional[date]):
+                 date_of_birth: Optional[pd.Timestamp]):
         self.gender = gender
         self.ethnicity = ethnicity
         self.date_of_birth = date_of_birth
@@ -1051,7 +1051,7 @@ class StaticInfo(AbstractVxData):
         else:
             return xnp.hstack(attrs_vec)
 
-    def age(self, current_date: date) -> float:
+    def age(self, current_date: pd.Timestamp) -> float:
         """
         Calculates the age of the patient based on the current date.
 
@@ -1062,7 +1062,7 @@ class StaticInfo(AbstractVxData):
             float: the age of the patient in years.
         """
         assert self.date_of_birth is not None, "Date of birth is not set"
-        return (current_date - self.date_of_birth).days / 365.25
+        return current_date.year - self.date_of_birth.year
 
 
 class Patient(AbstractVxData):
