@@ -1142,7 +1142,7 @@ class CodingSchemesManager(AbstractVxData):
 
     @cached_property
     def outcome_scheme(self) -> Mapping[str, CodingScheme]:
-        return MappingProxyType({k: o_scheme for (_, k), o_scheme in self.outcome.items()})
+        return MappingProxyType({k: o.scheme for (_, k), o in self.outcome.items()})
 
     @cached_property
     def outcome(self) -> Mapping[tuple[str, str], FilterOutcomeMap]:

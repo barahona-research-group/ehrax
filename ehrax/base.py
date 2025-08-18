@@ -2,6 +2,7 @@ import dataclasses
 import enum
 import json
 import logging
+import re
 from abc import abstractmethod
 from pathlib import Path
 from types import MappingProxyType, NoneType
@@ -617,6 +618,10 @@ class AbstractVxData(AbstractHDFSerializable):
         return f'key_{item}'
 
     @classmethod
+    def make_hdf_segment_key(cls, item: str | int) -> str:
+        return f'_x_segment_{item}'
+
+    @classmethod
     def create_bookkeeping_segments(cls, parent_group: tb.Group,
                                     entries: list[str | int],
                                     objects: list[Any]) -> tuple[dict[str, tb.Group], pd.DataFrame]:
@@ -625,18 +630,18 @@ class AbstractVxData(AbstractHDFSerializable):
         hdf_keys = list(map(cls.make_hdf_key, entries))
         types = list(map(cls.object_type_enum_name, objects))
         metadata = pd.DataFrame({'hdf_key': hdf_keys, 'type': types}, index=entries)
-        metadata['segment'] = [f'S{i // MAX_SEGMENT_SIZE}' for i in range(len(entries))]
+        metadata['segment'] = [cls.make_hdf_segment_key(i // MAX_SEGMENT_SIZE) for i in range(len(entries))]
         if metadata['segment'].nunique() > 1:
             h5file = parent_group._v_file
             segmented_groups = {k: h5file.create_group(parent_group, k) for k in metadata['segment'].unique()}
         else:
-            segmented_groups = {'S0': parent_group}
+            segmented_groups = {cls.make_hdf_segment_key(0): parent_group}
         return segmented_groups, metadata
 
     @classmethod
     def get_bookkeeping_segments(cls, parent_group: tb.Group, metadata: pd.DataFrame) -> dict[str, tb.Group]:
         if metadata['segment'].nunique() == 1:
-            return {'S0': parent_group}
+            return {cls.make_hdf_segment_key(0): parent_group}
         else:
             hf5_file = parent_group._v_file
             return {k: hf5_file.get_node(parent_group, k, 'Group') for k in metadata['segment'].unique()}
@@ -735,7 +740,7 @@ class AbstractVxData(AbstractHDFSerializable):
     @classmethod
     def load(cls, hf5_filename_or_group: str | Path | tb.Group,
              defer: tuple[Callable[[Self], Any], ...] = (),
-             levels: Optional[tuple[int]] = None) -> Self:
+             levels: Optional[tuple[int, ...]] = None) -> Self:
         if not isinstance(hf5_filename_or_group, tb.Group):
             with tb.open_file(str(Path(hf5_filename_or_group).with_suffix('.h5')), 'r') as hf5_file:
                 return cls.load(hf5_file.root, defer, levels=levels)
@@ -768,6 +773,10 @@ def _match_child_parent_paths(ch: list[str], pt: list[str]):
     # - parent (relative to the child) = ["a", "b", ..., "x", "y", "z", "patients", "6", "admissions", "2"]
     if len(ch) == 1:
         return True
+    # Remove any segment node from parent.
+    segment_pattern = re.compile(AbstractVxData.make_hdf_segment_key(r'\d+'))
+    pt = [pti for pti in pt if re.match(segment_pattern, pti) is None]
+
     child_overlap = ch[:-1]
     parent_overlap = pt[-(len(ch) - 1):]
     return child_overlap == parent_overlap

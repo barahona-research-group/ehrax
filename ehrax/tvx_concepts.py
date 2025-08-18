@@ -1137,7 +1137,7 @@ class Patient(AbstractVxData):
         admissions = [a for a in self.admissions if a.interval_hours >= min_hours]
         return type(self)(subject_id=self.subject_id, static_info=self.static_info, admissions=admissions)
 
-    def outcome_frequency_vec(self):
+    def outcome_frequency_vec(self) -> Array:
         """
         Calculate the accumulation of outcome vectors for all admissions.
 
@@ -1146,7 +1146,7 @@ class Patient(AbstractVxData):
         """
         return sum(a.outcome.vec for a in self.admissions)
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         return self.equals(other)
 
     def extract_leading_observables(self, leading_observable_extractor: LeadingObservableExtractor) -> Self:
