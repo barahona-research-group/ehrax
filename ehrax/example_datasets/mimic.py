@@ -186,8 +186,8 @@ class StaticTableResource_MIMICIII(StaticTableResource):
         last_disch_date = last_disch_date.loc[patients[COLUMN.subject_id]]
         first_admit_date = first_admit_date.loc[patients[COLUMN.subject_id]]
         uncertainty = (last_disch_date.dt.year.values - first_admit_date.dt.year.values) // 2
-        shift = uncertainty + 89
-        deshifted = np.array(list(map(lambda dt, s: dt + pd.DateOffset(-s), first_admit_date, shift)))
+        age_before_shift = uncertainty + 89
+        deshifted = np.array(list(map(lambda dt, s: dt + pd.DateOffset(-s), first_admit_date, age_before_shift)))
         adjusted_dob = np.where((last_disch_date.dt.year.values - dob.dt.year.values) > 150, deshifted, dob.values)
         return pd.Series(pd.to_datetime(adjusted_dob), index=dob.index).dt.normalize()
 
