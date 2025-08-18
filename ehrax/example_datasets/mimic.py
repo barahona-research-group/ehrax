@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable
 from typing import Any, Optional, Self, cast
 
 import equinox as eqx
+import numpy as np
 import pandas as pd
 
 from ..base import AbstractConfig
@@ -184,10 +185,11 @@ class StaticTableResource_MIMICIII(StaticTableResource):
         first_admit_date = admissions.groupby(COLUMN.subject_id)[COLUMN.start_time].min()
         last_disch_date = last_disch_date.loc[patients[COLUMN.subject_id]]
         first_admit_date = first_admit_date.loc[patients[COLUMN.subject_id]]
-        uncertainty = (last_disch_date.dt.year - first_admit_date.dt.year) // 2
-        shift = (uncertainty + 89).astype('timedelta64[Y]')
-        dob = dob.mask((last_disch_date.dt.year.values - dob.dt.year.values) > 150, first_admit_date - shift)
-        return dob.dt.normalize()
+        uncertainty = (last_disch_date.dt.year.values - first_admit_date.dt.year.values) // 2
+        shift = uncertainty + 89
+        deshifted = np.array(list(map(lambda dt, s: dt + pd.DateOffset(-s), first_admit_date, shift)))
+        adjusted_dob = np.where((last_disch_date.dt.year.values - dob.dt.year.values) > 150, deshifted, dob.values)
+        return pd.Series(pd.to_datetime(adjusted_dob), index=dob.index).dt.normalize()
 
 
 class MixedVersionICDSummaryTableColumns(TableColumns):
@@ -772,7 +774,7 @@ class MIMICSchemeResources(AbstractConfig):
         selection = self.aux.selections.dx_discharge
         m = table.setup_schemes(manager, name=name,
                                 component_schemes={'9': 'icd9cm', '10': 'icd10cm'},
-                                infer_maps=('icd9cm', 'icd10cm', #'dx_ccs',
+                                infer_maps=('icd9cm', 'icd10cm',  # 'dx_ccs',
                                             'dx_flat_ccs'),
                                 target_name=target_name,
                                 mapping=mapping,
