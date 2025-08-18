@@ -118,14 +118,14 @@ class StaticTableResource(TableResource):
 
     @classmethod
     @abstractmethod
-    def derive_shifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.DataFrame:
+    def derive_deshifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.DataFrame:
         # Different procedures to implement for MIMIC-III and MIMIC-IV
         raise NotImplementedError()
 
     @classmethod
-    def _add_shifted_date_of_birth(cls, admissions: pd.DataFrame) -> Callable[[pd.DataFrame], pd.DataFrame]:
+    def _add_deshifted_date_of_birth(cls, admissions: pd.DataFrame) -> Callable[[pd.DataFrame], pd.DataFrame]:
         def _add(df: pd.DataFrame) -> pd.DataFrame:
-            df[COLUMN.date_of_birth] = cls.derive_shifted_date_of_birth(df, admissions=admissions)
+            df[COLUMN.date_of_birth] = cls.derive_deshifted_date_of_birth(df, admissions=admissions)
             return df
 
         return _add
@@ -145,7 +145,7 @@ class StaticTableResource(TableResource):
     def __call__(self, data_connection: Any, **kwargs) -> pd.DataFrame:
         assert 'admissions' in kwargs, "Pass the processed admissions table."
         admissions = kwargs.pop('admissions')
-        pipeline = (self._coerce_id_to_str, self._add_shifted_date_of_birth(admissions=admissions),
+        pipeline = (self._coerce_id_to_str, self._add_deshifted_date_of_birth(admissions=admissions),
                     self.substitute_null_function(str(COLUMN.race), 'MISSING_ETHNICITY'),
                     self.substitute_null_function(str(COLUMN.gender), 'MISSING_GENDER'))
         return self.apply_pipeline(pipeline, self.load_standard_columns_table(data_connection, **kwargs))
@@ -153,7 +153,7 @@ class StaticTableResource(TableResource):
 
 class StaticTableResource_MIMICIV(StaticTableResource):
     @classmethod
-    def derive_shifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.Series:
+    def derive_deshifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.Series:
         return pd.Series(list(map(lambda dt, age: dt + pd.DateOffset(years=-age),
                                   pd.to_datetime(patients[COLUMN.anchor_year], format='%Y').dt.normalize(),
                                   patients[COLUMN.anchor_age].astype(int))), index=patients.index)
@@ -162,7 +162,7 @@ class StaticTableResource_MIMICIV(StaticTableResource):
 class StaticTableResource_MIMICIII(StaticTableResource):
 
     @classmethod
-    def derive_shifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.Series:
+    def derive_deshifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.Series:
         """
         Important comment from MIMIC-III documentation at \
             https://mimic.mit.edu/docs/iii/tables/patients/
