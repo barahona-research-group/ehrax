@@ -186,7 +186,7 @@ class StaticTableResource_MIMICIII(StaticTableResource):
         first_admit_date = first_admit_date.loc[patients[COLUMN.subject_id]]
         uncertainty = (last_disch_date.dt.year - first_admit_date.dt.year) // 2
         shift = (uncertainty + 89).astype('timedelta64[Y]')
-        dob = dob.mask((last_disch_date.dt.year - dob.dt.year) > 150, first_admit_date - shift)
+        dob = dob.mask((last_disch_date.dt.year.values - dob.dt.year.values) > 150, first_admit_date - shift)
         return dob.dt.normalize()
 
 
