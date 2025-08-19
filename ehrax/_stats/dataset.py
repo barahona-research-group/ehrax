@@ -130,6 +130,16 @@ class DatasetStatsInterface:
         self.dataset = dataset
         self.schemes_manager = schemes_manager
 
+    def age_at_first_admission(self) -> pd.Series:
+        c_subject_id = self.dataset.config.columns.admissions.subject_id
+        c_admittime = self.dataset.config.columns.admissions.start_time
+        c_dob = self.dataset.config.columns.static.date_of_birth
+        admissions = self.dataset.tables.admissions.sort_values(by=c_admittime, ascending=True)
+        first_admission = admissions.groupby(c_subject_id, as_index=False)[[c_subject_id, c_admittime]].first()
+        admission_year = first_admission[c_admittime].dt.year.values
+        birth_year = self.dataset.tables.static.loc[first_admission[c_subject_id], c_dob].dt.year.values
+        return pd.Series(admission_year - birth_year, index=first_admission[c_subject_id])
+
     @property
     def schemes_proxy(self) -> 'DatasetSchemeProxy':
         return self.dataset.scheme_proxy(self.schemes_manager)

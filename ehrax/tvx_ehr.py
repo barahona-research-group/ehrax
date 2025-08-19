@@ -17,7 +17,7 @@ from .dataset import AbstractDatasetPipeline, AbstractProcessedDataset, Abstract
 from .tvx_concepts import (Admission, AdmissionDates, DemographicVectorConfig, InpatientInput, InpatientInterventions,
                            InpatientObservables, LeadingObservableExtractorConfig, Patient, SegmentedPatient,
                            StaticInfo)
-from .utils import tqdm_constructor, Array
+from .utils import Array
 
 
 class ScalerConfig(AbstractConfig):
@@ -540,10 +540,11 @@ class TVxEHR(AbstractProcessedDataset):
         ehr = self.try_fetch_subjects(subject_ids)
         device_subjects = {
             i: ehr.subjects[i].to_jax_arrays()
-            for i in tqdm_constructor(subject_ids,
-                                      desc="Loading to device",
-                                      unit='subject',
-                                      leave=False)
+            for i in subject_ids
+            #tqdm_constructor(subject_ids,
+                                      # desc="Loading to device",
+                                      # unit='subject',
+                                      # leave=False)
         }
         return ehr, eqx.tree_at(lambda x: x.subjects, self, device_subjects)
 

@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable
 from typing import Any, Optional, Self, cast
 
 import equinox as eqx
+import numpy as np
 import pandas as pd
 
 from ..base import AbstractConfig
@@ -118,14 +119,14 @@ class StaticTableResource(TableResource):
 
     @classmethod
     @abstractmethod
-    def derive_shifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.DataFrame:
+    def derive_deshifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.DataFrame:
         # Different procedures to implement for MIMIC-III and MIMIC-IV
         raise NotImplementedError()
 
     @classmethod
-    def _add_shifted_date_of_birth(cls, admissions: pd.DataFrame) -> Callable[[pd.DataFrame], pd.DataFrame]:
+    def _add_deshifted_date_of_birth(cls, admissions: pd.DataFrame) -> Callable[[pd.DataFrame], pd.DataFrame]:
         def _add(df: pd.DataFrame) -> pd.DataFrame:
-            df[COLUMN.date_of_birth] = cls.derive_shifted_date_of_birth(df, admissions=admissions)
+            df[COLUMN.date_of_birth] = cls.derive_deshifted_date_of_birth(df, admissions=admissions)
             return df
 
         return _add
@@ -145,7 +146,7 @@ class StaticTableResource(TableResource):
     def __call__(self, data_connection: Any, **kwargs) -> pd.DataFrame:
         assert 'admissions' in kwargs, "Pass the processed admissions table."
         admissions = kwargs.pop('admissions')
-        pipeline = (self._coerce_id_to_str, self._add_shifted_date_of_birth(admissions=admissions),
+        pipeline = (self._coerce_id_to_str, self._add_deshifted_date_of_birth(admissions=admissions),
                     self.substitute_null_function(str(COLUMN.race), 'MISSING_ETHNICITY'),
                     self.substitute_null_function(str(COLUMN.gender), 'MISSING_GENDER'))
         return self.apply_pipeline(pipeline, self.load_standard_columns_table(data_connection, **kwargs))
@@ -153,7 +154,7 @@ class StaticTableResource(TableResource):
 
 class StaticTableResource_MIMICIV(StaticTableResource):
     @classmethod
-    def derive_shifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.Series:
+    def derive_deshifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.Series:
         return pd.Series(list(map(lambda dt, age: dt + pd.DateOffset(years=-age),
                                   pd.to_datetime(patients[COLUMN.anchor_year], format='%Y').dt.normalize(),
                                   patients[COLUMN.anchor_age].astype(int))), index=patients.index)
@@ -162,7 +163,7 @@ class StaticTableResource_MIMICIV(StaticTableResource):
 class StaticTableResource_MIMICIII(StaticTableResource):
 
     @classmethod
-    def derive_shifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.Series:
+    def derive_deshifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.Series:
         """
         Important comment from MIMIC-III documentation at \
             https://mimic.mit.edu/docs/iii/tables/patients/
@@ -184,10 +185,11 @@ class StaticTableResource_MIMICIII(StaticTableResource):
         first_admit_date = admissions.groupby(COLUMN.subject_id)[COLUMN.start_time].min()
         last_disch_date = last_disch_date.loc[patients[COLUMN.subject_id]]
         first_admit_date = first_admit_date.loc[patients[COLUMN.subject_id]]
-        uncertainty = (last_disch_date.dt.year - first_admit_date.dt.year) // 2
-        shift = (uncertainty + 89).astype('timedelta64[Y]')
-        dob = dob.mask((last_disch_date.dt.year - dob.dt.year) > 150, first_admit_date - shift)
-        return dob.dt.normalize()
+        uncertainty = (last_disch_date.dt.year.values - first_admit_date.dt.year.values) // 2
+        age_before_shift = uncertainty + 89
+        deshifted = np.array(list(map(lambda dt, s: dt + pd.DateOffset(-s), first_admit_date, age_before_shift)))
+        adjusted_dob = np.where((last_disch_date.dt.year.values - dob.dt.year.values) > 150, deshifted, dob.values)
+        return pd.Series(pd.to_datetime(adjusted_dob), index=dob.index).dt.normalize()
 
 
 class MixedVersionICDSummaryTableColumns(TableColumns):
@@ -772,7 +774,7 @@ class MIMICSchemeResources(AbstractConfig):
         selection = self.aux.selections.dx_discharge
         m = table.setup_schemes(manager, name=name,
                                 component_schemes={'9': 'icd9cm', '10': 'icd10cm'},
-                                infer_maps=('icd9cm', 'icd10cm', #'dx_ccs',
+                                infer_maps=('icd9cm', 'icd10cm',  # 'dx_ccs',
                                             'dx_flat_ccs'),
                                 target_name=target_name,
                                 mapping=mapping,
