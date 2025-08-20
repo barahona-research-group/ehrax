@@ -1043,6 +1043,7 @@ class StaticInfo(AbstractVxData):
             attrs_vec.append(self.ethnicity.vec)
         return attrs_vec
 
+    @functools.lru_cache(maxsize=10, typed=True)
     def constant_vec(self, demographic_vector_config: DemographicVectorConfig) -> Array:
         attrs_vec = self.constant_attrs_list(demographic_vector_config)
         xnp = np_module(attrs_vec[0])
@@ -1063,6 +1064,20 @@ class StaticInfo(AbstractVxData):
         """
         assert self.date_of_birth is not None, "Date of birth is not set"
         return current_date.year - self.date_of_birth.year
+
+    def admission_demographics(self, admission: Admission, demographic_vector_config: DemographicVectorConfig) -> Array:
+        """
+        Returns the demographic vector for the patient.
+
+        Args:
+            demographic_vector_config (DemographicVectorConfig): the demographic vector configuration.
+
+        Returns:
+            Array: the demographic vector.
+        """
+        if demographic_vector_config.age:
+            return jnp.hstack((self.age(admission.admission_dates[0]), self.constant_vec(demographic_vector_config)))
+        return self.constant_vec(demographic_vector_config)
 
 
 class Patient(AbstractVxData):
@@ -1108,12 +1123,8 @@ class Patient(AbstractVxData):
         Returns:
             Array: the demographic vector.
         """
-        static_demographics = self.static_info.constant_vec(demographic_vector_config)
-        if demographic_vector_config.age:
-            admission_age = {admission.admission_id: self.static_info.age(admission.admission_dates[0]) for admission in
-                             self.admissions}
-            return {admission_id: jnp.hstack((age, static_demographics)) for admission_id, age in admission_age.items()}
-        return {admission.admission_id: static_demographics for admission in self.admissions}
+        return {a.admission_id: self.static_info.admission_demographics(a, demographic_vector_config)
+                for a in self.admissions}
 
     @cached_property
     def d2d_interval_days(self):
