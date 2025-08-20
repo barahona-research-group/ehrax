@@ -30,6 +30,9 @@ class CodesVector(AbstractVxData):
         self.vec = vec
         self.scheme = scheme
 
+    def __hash__(self) -> int:
+        return hash(self.scheme + str(self.vec))
+
     @classmethod
     def empty_like(cls, other: Self) -> Self:
         """
@@ -114,7 +117,6 @@ class CodingScheme(AbstractVxData):
 
         # Check sizes.
         assert len(self.codes) == len(self.desc), f"{self}: Codes and descriptions should have the same size."
-
 
     def _check_types(self):
         for collection in [self.codes, self.desc]:
