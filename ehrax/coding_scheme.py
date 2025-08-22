@@ -380,7 +380,7 @@ class HierarchicalScheme(CodingScheme):
         Returns:
             Array: a boolean matrix where each element (i, j) is True if code i is an ancestor of code j, and False otherwise.
         """
-        parents_indices = [[]] * len(self.dag_index)
+        parents_indices = [[] for _ in range(len(self.dag_index))]
         for code_i, i in self.dag_index.items():
             for ancestor_j in self.code_ancestors_bfs(code_i, include_itself):
                 parents_indices[i].append(self.dag_index[ancestor_j])
