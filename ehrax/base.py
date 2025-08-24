@@ -46,9 +46,9 @@ class _ModuleMeta(type(eqx.Module)):
             try:
                 return _factory_registry[type_str]
             except KeyError:
-                raise KeyError(f"{type_str} is not a valid factory type. "
-                               f"You may need to import a module that was used during the construction of "
-                               f"{type_str} object(s).")
+                raise KeyError(f"{type_str} is not a registered type. "
+                               f"You may need to import the module that was used during the construction of "
+                               f"{type_str} object(s). Registered types: {list(_factory_registry.keys())}. ")
 
         cls.__class_key__ = classmethod(__class_key__)
         cls.__get_factory__ = __get_factory__
