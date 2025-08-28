@@ -125,15 +125,10 @@ class MultiVersionScheme(CodingScheme):
         return manager.add_map(CodeMap(source_name=self.name, target_name=target_name, data=FrozenDict1N(mixed2target)))
 
     def register_map(self, manager: CodingSchemesManager, target_name: str,
-                     mapping: pd.DataFrame) -> CodingSchemesManager:
+                     mapping: pd.DataFrame, c_code: str, c_version: str, c_target_code: str, c_target_desc: str) -> CodingSchemesManager:
         """
         Register a mapping between the current Mixed ICD scheme and a target scheme.
         """
-        c_code = str(COLUMN.code)
-        c_version = str(COLUMN.version)
-        c_target_code = str(COLUMN.mapped_code)
-        c_target_desc = str(COLUMN.mapped_description)
-
         mapping = self.reformat(mapping.astype(str), self.component_schemes(manager))
         mapping.loc[:, c_code] = (mapping[c_version] + self.sep + mapping[c_code]).tolist()
         mapping = mapping[mapping[c_code].isin(self.codes)]

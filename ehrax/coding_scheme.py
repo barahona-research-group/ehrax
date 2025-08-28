@@ -861,8 +861,17 @@ class CodeMap(AbstractVxData):
         return source_scheme.name, target_scheme.name, FrozenDict1N(mapping)
 
     @classmethod
-    def from_table(cls, *args, **kwargs):
-        return cls(*cls._init_args_from_table(*args, **kwargs))
+    def from_table(cls, source_scheme: CodingScheme,
+                   target_scheme: CodingScheme,
+                   c_source_code: str,
+                   c_target_code: str,
+                   table: pd.DataFrame, **kwargs):
+
+        return cls(*cls._init_args_from_table(source_scheme=source_scheme,
+                                              target_scheme=target_scheme,
+                                              c_source_code=c_source_code,
+                                              c_target_code=c_target_code,
+                                              map_table=table))
 
 
 class GroupingData(AbstractVxData):
@@ -912,8 +921,8 @@ class ReducedCodeMapN1(CodeMap):
                    target_scheme: CodingScheme,
                    c_source_code: str,
                    c_target_code: str,
-                   c_target_agg: str,
-                   table: pd.DataFrame) -> Self:
+                   table: pd.DataFrame, **kwargs) -> Self:
+        c_target_agg = kwargs['c_target_agg']
         source_name, target_name, map_data = cls._init_args_from_table(source_scheme=source_scheme,
                                                                        target_scheme=target_scheme,
                                                                        c_source_code=c_source_code,

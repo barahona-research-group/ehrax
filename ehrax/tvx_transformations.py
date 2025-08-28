@@ -7,10 +7,10 @@ import equinox as eqx
 import numpy as np
 import pandas as pd
 
+from ._literals import SplitLiteral
 from .coding_scheme import CodeMap, CodingSchemesManager
 from .dataset import AbstractTransformation, AdmissionIntervalEventsTableColumns, AdmissionIntervalRatesTableColumns, \
     Dataset, Report
-from ._literals import SplitLiteral
 from .transformations import DatasetTransformation
 from .tvx_concepts import Admission, CodesVector, InpatientInput, InpatientInterventions, InpatientObservables, \
     LeadingObservableExtractor, Patient, StaticInfo
@@ -863,31 +863,3 @@ class TVxConcepts(AbstractTransformation):
                             after=len(subjects))
         return tvx_ehr, report
 
-
-class ExcludeShortAdmissions(AbstractTransformation):
-    @classmethod
-    def apply(cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport) -> tuple[
-        TVxEHR, TVxReport]:
-        admission_minimum_los = tvx_ehr.config.admission_minimum_los
-        if admission_minimum_los is None:
-            return cls.skip(tvx_ehr, report, reason='admission_minimum_los is not configured.')
-
-        filtered_subjects = {subject_id: subject.filter_short_stays(admission_minimum_los)
-                             for subject_id, subject in tvx_ehr.subjects.items()}
-
-        report = report.add(tvx_concept=TVxReportAttributes.admissions_prefix(),
-                            transformation=cls,
-                            value_type='count', operation=f'filter_short_stays({admission_minimum_los})',
-                            before=sum(len(s.admissions) for s in tvx_ehr.subjects.values()),
-                            after=sum(len(s.admissions) for s in filtered_subjects.values()))
-
-        tvx_ehr_filtered = eqx.tree_at(lambda x: x.subjects, tvx_ehr,
-                                       {subject_id: subject for subject_id, subject in filtered_subjects.items() if
-                                        len(subject.admissions) > 0})
-        report = report.add(tvx_concept=TVxReportAttributes.subjects_prefix(),
-                            transformation=cls,
-                            value_type='count', operation=f'filter_short_stays({admission_minimum_los})',
-                            before=len(tvx_ehr.subject_ids),
-                            after=len(tvx_ehr_filtered.subject_ids))
-
-        return tvx_ehr_filtered, report
