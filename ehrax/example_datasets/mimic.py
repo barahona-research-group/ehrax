@@ -684,7 +684,7 @@ class MIMICSchemeResources(AbstractConfig):
                                                     c_code=names.mapped.column_name(c_code),
                                                     c_desc=names.mapped.column_name(c_code))
             code_map = CodeMap.from_table(source_scheme, target_scheme, c_source_code=c_code,
-                                          c_target_code=names.mapped.column_name(c_code), table=map_table)
+                                          c_target_code=names.mapped.column_name(c_code), map_table=map_table)
             manager = manager.add_scheme(target_scheme).add_map(code_map)
         return manager
 
