@@ -1,4 +1,4 @@
-,code,version,description,target_code,target_description
+,code,version,description,mapped_code,mapped_description
 0,5491,9,Percutaneous abdominal drainage,group_0,abdomin_drain
 1,3491,9,Thoracentesis,group_0,abdomin_drain
 2,0W9G3ZZ,10,"Drainage of Peritoneal Cavity, Percutaneous Approach",group_0,abdomin_drain

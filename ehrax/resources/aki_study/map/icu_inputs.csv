@@ -1,4 +1,4 @@
-,code,description,target_code,target_description,aggregation,dose_impact
+,code,description,mapped_code,mapped_description,aggregation,dose_impact
 0,227529,ACD-A Citrate (1000ml),group_0,ACD-A Citrate,sum,Y
 1,227528,ACD-A Citrate (500ml),group_0,ACD-A Citrate,sum,Y
 2,221261,Abciximab (Reopro),group_1,Abciximab,or,N
