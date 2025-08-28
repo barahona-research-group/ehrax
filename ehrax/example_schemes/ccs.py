@@ -360,11 +360,11 @@ class CCSMapRegistration:
                       pr_flat_ccs: bool) -> CodingSchemesManager:
         if pr_ccs:
             logging.debug(f"[BEGIN] mapping from {icd10_scheme} to pr_ccs")
-            CCS2ICD10MapOps.register_pr_ccs_maps(manager, icd10_scheme)
+            manager = CCS2ICD10MapOps.register_pr_ccs_maps(manager, icd10_scheme)
             logging.debug(f"[DONE] mapping from {icd10_scheme} to pr_ccs")
         if pr_flat_ccs:
             logging.debug(f"[BEGIN] mapping from {icd10_scheme} to pr_flat_ccs")
-            CCS2ICD10MapOps.register_pr_flat_ccs_maps(manager, icd10_scheme)
+            manager = CCS2ICD10MapOps.register_pr_flat_ccs_maps(manager, icd10_scheme)
             logging.debug(f"[DONE] mapping from {icd10_scheme} to pr_flat_ccs")
         return manager
 
