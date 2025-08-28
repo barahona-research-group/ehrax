@@ -21,6 +21,7 @@ OBSERVABLE_AKI_TARGET_CODE: Final[str] = 'renal_aki.aki_binary'
 def default_suffixes() -> MIMICDatasetSchemeSuffixes:
     return MIMICDatasetSchemeSuffixes(ethnicity='ethnicity',
                                       gender='gender',
+                                      obs='obs',
                                       dx_discharge='dx_discharge',
                                       hosp_procedures='hosp_procedures',
                                       icu_procedures='icu_procedures',
