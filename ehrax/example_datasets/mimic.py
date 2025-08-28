@@ -412,8 +412,8 @@ class GroupedMultivariateTimeSeriesTableResource(CodedTableResource):
                                                 how='inner')
 
         # format codes to be of the form 'group.attribute'
-        df = attributes_selection.astype({'attribute': str, 'type_hint': str})
-        codes = tuple(sorted(df.index + '.' + df['attribute'].tolist()))
+        df = attributes_selection.astype({'attribute': str, 'type_hint': str, 'group': str})
+        codes = tuple(sorted(df['group'] + '.' + df['attribute'].tolist()))
         desc = FrozenDict11(dict(zip(codes, codes)))
         group = FrozenDict11(dict(zip(codes, df.index.astype(str).values)))
         type_hint = FrozenDict11(dict(zip(codes, df['type_hint'].tolist())))
