@@ -357,4 +357,4 @@ class SQLMIMICTablesResources(DatasetTablesResources):
 
     @staticmethod
     def url_from_credentials(user: str, password: str, host: str, port: str, dbname: str) -> str:
-        return f'postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}'
+        return f'postgresql+psycopg://{user}:{password}@{host}:{port}/{dbname}'
