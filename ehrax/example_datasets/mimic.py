@@ -756,7 +756,7 @@ class MIMICSchemeResources(AbstractConfig):
     def make_hosp_procedures_scheme(self, manager: CodingSchemesManager) -> CodingSchemesManager:
         table = self.tables.hosp_procedures
         name = self.scheme.hosp_procedures
-        target_name = self.aux.scoped_names.hosp_procedures
+        target_name = self.aux.scoped_names.mapped.hosp_procedures
         mapping = self.aux.maps.hosp_procedures
         selection = self.aux.selections.hosp_procedures
         return table.setup_schemes(manager, name=name,
@@ -769,7 +769,7 @@ class MIMICSchemeResources(AbstractConfig):
     def make_dx_discharge_scheme(self, manager: CodingSchemesManager) -> CodingSchemesManager:
         table = self.tables.dx_discharge
         name = self.scheme.dx_discharge
-        target_name = self.aux.scoped_names.dx_discharge
+        target_name = self.aux.scoped_names.mapped.dx_discharge
         mapping = self.aux.maps.dx_discharge
         selection = self.aux.selections.dx_discharge
         m = table.setup_schemes(manager, name=name,
