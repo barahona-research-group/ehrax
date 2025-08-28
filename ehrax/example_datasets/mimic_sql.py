@@ -6,9 +6,10 @@ import sqlalchemy
 
 from .mimic import CodedColumns, CodedTableResource, DatasetTablesResources, GroupedMultivariateTimeSeriesTableResource, \
     MixedICDTableResource_MIMICIV, MultivariateTimeSeriesTableResource, StaticTableResource_MIMICIV, TableResource
-from ..base import AbstractConfig
-from ..dataset import AdmissionsTableColumns, COLUMN, MultivariateTimeSeriesTableMeta, StaticTableColumns, TableColumns
 from .._literals import NumericalTypeHint
+from ..base import AbstractConfig
+from ..dataset import AdmissionIntervalEventsTableColumns, AdmissionIntervalRatesTableColumns, AdmissionsTableColumns, \
+    COLUMN, MultivariateTimeSeriesTableMeta, StaticTableColumns, TableColumns
 from ..utils import resources_path
 
 
@@ -300,10 +301,12 @@ OBS_COMPONENTS = (
 )
 OBS_TABLE_CONFIG = SQLGroupedMultivariateTimeSeriesTableResource(groups=OBS_COMPONENTS)
 
-ICU_INPUTS_CONF = SQLCodedTableInterface(query_template="mimiciv/sql/icu_inputs.tsql",
-                                         space_query_template="mimiciv/sql/icu_inputs_space.tsql")
-ICU_PROCEDURES_CONF = SQLCodedTableInterface(query_template="mimiciv/sql/icu_procedures.tsql",
-                                             space_query_template="mimiciv/sql/icu_procedures_space.tsql")
+ICU_INPUTS_CONF = SQLCodedTableResource(query_template="mimiciv/sql/icu_inputs.tsql",
+                                        space_query_template="mimiciv/sql/icu_inputs_space.tsql",
+                                        columns=AdmissionIntervalRatesTableColumns())
+ICU_PROCEDURES_CONF = SQLCodedTableResource(query_template="mimiciv/sql/icu_procedures.tsql",
+                                            space_query_template="mimiciv/sql/icu_procedures_space.tsql",
+                                            columns=AdmissionIntervalEventsTableColumns())
 HOSP_PROCEDURES_CONF = SQLMixedICDTableResource(
     query_template="mimiciv/sql/hosp_procedures.tsql", space_query_template="mimiciv/sql/hosp_procedures_space.tsql")
 
