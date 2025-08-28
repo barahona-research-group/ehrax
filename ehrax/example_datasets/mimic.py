@@ -411,7 +411,7 @@ class GroupedMultivariateTimeSeriesTableResource(CodedTableResource):
                                                 suffixes=(None, '_y'),
                                                 how='inner')
 
-        # format codes to be of the form 'table_name.attribute'
+        # format codes to be of the form 'group.attribute'
         df = attributes_selection.astype({'attribute': str, 'type_hint': str})
         codes = tuple(sorted(df.index + '.' + df['attribute'].tolist()))
         desc = FrozenDict11(dict(zip(codes, codes)))
@@ -516,7 +516,7 @@ class ExternalSelectionResources(AbstractConfig):
     @property
     def obs(self) -> Optional[pd.DataFrame]:
         df = self.selection_file(self.filenames.obs)
-        return df.set_index('table_name', drop=True).sort_values('attribute').sort_index()
+        return df.set_index('group', drop=True).sort_values('attribute').sort_index()
 
     @property
     def dx_discharge(self) -> Optional[pd.DataFrame]:
