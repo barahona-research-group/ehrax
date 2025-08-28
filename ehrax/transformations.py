@@ -276,6 +276,24 @@ class FilterSubjectsWithLongAdmission(DatasetTransformation):
         return cls.synchronize_subjects(dataset, report)
 
 
+class FilterShortAdmissions(DatasetTransformation):  # without removing the corresponding subjects.
+    @classmethod
+    def apply(cls, dataset: Dataset, scheme_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
+        min_days = dataset.config.admission_minimum_los
+        if min_days is None:
+            return cls.skip(dataset, report, reason='select_subjects_with_short_admissions is not configured.')
+        a_df = dataset.tables.admissions
+        los = (a_df[COLUMN.end_time] - a_df[COLUMN.start_time]).dt.total_seconds() * SECONDS_TO_DAYS_SCALER
+        n1 = len(a_df)
+        a_df = a_df.loc[los >= min_days]
+        n2 = len(a_df)
+        report = report.add(table='admissions', column=a_df.index.name,
+                            before=n1, after=n2, value_type='count',
+                            operation='filter')
+        dataset = eqx.tree_at(lambda x: x.tables.admissions, dataset, a_df)
+        return cls.synchronize_admissions(dataset, report)
+
+
 class ProcessOverlappingAdmissions(DatasetTransformation):
 
     @staticmethod

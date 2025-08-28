@@ -320,7 +320,6 @@ class TVxEHRConfig(AbstractConfig):
     time_binning: Optional[float]
     leading_observable: Optional[LeadingObservableExtractorConfig]
     interventions_segmentation: bool
-    admission_minimum_los: Optional[float]
 
     def __init__(self, scheme: TVxEHRSchemeConfig, demographic: DemographicVectorConfig,
                  sample: Optional[TVxEHRSampleConfig] = None, splits: Optional[TVxEHRSplitsConfig] = None,
@@ -328,7 +327,7 @@ class TVxEHRConfig(AbstractConfig):
                  interventions: bool = False, observables: bool = False,
                  time_binning: Optional[float] = None,
                  leading_observable: Optional[LeadingObservableExtractorConfig] = None,
-                 interventions_segmentation: bool = False, admission_minimum_los: Optional[float] = None):
+                 interventions_segmentation: bool = False):
         self.scheme = scheme
         self.demographic = demographic
         self.sample = sample
@@ -339,7 +338,6 @@ class TVxEHRConfig(AbstractConfig):
         self.time_binning = time_binning
         self.leading_observable = leading_observable
         self.interventions_segmentation = interventions_segmentation
-        self.admission_minimum_los = admission_minimum_los
 
 
 class TVxReportAttributes(ReportAttributes):
