@@ -210,13 +210,16 @@ class MixedICDTableResource(CodedTableResource):
                       infer_maps: tuple[str, ...],
                       target_name: Optional[str],
                       mapping: Optional[pd.DataFrame],
-                      selection: Optional[pd.DataFrame]) -> CodingSchemesManager:
+                      selection: Optional[pd.DataFrame], *,
+                      c_code: str, c_version: str, c_target_code: str, c_target_desc: str) -> CodingSchemesManager:
         scheme = self.register_scheme(name=name,
                                       selection=selection,
                                       component_schemes={k: manager.scheme[v] for k, v in component_schemes.items()})
         manager = manager.add_scheme(scheme)
         if target_name is not None and mapping is not None:
-            manager = scheme.register_map(manager=manager, target_name=target_name, mapping=mapping)
+            manager = scheme.register_map(manager=manager, target_name=target_name, mapping=mapping,
+                                          c_code=c_code, c_version=c_version, c_target_code=c_target_code,
+                                          c_target_desc=c_target_desc)
         for target in infer_maps:
             manager = scheme.register_infer_map(manager, target)
         return manager
@@ -759,12 +762,16 @@ class MIMICSchemeResources(AbstractConfig):
         target_name = self.aux.scoped_names.mapped.hosp_procedures
         mapping = self.aux.maps.hosp_procedures
         selection = self.aux.selections.hosp_procedures
+        c_target_code = self.aux.scoped_names.mapped.column_name(str(COLUMN.code))
+        c_target_desc = self.aux.scoped_names.mapped.column_name(str(COLUMN.description))
         return table.setup_schemes(manager, name=name,
                                    component_schemes={'9': 'icd9pcs', '10': 'icd10pcs'},
                                    infer_maps=('icd9pcs', 'icd10pcs', 'pr_ccs', 'pr_flat_ccs'),
                                    target_name=target_name,
                                    mapping=mapping,
-                                   selection=selection)
+                                   selection=selection,
+                                   c_code=COLUMN.code, c_version=COLUMN.version, c_target_code=c_target_code,
+                                   c_target_desc=c_target_desc)
 
     def make_dx_discharge_scheme(self, manager: CodingSchemesManager) -> CodingSchemesManager:
         table = self.tables.dx_discharge
@@ -772,13 +779,17 @@ class MIMICSchemeResources(AbstractConfig):
         target_name = self.aux.scoped_names.mapped.dx_discharge
         mapping = self.aux.maps.dx_discharge
         selection = self.aux.selections.dx_discharge
+        c_target_code = self.aux.scoped_names.mapped.column_name(str(COLUMN.code))
+        c_target_desc = self.aux.scoped_names.mapped.column_name(str(COLUMN.description))
         m = table.setup_schemes(manager, name=name,
                                 component_schemes={'9': 'icd9cm', '10': 'icd10cm'},
                                 infer_maps=('icd9cm', 'icd10cm',  # 'dx_ccs',
                                             'dx_flat_ccs'),
                                 target_name=target_name,
                                 mapping=mapping,
-                                selection=selection)
+                                selection=selection,
+                                c_code=COLUMN.code, c_version=COLUMN.version, c_target_code=c_target_code,
+                                c_target_desc=c_target_desc)
         # OVERRIDE the low-quality mapping icd10cm->dx_ccs with a chained map icd10cm->icd9cm->dx_ccs
         m = m.add_chained_map(name, 'icd9cm', 'dx_ccs', overwrite=True)
         return m
