@@ -1,4 +1,4 @@
-from typing import Final, Optional
+from typing import Final
 
 import sqlalchemy
 
@@ -126,13 +126,10 @@ def tvx_ehr_pipeline() -> AbstractTVxPipeline:
 
 
 def mimiciv_from_env_sql(dataset_tables_resources: SQLMIMICTablesResources = SQLMIMICTablesResources(),
-                         schemes_config: Optional[DatasetSchemeConfig] = None,
                          aux_resources: MIMICDatasetAuxiliaryResources = default_auxiliary_resources()) -> tuple[
     Dataset, CodingSchemesManager]:
-    if schemes_config is None:
-        schemes_config = dataset_schemes_config(aux_resources.scoped_names)
     engine = sqlalchemy.create_engine(dataset_tables_resources.url())
-    return load_mimic(config=DatasetConfig(scheme=schemes_config),
+    return load_mimic(config=dataset_config(aux_resources.scoped_names),
                       tables=dataset_tables_resources,
                       aux=aux_resources,
                       data_connection=engine)
