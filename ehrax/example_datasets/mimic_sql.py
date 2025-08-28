@@ -1,5 +1,5 @@
 import os
-from typing import Final, Optional
+from typing import Final, Mapping, Optional
 
 import pandas as pd
 import sqlalchemy
@@ -16,8 +16,10 @@ from ..utils import resources_path
 class SQLTableInterface(AbstractConfig):
     # resource file.
     query_template: Optional[str]
+    substitutes: Mapping[str, str]
 
-    def __init__(self, query_template: Optional[str]):
+    def __init__(self, query_template: Optional[str], substitutes: Optional[dict[str, str]] = None):
+        self.substitutes = substitutes or {}
         self.query_template = query_template
 
     @property
@@ -26,7 +28,8 @@ class SQLTableInterface(AbstractConfig):
         return open(resources_path(self.query_template), "r").read()
 
     def load_standard_columns_table(self, engine: sqlalchemy.Engine):
-        query = self.query.format(**COLUMN.as_dict())
+        sub = COLUMN.as_dict() | dict(self.substitutes)
+        query = self.query.format(**sub)
         return pd.read_sql(query, engine, coerce_float=False)
 
 
@@ -35,8 +38,9 @@ class SQLCodedTableInterface(SQLTableInterface):
     space_query_template: Optional[str]
 
     def __init__(self, query_template: Optional[str] = None,
-                 space_query_template: Optional[str] = None):
-        super().__init__(query_template=query_template)
+                 space_query_template: Optional[str] = None,
+                 substitutes: Optional[dict[str, str]] = None):
+        super().__init__(query_template=query_template, substitutes=substitutes)
         self.space_query_template = space_query_template
 
     @property
@@ -155,7 +159,8 @@ class SQLMultivariateTimeSeriesResource(MultivariateTimeSeriesTableResource):
         super().__init__(MultivariateTimeSeriesTableMeta(name=name, attributes=attributes,
                                                          type_hint=type_hint,
                                                          default_type_hint=default_type_hint))
-        self.sql_interface = SQLCodedTableInterface(query_template=query_template)
+        self.sql_interface = SQLCodedTableInterface(query_template=query_template,
+                                                    substitutes=dict(attributes=', '.join(attributes)))
 
     def load_standard_columns_table(self, engine: sqlalchemy.Engine, *args, **kwargs) -> pd.DataFrame:
         return self.sql_interface.load_standard_columns_table(engine)
