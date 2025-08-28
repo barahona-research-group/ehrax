@@ -129,7 +129,7 @@ def mimiciv_from_env_sql(dataset_tables_resources: SQLMIMICTablesResources = SQL
                          aux_resources: MIMICDatasetAuxiliaryResources = default_auxiliary_resources()) -> tuple[
     Dataset, CodingSchemesManager]:
     if schemes_config is None:
-        schemes_config = dataset_schemes_config(aux_resources.scoped_names),
+        schemes_config = dataset_schemes_config(aux_resources.scoped_names)
     engine = sqlalchemy.create_engine(dataset_tables_resources.url())
     return load_mimic(config=DatasetConfig(scheme=schemes_config),
                       tables=dataset_tables_resources,
