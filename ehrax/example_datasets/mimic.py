@@ -667,7 +667,7 @@ class MIMICSchemeResources(AbstractConfig):
         self.aux = aux
 
     def _make_demographic_scheme(self, name: str, space_table: pd.DataFrame,
-                                 c_code: str, selection: pd.DataFrame, target_name: str,
+                                 c_code: str, selection: pd.DataFrame, target_name: Optional[str] = None,
                                  map_table: Optional[pd.DataFrame] = None) -> CodingSchemesManager:
         # TODO: handle missing values. Options:
         # 1. A missingness-aware CodingScheme (not preferred, requires new class, new logic, new tests).
@@ -678,7 +678,7 @@ class MIMICSchemeResources(AbstractConfig):
                                                 c_code=c_code,
                                                 c_desc=c_code)
         manager = CodingSchemesManager().add_scheme(source_scheme)
-        if map_table is not None:
+        if map_table is not None and target_name is not None:
             names = self.aux.scoped_names
             target_scheme = CodingScheme.from_table(name=target_name, table=map_table,
                                                     c_code=names.mapped.column_name(c_code),
@@ -692,15 +692,14 @@ class MIMICSchemeResources(AbstractConfig):
         gender_space_table = self.tables.static.gender_space(data_connection)
         return self._make_demographic_scheme(name=self.scheme.gender, space_table=gender_space_table,
                                              c_code=COLUMN.gender,
-                                             selection=self.aux.selections.gender,
-                                             target_name=self.aux.scoped_names.gender)
+                                             selection=self.aux.selections.gender)
 
     def make_ethnicity_scheme(self, data_connection: Any) -> CodingSchemesManager:
         race_space_table = self.tables.static.ethnicity_space(data_connection)
         return self._make_demographic_scheme(name=self.scheme.ethnicity, space_table=race_space_table,
                                              c_code=COLUMN.race,
                                              selection=self.aux.selections.ethnicity,
-                                             target_name=self.aux.scoped_names.ethnicity,
+                                             target_name=self.aux.scoped_names.mapped.ethnicity,
                                              map_table=self.aux.maps.ethnicity)
 
     def make_obs_scheme(self) -> CodingSchemesManager:
