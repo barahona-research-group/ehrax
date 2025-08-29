@@ -7,7 +7,8 @@ from .mimic_sql import SQLMIMICTablesResources
 from ..coding_scheme import CodingSchemesManager
 from ..dataset import AbstractDatasetPipeline, Dataset, DatasetColumns, DatasetConfig, DatasetSchemeConfig
 from ..transformations import CastTimestamps, FilterClampTimestampsToAdmissionInterval, FilterInvalidInputRatesSubjects, \
-    FilterShortAdmissions, FilterSubjectsNegativeAdmissionLengths, FilterUnsupportedCodes, ICUInputRateUnitConversion, \
+    FilterShortAdmissions, FilterSubjectsNegativeAdmissionLengths, FilterSubjectsWithInvalidInputInterval, \
+    FilterUnsupportedCodes, ICUInputRateUnitConversion, \
     MergeOverlappingAdmissions, SelectSubjectsWithObservation, SetAdmissionRelativeTimes, SetIndex
 from ..tvx_ehr import AbstractTVxPipeline, DatasetNumericalProcessorsConfig, DemographicVectorConfig, \
     LeadingObservableExtractorConfig, TVxEHRConfig, TVxEHRSampleConfig, TVxEHRSchemeConfig, TVxEHRSplitsConfig
@@ -71,6 +72,7 @@ def default_dataset_pipeline() -> AbstractDatasetPipeline:
         FilterUnsupportedCodes(),
         ICUInputRateUnitConversion(),
         FilterInvalidInputRatesSubjects(),
+        FilterSubjectsWithInvalidInputInterval(),
         SetAdmissionRelativeTimes()
     ]
     return AbstractDatasetPipeline(transformations=pipeline)

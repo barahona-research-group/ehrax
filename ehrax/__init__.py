@@ -52,6 +52,7 @@ from .transformations import ( # noqa
     FilterClampTimestampsToAdmissionInterval,
     FilterInvalidInputRatesSubjects,
     FilterSubjectsNegativeAdmissionLengths,
+    FilterSubjectsWithInvalidInputInterval,
     FilterUnsupportedCodes,
     ICUInputRateUnitConversion,
     MergeOverlappingAdmissions,

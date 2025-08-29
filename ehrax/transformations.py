@@ -552,6 +552,43 @@ class FilterInvalidInputRatesSubjects(DatasetTransformation):
         return cls.synchronize_subjects(dataset, report)
 
 
+class FilterSubjectsWithInvalidInputInterval(DatasetTransformation):
+    @classmethod
+    def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
+        c_admission_id = dataset.config.columns.admissions.admission_id
+        c_subject_id = dataset.config.columns.admissions.subject_id
+        c_start = dataset.config.columns.icu_inputs.start_time
+        c_end = dataset.config.columns.icu_inputs.end_time
+
+        icu_inputs = dataset.tables.icu_inputs
+        static = dataset.tables.static
+        admissions = dataset.tables.admissions
+
+        invalid_input_interval = icu_inputs[icu_inputs[c_start] > icu_inputs[c_end]]
+        n_invalid_inputs = len(invalid_input_interval)
+        invalidated_adm_ids = invalid_input_interval[c_admission_id].unique()
+        n_invalidated_adms = len(invalidated_adm_ids)
+
+        invalidated_subject_ids = admissions[admissions.index.isin(invalidated_adm_ids)][c_subject_id].unique()
+        n_nan_subjects = len(invalidated_subject_ids)
+
+        report = report.add(table=('icu_inputs', 'admissions', 'static'),
+                            column=(c_start, c_admission_id, c_subject_id),
+                            value_type='invalid_counts',
+                            before=(n_invalid_inputs, n_invalidated_adms, n_nan_subjects),
+                            after=None,
+                            operation='filter_invalid_input_intervals_subjects')
+
+        n1 = len(static)
+        static = static[~static.index.isin(invalidated_subject_ids)]
+        n2 = len(static)
+        report = report.add(table='static', column=c_subject_id, value_type='count',
+                            before=n1, after=n2,
+                            operation='filter_invalid_input_intervals_subjects')
+        dataset = eqx.tree_at(lambda x: x.tables.static, dataset, static)
+        return cls.synchronize_subjects(dataset, report)
+
+
 class ICUInputRateUnitConversion(DatasetTransformation):
 
     @classmethod
