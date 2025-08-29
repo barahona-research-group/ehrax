@@ -382,7 +382,7 @@ class GroupedMultivariateTimeSeriesTableResource(CodedTableResource):
         return pd.concat([g(data_connection, **kwargs) for g in self.groups], axis=0)
 
     def pipeline(self) -> tuple[Callable[[pd.DataFrame], pd.DataFrame], ...]:
-        return (lambda df: df.reset_index(drop=True),)
+        return tuple([lambda df: df.reset_index(drop=True)])
 
     def stats(self, data_connection: Any) -> pd.DataFrame:
         dfs = []
