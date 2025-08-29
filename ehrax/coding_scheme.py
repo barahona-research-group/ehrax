@@ -315,7 +315,8 @@ class CodingSchemeWithUOM(CodingScheme):
         name, codes, desc = cls._init_args_from_table(name=name, table=table, c_code=c_code, c_desc=c_desc,
                                                       code_selection=code_selection)
         # TODO: test this method.
-        df = table.astype({c_code: str, c_normalization_factor: float}).drop_duplicates(c_code).set_index(c_code)
+        df = table.astype({c_code: str, c_normalization_factor: float}).drop_duplicates([c_code, c_unit]).set_index(
+            c_code)
         df = df[df.index.isin(codes)]
         assert all(c in df.columns for c in (c_unit, c_normalization_factor)), "Some columns are missing."
         if c_universal_unit is not None and c_universal_unit in df.columns:
