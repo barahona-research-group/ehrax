@@ -582,7 +582,7 @@ class ICUInputRateUnitConversion(DatasetTransformation):
         df = icu_inputs.iloc[:, :]
         df[c_universal_unit] = df[c_code].map(lambda c: scheme.universal_unit[c])
         df[c_normalization_factor] = [scheme.uom_normalization_factor[code][unit] for code, unit in
-                                      zip(df[c_code], df[c_amount_unit])]
+                                      zip(df[c_code], df[c_amount_unit].str.lower())]
 
         delta_hours = ((df[c_end_time] - df[c_start_time]).dt.total_seconds() * SECONDS_TO_HOURS_SCALER)
         df[c_normalized_amount] = df[c_amount] * df[c_normalization_factor]
