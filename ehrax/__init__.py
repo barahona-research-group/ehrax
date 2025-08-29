@@ -1,4 +1,4 @@
-from .base import (
+from .base import ( # noqa
     AbstractConfig,
     AbstractModule,
     AbstractVxData,
@@ -10,7 +10,7 @@ from .base import (
     fetch_one_level_at,
 )
 
-from .coding_scheme import (
+from .coding_scheme import ( # noqa
     CodeMap,
     CodesVector,
     CodingScheme,
@@ -26,7 +26,7 @@ from .coding_scheme import (
     AggregationLiteral
 )
 
-from .dataset import (
+from .dataset import ( # noqa
     COLUMN,
     Dataset,
     DatasetConfig,
@@ -40,13 +40,13 @@ from .dataset import (
     AbstractDatasetPipeline
 )
 
-from .freezer import (
+from .freezer import ( # noqa
     FrozenDict11,
     FrozenDict1N,
     FrozenDict1NM,
 )
 
-from .transformations import (
+from .transformations import ( # noqa
     CastTimestamps,
     DatasetTransformation,
     FilterClampTimestampsToAdmissionInterval,
@@ -62,10 +62,11 @@ from .transformations import (
     FilterSubjectsWithLongAdmission,
     FilterAdmissionsWithNoDiagnoses,
     FilterSubjectsWithSingleOrNoAdmission,
+    FilterShortAdmissions,
     SqueezeToStandardColumns
 )
 
-from .tvx_concepts import (
+from .tvx_concepts import ( # noqa
     Admission,
     AdmissionDates,
     DemographicVectorConfig,
@@ -82,7 +83,7 @@ from .tvx_concepts import (
     StaticInfo,
 )
 
-from .tvx_ehr import (
+from .tvx_ehr import ( # noqa
     DatasetNumericalProcessors,
     DatasetNumericalProcessorsConfig,
     IQROutlierRemoverConfig,
@@ -97,9 +98,8 @@ from .tvx_ehr import (
     TVxReport,
 )
 
-from .tvx_transformations import (
+from .tvx_transformations import ( # noqa
     CodedValueScaler,
-    ExcludeShortAdmissions,
     InputScaler,
     InterventionSegmentation,
     LeadingObservableExtraction,
@@ -111,7 +111,7 @@ from .tvx_transformations import (
     TVxConcepts,
 )
 
-from .utils import (
+from .utils import ( # noqa
     Array, ArrayTypes,
     path_from_getter,
     path_from_jax_keypath,

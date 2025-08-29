@@ -1,22 +1,25 @@
 import os
-from typing import Final, Optional
+from typing import Final, Mapping, Optional
 
 import pandas as pd
 import sqlalchemy
 
 from .mimic import CodedColumns, CodedTableResource, DatasetTablesResources, GroupedMultivariateTimeSeriesTableResource, \
     MixedICDTableResource_MIMICIV, MultivariateTimeSeriesTableResource, StaticTableResource_MIMICIV, TableResource
-from ..base import AbstractConfig
-from ..dataset import AdmissionsTableColumns, COLUMN, MultivariateTimeSeriesTableMeta, StaticTableColumns, TableColumns
 from .._literals import NumericalTypeHint
+from ..base import AbstractConfig
+from ..dataset import AdmissionIntervalEventsTableColumns, AdmissionIntervalRatesTableColumns, AdmissionsTableColumns, \
+    COLUMN, MultivariateTimeSeriesTableMeta, StaticTableColumns, TableColumns
 from ..utils import resources_path
 
 
 class SQLTableInterface(AbstractConfig):
     # resource file.
     query_template: Optional[str]
+    substitutes: Mapping[str, str]
 
-    def __init__(self, query_template: Optional[str]):
+    def __init__(self, query_template: Optional[str], substitutes: Optional[dict[str, str]] = None):
+        self.substitutes = substitutes or {}
         self.query_template = query_template
 
     @property
@@ -25,7 +28,8 @@ class SQLTableInterface(AbstractConfig):
         return open(resources_path(self.query_template), "r").read()
 
     def load_standard_columns_table(self, engine: sqlalchemy.Engine):
-        query = self.query.format(**COLUMN.as_dict())
+        sub = COLUMN.as_dict() | dict(self.substitutes)
+        query = self.query.format(**sub)
         return pd.read_sql(query, engine, coerce_float=False)
 
 
@@ -34,8 +38,9 @@ class SQLCodedTableInterface(SQLTableInterface):
     space_query_template: Optional[str]
 
     def __init__(self, query_template: Optional[str] = None,
-                 space_query_template: Optional[str] = None):
-        super().__init__(query_template=query_template)
+                 space_query_template: Optional[str] = None,
+                 substitutes: Optional[dict[str, str]] = None):
+        super().__init__(query_template=query_template, substitutes=substitutes)
         self.space_query_template = space_query_template
 
     @property
@@ -154,7 +159,8 @@ class SQLMultivariateTimeSeriesResource(MultivariateTimeSeriesTableResource):
         super().__init__(MultivariateTimeSeriesTableMeta(name=name, attributes=attributes,
                                                          type_hint=type_hint,
                                                          default_type_hint=default_type_hint))
-        self.sql_interface = SQLCodedTableInterface(query_template=query_template)
+        self.sql_interface = SQLCodedTableInterface(query_template=query_template,
+                                                    substitutes=dict(attributes=', '.join(attributes)))
 
     def load_standard_columns_table(self, engine: sqlalchemy.Engine, *args, **kwargs) -> pd.DataFrame:
         return self.sql_interface.load_standard_columns_table(engine)
@@ -300,10 +306,12 @@ OBS_COMPONENTS = (
 )
 OBS_TABLE_CONFIG = SQLGroupedMultivariateTimeSeriesTableResource(groups=OBS_COMPONENTS)
 
-ICU_INPUTS_CONF = SQLCodedTableInterface(query_template="mimiciv/sql/icu_inputs.tsql",
-                                         space_query_template="mimiciv/sql/icu_inputs_space.tsql")
-ICU_PROCEDURES_CONF = SQLCodedTableInterface(query_template="mimiciv/sql/icu_procedures.tsql",
-                                             space_query_template="mimiciv/sql/icu_procedures_space.tsql")
+ICU_INPUTS_CONF = SQLCodedTableResource(query_template="mimiciv/sql/icu_inputs.tsql",
+                                        space_query_template="mimiciv/sql/icu_inputs_space.tsql",
+                                        columns=AdmissionIntervalRatesTableColumns())
+ICU_PROCEDURES_CONF = SQLCodedTableResource(query_template="mimiciv/sql/icu_procedures.tsql",
+                                            space_query_template="mimiciv/sql/icu_procedures_space.tsql",
+                                            columns=AdmissionIntervalEventsTableColumns())
 HOSP_PROCEDURES_CONF = SQLMixedICDTableResource(
     query_template="mimiciv/sql/hosp_procedures.tsql", space_query_template="mimiciv/sql/hosp_procedures_space.tsql")
 
@@ -357,4 +365,4 @@ class SQLMIMICTablesResources(DatasetTablesResources):
 
     @staticmethod
     def url_from_credentials(user: str, password: str, host: str, port: str, dbname: str) -> str:
-        return f'postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}'
+        return f'postgresql+psycopg://{user}:{password}@{host}:{port}/{dbname}'

@@ -562,14 +562,17 @@ class DatasetConfig(AbstractConfig):
     columns: DatasetColumns
     select_subjects_with_observation: Optional[str]
     select_subjects_with_short_admissions: Optional[float]  # number of days.
+    admission_minimum_los: Optional[float]
 
     def __init__(self, scheme: DatasetSchemeConfig, columns: DatasetColumns = DatasetColumns(),
                  select_subjects_with_observation: Optional[str] = None,
-                 select_subjects_with_short_admissions: Optional[float] = None):
+                 select_subjects_with_short_admissions: Optional[float] = None,
+                 admission_minimum_los: Optional[float] = None):
         self.scheme = scheme
         self.columns = columns
         self.select_subjects_with_observation = select_subjects_with_observation
         self.select_subjects_with_short_admissions = select_subjects_with_short_admissions
+        self.admission_minimum_los = admission_minimum_los
 
 
 class Dataset(AbstractProcessedDataset):

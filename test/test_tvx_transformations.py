@@ -1,4 +1,3 @@
-from statistics import median
 from typing import Any, Callable
 
 import equinox as eqx
@@ -630,27 +629,6 @@ class TestLeadExtraction:
             lazy_loaded = lazy_loaded.fetch_subjects(split)
             for subject_id in split:
                 assert lazy_loaded.subjects[subject_id].equals(tvx_ehr_lead.subjects[subject_id])
-
-
-class TestExcludeShortAdmissions:
-    @pytest.fixture(scope='class')
-    def tvx_ehr_concept(self, tvx_ehr: rx.TVxEHR):
-        tvx_ehr = eqx.tree_at(lambda x: x.config.interventions, tvx_ehr, False)
-        tvx_ehr = eqx.tree_at(lambda x: x.config.observables, tvx_ehr, False)
-        los_median = median((d[1] - d[0]).total_seconds() / 3600 for d in tvx_ehr.admission_dates.values())
-        tvx_ehr = eqx.tree_at(lambda x: x.config.admission_minimum_los, tvx_ehr, los_median,
-                              is_leaf=lambda x: x is None)
-        return tvx_ehr._execute_pipeline([rx.TVxConcepts()], DATASET_SCHEME_MANAGER)
-
-    @pytest.fixture(scope='class')
-    def tvx_ehr_filtered(self, tvx_ehr_concept: rx.TVxEHR) -> rx.TVxEHR:
-        return tvx_ehr_concept._execute_pipeline([rx.ExcludeShortAdmissions()], DATASET_SCHEME_MANAGER)
-
-    def test_filter(self, tvx_ehr_concept: rx.TVxEHR, tvx_ehr_filtered: rx.TVxEHR):
-        assert sum(len(s.admissions) for s in tvx_ehr_concept.subjects.values()) > sum(
-            len(s.admissions) for s in tvx_ehr_filtered.subjects.values())
-        assert all(adm.interval_hours >= tvx_ehr_concept.config.admission_minimum_los for s in
-                   tvx_ehr_filtered.subjects.values() for adm in s.admissions)
 
 #
 # class TestWideTVxEHR:

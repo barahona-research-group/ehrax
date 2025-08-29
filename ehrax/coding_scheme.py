@@ -315,14 +315,25 @@ class CodingSchemeWithUOM(CodingScheme):
         name, codes, desc = cls._init_args_from_table(name=name, table=table, c_code=c_code, c_desc=c_desc,
                                                       code_selection=code_selection)
         # TODO: test this method.
-        df = table.astype({c_code: str, c_normalization_factor: float}).drop_duplicates(c_code).set_index(c_code)
+        df = table.astype({c_code: str, c_normalization_factor: float})
+        df = df.assign(**{c_unit: df[c_unit].str.lower()})
+        df = df.drop_duplicates([c_code, c_unit]).set_index(c_code)
         df = df[df.index.isin(codes)]
         assert all(c in df.columns for c in (c_unit, c_normalization_factor)), "Some columns are missing."
         if c_universal_unit is not None and c_universal_unit in df.columns:
             uom_universal = df[c_universal_unit].to_dict()
         else:
-            # Choose one of the units with 1.0 as a normalization factor.
-            uom_universal = df[df[c_normalization_factor] == 1.0][c_unit].to_dict()
+            _u = df[c_unit].to_dict()
+            # 1. Choose one of the units with 1.0 as a normalization factor.
+            uom_universal_a = df[df[c_normalization_factor] == 1.0][c_unit].to_dict()
+            # 2. Or if there is only one unit per code.
+            uom_universal_b = {c: _u[c] for c, count in df.index.value_counts().to_dict().items() if count == 1}
+            # 3. If any item remains, choose a universal unit without any specific rule, e.g. what remains in _u.
+            uom_universal_c = {c: u for c, u in _u.items()
+                               if c not in (set(uom_universal_a.keys()) | set(uom_universal_b.keys()))}
+
+            uom_universal = uom_universal_a | uom_universal_b | uom_universal_c
+
         # Narrow down the codes to those who have at least one universal unit (the target unit to which all units are converted).
         df = df[df.index.isin(uom_universal.keys())]
         uom_data = {code: code_df.set_index(c_unit)[c_normalization_factor].to_dict() for code, code_df in
@@ -861,8 +872,17 @@ class CodeMap(AbstractVxData):
         return source_scheme.name, target_scheme.name, FrozenDict1N(mapping)
 
     @classmethod
-    def from_table(cls, *args, **kwargs):
-        return cls(*cls._init_args_from_table(*args, **kwargs))
+    def from_table(cls, source_scheme: CodingScheme,
+                   target_scheme: CodingScheme,
+                   c_source_code: str,
+                   c_target_code: str,
+                   table: pd.DataFrame, **kwargs):
+
+        return cls(*cls._init_args_from_table(source_scheme=source_scheme,
+                                              target_scheme=target_scheme,
+                                              c_source_code=c_source_code,
+                                              c_target_code=c_target_code,
+                                              map_table=table))
 
 
 class GroupingData(AbstractVxData):
@@ -912,8 +932,8 @@ class ReducedCodeMapN1(CodeMap):
                    target_scheme: CodingScheme,
                    c_source_code: str,
                    c_target_code: str,
-                   c_target_agg: str,
-                   table: pd.DataFrame) -> Self:
+                   table: pd.DataFrame, **kwargs) -> Self:
+        c_target_agg = kwargs['c_target_agg']
         source_name, target_name, map_data = cls._init_args_from_table(source_scheme=source_scheme,
                                                                        target_scheme=target_scheme,
                                                                        c_source_code=c_source_code,
