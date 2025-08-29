@@ -322,12 +322,16 @@ class CodingSchemeWithUOM(CodingScheme):
         if c_universal_unit is not None and c_universal_unit in df.columns:
             uom_universal = df[c_universal_unit].to_dict()
         else:
-            # Choose one of the units with 1.0 as a normalization factor.
-            uom_universal_a = df[df[c_normalization_factor] == 1.0][c_unit].to_dict()
-            # Or if there is only one unit per code.
             _u = df[c_unit].to_dict()
+            # 1. Choose one of the units with 1.0 as a normalization factor.
+            uom_universal_a = df[df[c_normalization_factor] == 1.0][c_unit].to_dict()
+            # 2. Or if there is only one unit per code.
             uom_universal_b = {c: _u[c] for c, count in df.index.value_counts().to_dict().items() if count == 1}
-            uom_universal = uom_universal_a | uom_universal_b
+            # 3. If any item remains, choose a universal unit without any specific rule, e.g. what remains in _u.
+            uom_universal_c = {c: u for c, u in _u.items()
+                               if c not in (set(uom_universal_a.keys()) | set(uom_universal_b.keys()))}
+
+            uom_universal = uom_universal_a | uom_universal_b | uom_universal_c
 
         # Narrow down the codes to those who have at least one universal unit (the target unit to which all units are converted).
         df = df[df.index.isin(uom_universal.keys())]
