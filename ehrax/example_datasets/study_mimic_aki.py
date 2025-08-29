@@ -36,7 +36,11 @@ def default_auxiliary_resources() -> MIMICDatasetAuxiliaryResources:
         icu_inputs_aggregation_column="aggregation")
 
 
-def dataset_schemes_config(scoped_names: ScopedSchemeNames) -> DatasetSchemeConfig:
+def default_scoped_names() -> ScopedSchemeNames:
+    return default_auxiliary_resources().scoped_names
+
+
+def default_dataset_schemes_config(scoped_names: ScopedSchemeNames) -> DatasetSchemeConfig:
     return DatasetSchemeConfig(ethnicity=scoped_names.ethnicity,
                                gender=scoped_names.gender,
                                dx_discharge=scoped_names.dx_discharge,
@@ -46,16 +50,16 @@ def dataset_schemes_config(scoped_names: ScopedSchemeNames) -> DatasetSchemeConf
                                icu_inputs=scoped_names.icu_inputs)
 
 
-def dataset_config(scoped_names: ScopedSchemeNames) -> DatasetConfig:
+def default_dataset_config(scoped_names: ScopedSchemeNames) -> DatasetConfig:
     return DatasetConfig(
-        scheme=dataset_schemes_config(scoped_names),
+        scheme=default_dataset_schemes_config(scoped_names),
         columns=DatasetColumns(),
         select_subjects_with_observation=OBSERVABLE_AKI_TARGET_CODE,
         admission_minimum_los=12.0 / 24.0  # 12 hours.
     )
 
 
-def dataset_pipeline() -> AbstractDatasetPipeline:
+def default_dataset_pipeline() -> AbstractDatasetPipeline:
     pipeline = [
         SetIndex(),
         SelectSubjectsWithObservation(),
@@ -72,7 +76,7 @@ def dataset_pipeline() -> AbstractDatasetPipeline:
     return AbstractDatasetPipeline(transformations=pipeline)
 
 
-def tvx_schemes_config(config: DatasetSchemeConfig, scoped_names: ScopedSchemeNames) -> TVxEHRSchemeConfig:
+def default_tvx_schemes_config(config: DatasetSchemeConfig, scoped_names: ScopedSchemeNames) -> TVxEHRSchemeConfig:
     names = scoped_names.mapped
     return TVxEHRSchemeConfig(
         gender=config.gender,
@@ -85,8 +89,8 @@ def tvx_schemes_config(config: DatasetSchemeConfig, scoped_names: ScopedSchemeNa
         outcome='icd9cm_v1')
 
 
-def tvx_ehr_config(scoped_names: ScopedSchemeNames) -> TVxEHRConfig:
-    scheme = tvx_schemes_config(dataset_schemes_config(scoped_names), scoped_names)
+def default_tvx_ehr_config(scoped_names: ScopedSchemeNames = default_scoped_names()) -> TVxEHRConfig:
+    scheme = default_tvx_schemes_config(default_dataset_schemes_config(scoped_names), scoped_names)
     return TVxEHRConfig(
         scheme=scheme,
         demographic=DemographicVectorConfig(age=True,
@@ -111,7 +115,7 @@ def tvx_ehr_config(scoped_names: ScopedSchemeNames) -> TVxEHRConfig:
     )
 
 
-def tvx_ehr_pipeline() -> AbstractTVxPipeline:
+def default_tvx_ehr_pipeline() -> AbstractTVxPipeline:
     pipeline = [
         SampleSubjects(),
         RandomSplits(),
@@ -130,7 +134,7 @@ def mimiciv_from_env_sql(dataset_tables_resources: SQLMIMICTablesResources = SQL
                          aux_resources: MIMICDatasetAuxiliaryResources = default_auxiliary_resources()) -> tuple[
     Dataset, CodingSchemesManager]:
     engine = sqlalchemy.create_engine(dataset_tables_resources.url())
-    return load_mimic(config=dataset_config(aux_resources.scoped_names),
+    return load_mimic(config=default_dataset_config(aux_resources.scoped_names),
                       tables=dataset_tables_resources,
                       aux=aux_resources,
                       data_connection=engine)
