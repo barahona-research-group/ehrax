@@ -19,7 +19,7 @@ def scheme(name: str, codes: list[str]) -> rx.CodingScheme:
 def scheme_with_uom(name: str, codes: list[str]) -> rx.CodingScheme:
     universal_unit = rx.FrozenDict11({c: random.choice(UOM) for c in codes})
     uom_normalization_factor = rx.FrozenDict1NM({
-        c: {u: 1.0 for u in random.sample(UOM, k=3)} for c in codes
+        c: {u.lower(): 1.0 for u in random.sample(UOM, k=3)} for c in codes
     })
     return rx.CodingSchemeWithUOM(name=name, codes=tuple(sorted(codes)), desc=rx.FrozenDict11(dict(zip(codes, codes))),
                                   uom_normalization_factor=uom_normalization_factor, universal_unit=universal_unit)

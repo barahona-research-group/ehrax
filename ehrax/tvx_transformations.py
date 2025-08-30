@@ -1,7 +1,6 @@
-import logging
 import random
 from abc import ABCMeta
-from typing import Any, Callable, Hashable, Optional
+from typing import Any, Callable, Hashable, Optional, Iterable
 
 import equinox as eqx
 import numpy as np
@@ -167,11 +166,8 @@ class ZScoreScaler(CodedValueScaler):
         return array * self.std.loc[code_index] + self.mean.loc[code_index]
 
     def _extract_stats(self, df: pd.DataFrame, c_code: str, c_value: str) -> dict[str, pd.Series]:
-        stat = df.groupby(c_code).apply(
-            lambda x: pd.Series({
-                'mu': x[c_value].mean(),
-                'sigma': x[c_value].std()
-            }))
+        stat = df.groupby(c_code)[[c_value]].apply(
+            lambda x: pd.Series({'mu': x[c_value].mean(), 'sigma': x[c_value].std()}))
         return dict(mean=stat['mu'], std=stat['sigma'])
 
 
@@ -216,10 +212,7 @@ class MaxScaler(CodedValueScaler):
         return array * self.max_val.loc[code_index]
 
     def _extract_stats(self, df: pd.DataFrame, c_code: str, c_value: str) -> dict[str, pd.Series]:
-        stat = df.groupby(c_code).apply(
-            lambda x: pd.Series({
-                'max': x[c_value].max()
-            }))
+        stat = df.groupby(c_code)[[c_value]].apply(lambda x: pd.Series({'max': x[c_value].max()}))
         return dict(max_val=stat['max'])
 
 
@@ -281,17 +274,10 @@ class AdaptiveScaler(CodedValueScaler):
         return np.where(min_val >= 0.0, minmax_unscaled, z_unscaled)
 
     def _extract_stats(self, df: pd.DataFrame, c_code: str, c_value: str) -> dict[str, pd.Series]:
-        stat = df.groupby(c_code).apply(
-            lambda x: pd.Series({
-                'mu': x[c_value].mean(),
-                'sigma': x[c_value].std(),
-                'min': x[c_value].min(),
-                'max': x[c_value].max()
-            }))
-        return dict(mean=stat['mu'],
-                    std=stat['sigma'],
-                    min_val=stat['min'],
-                    max_val=stat['max'])
+        stat = df.groupby(c_code)[[c_value]].apply(
+            lambda x: pd.Series(
+                {'mu': x[c_value].mean(), 'sigma': x[c_value].std(), 'min': x[c_value].min(), 'max': x[c_value].max()}))
+        return dict(mean=stat['mu'], std=stat['sigma'], min_val=stat['min'], max_val=stat['max'])
 
 
 class IQROutlierRemover(CodedValueProcessor):
@@ -320,18 +306,15 @@ class IQROutlierRemover(CodedValueProcessor):
 
     def _extract_stats(self, df: pd.DataFrame, c_code: str, c_value: str) -> dict[str, pd.Series]:
         outlier_q = np.array([self.config.outlier_q1, self.config.outlier_q2])
-        q = df.groupby(c_code).apply(lambda x: x[c_value].quantile(outlier_q))
+        q = df.groupby(c_code)[[c_value]].apply(lambda x: x[c_value].quantile(outlier_q))
 
         q.columns = ['q1', 'q2']
         q['iqr'] = q['q2'] - q['q1']
         q['out_q1'] = q['q1'] - self.config.outlier_iqr_scale * q['iqr']
         q['out_q2'] = q['q2'] + self.config.outlier_iqr_scale * q['iqr']
 
-        stat = df.groupby(c_code).apply(
-            lambda x: pd.Series({
-                'mu': x[c_value].mean(),
-                'sigma': x[c_value].std()
-            }))
+        stat = df.groupby(c_code)[[c_value]].apply(
+            lambda x: pd.Series({'mu': x[c_value].mean(), 'sigma': x[c_value].std()}))
 
         stat['out_z1'] = stat['mu'] - self.config.outlier_z1 * stat['sigma']
         stat['out_z2'] = stat['mu'] + self.config.outlier_z2 * stat['sigma']
@@ -643,29 +626,19 @@ class TVxConcepts(AbstractTransformation):
         c_admission_id = table_config.admission_id
         c_code = table_config.code
         c_rate = table_config.derived_normalized_amount_per_hour
-        c_start_time = table_config.start_time
-        c_end_time = table_config.end_time
+        c_start = table_config.start_time
+        c_end = table_config.end_time
 
         # Here we avoid deep copy, and we can still replace
         # a new column without affecting the original table.
         table = tvx_ehr.dataset.tables.icu_inputs.iloc[:, :]
         table[c_code] = table[c_code].map(tvx_ehr.dataset.scheme_proxy(schemes_context).icu_inputs.index)
         assert not table[c_code].isnull().any(), 'Some codes are not in the target scheme.'
-
-        def group_fun(x):
-            return pd.Series({
-                0: x[c_code].to_numpy(),
-                1: x[c_rate].to_numpy(),
-                2: x[c_start_time].to_numpy(),
-                3: x[c_end_time].to_numpy()
-            })
-
-        admission_icu_inputs = table.groupby(c_admission_id).apply(group_fun)
-        return {adm_id: InpatientInput(code_index=np.array(codes, dtype=np.int64),
-                                       rate=rates,
-                                       starttime=start,
-                                       endtime=end)
-                for adm_id, (codes, rates, start, end) in admission_icu_inputs.iterrows()}
+        return {adm_id: InpatientInput(code_index=np.array(x[c_code].to_numpy(), dtype=np.int64),
+                                       rate=x[c_rate].to_numpy(),
+                                       starttime=x[c_start].to_numpy(),
+                                       endtime=x[c_end].to_numpy())
+                for adm_id, x in table.groupby(c_admission_id)}
 
     @staticmethod
     def _procedures(schemes_context: CodingSchemesManager,
@@ -682,19 +655,11 @@ class TVxConcepts(AbstractTransformation):
         table[c_code] = table[c_code].map(target_index)
         assert not table[c_code].isnull().any(), 'Some codes are not in the target scheme.'
 
-        def group_fun(x):
-            return pd.Series({
-                0: x[c_code].to_numpy(),
-                1: x[c_start_time].to_numpy(),
-                2: x[c_end_time].to_numpy()
-            })
-
-        admission_procedures = table.groupby(c_admission_id).apply(group_fun)
-        return {adm_id: InpatientInput(code_index=np.array(codes, dtype=np.int64),
-                                       rate=np.ones_like(codes, dtype=bool),
-                                       starttime=start,
-                                       endtime=end)
-                for adm_id, (codes, start, end) in admission_procedures.iterrows()}
+        return {adm_id: InpatientInput(code_index=np.array(x[c_code].to_numpy(), dtype=np.int64),
+                                       rate=np.ones_like(x[c_code].to_numpy(), dtype=bool),
+                                       starttime=x[c_start_time].to_numpy(),
+                                       endtime=x[c_end_time].to_numpy())
+                for adm_id, x in table.groupby(c_admission_id)}
 
     @staticmethod
     def _hosp_procedures(tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager) -> dict[str, InpatientInput]:
@@ -749,52 +714,41 @@ class TVxConcepts(AbstractTransformation):
         c_timestamp = tvx_ehr.dataset.config.columns.obs.time
 
         obs_scheme = tvx_ehr.scheme_proxy(schemes_context).obs
-        # For dasking, we index by admission.
-        table = tvx_ehr.dataset.tables.obs.set_index(c_admission_id)
-        table[c_code] = table[c_code].map(obs_scheme.index)
+        table = tvx_ehr.dataset.tables.obs
+        table = table.assign(**{c_code: table[c_code].map(obs_scheme.index)})
         assert not table[c_code].isnull().any(), 'Some codes are not in the target scheme.'
         obs_dim = len(obs_scheme)
         tvx_concept_path = TVxReportAttributes.admission_attribute_prefix('observables',
                                                                           InpatientObservables)
 
-        def ret_put(a, *args):
-            np.put(a, *args)
-            return a
+        def time_values(index: np.ndarray, values: np.ndarray) -> np.ndarray:
+            value = np.zeros(obs_dim, dtype=np.float16)
+            np.put(value, index, values)
+            return value
 
-        def val_mask(x):
-            idx = x[c_code]
-            val = ret_put(np.zeros(obs_dim, dtype=np.float16), idx, x[c_value])
-            mask = ret_put(np.zeros(obs_dim, dtype=bool), idx, 1.0)
-            adm_id = x.index[0]
-            time = x[c_timestamp].iloc[0]
-            return pd.Series({0: adm_id, 1: time, 2: val, 3: mask})
+        def time_mask(index: np.ndarray) -> np.ndarray:
+            mask = np.zeros(obs_dim, dtype=bool)
+            np.put(mask, index, 1.0)
+            return mask
 
-        def gen_observation(val_mask: pd.DataFrame) -> InpatientObservables:
-            time = val_mask[1].to_numpy()
-            value = val_mask[2]
-            mask = val_mask[3]
-            mask = np.vstack(mask.values).reshape((len(time), obs_dim))
-            value = np.vstack(value.values).reshape((len(time), obs_dim))
-            return InpatientObservables(time=time, value=value, mask=mask)
+        def inpatient_obs_data(admission_df: pd.DataFrame) -> Iterable[tuple[float, np.ndarray, np.ndarray]]:
+            admission_df = admission_df.sort_values(c_timestamp)
+            for timestamp, time_df in admission_df.groupby(c_timestamp):
+                index = time_df[c_code].values
+                yield timestamp, time_values(index, admission_df[c_value].values), time_mask(index)
 
-        def partition_fun(part_df: pd.DataFrame) -> pd.Series:
-            g = part_df.groupby([c_admission_id, c_timestamp], sort=True, as_index=False)
-            return g.apply(val_mask).groupby(0).apply(gen_observation)
+        def make_inpatient_obs(admission_df: pd.DataFrame) -> InpatientObservables:
+            time, value, mask = zip(*inpatient_obs_data(admission_df))
+            return InpatientObservables(time=np.stack(time, axis=0),
+                                        value=np.stack(value, dtype=np.float16, axis=0),
+                                        mask=np.stack(mask, dtype=bool, axis=0))
 
-        # return these lines if we need dask as a dependency.
-        # logging.debug("obs: dasking")
-        # table = dd.from_pandas(table, npartitions=12, sort=True)
-        # logging.debug("obs: groupby")
-        # inpatient_observables_df = table.map_partitions(partition_fun, meta=(None, object))
-        # logging.debug("obs: undasking")
-        # inpatient_observables_df = inpatient_observables_df.compute()
-        inpatient_observables_df = partition_fun(table)
-        logging.debug("obs: extract")
-        assert len(inpatient_observables_df.index.tolist()) == len(set(inpatient_observables_df.index.tolist())), \
+        inpatient_observables = table.groupby(c_admission_id)[[c_timestamp, c_code, c_value]].apply(make_inpatient_obs)
+        assert len(inpatient_observables.index.tolist()) == len(set(inpatient_observables.index.tolist())), \
             "Duplicate admission ids in obs"
-        inpatient_observables = inpatient_observables_df.to_dict()
+        inpatient_observables = inpatient_observables.to_dict()
         empty_obs = InpatientObservables.empty(size=obs_dim,
-                                               time_dtype=tvx_ehr.dataset.tables.obs[c_timestamp].dtype,
+                                               time_dtype=next(iter(inpatient_observables.values())).time.dtype,
                                                value_dtype=np.float16,
                                                mask_dtype=bool)
         empty_obs_dict = {adm_id: empty_obs for adm_id in tvx_ehr.admission_ids if adm_id not in inpatient_observables}
@@ -862,4 +816,3 @@ class TVxConcepts(AbstractTransformation):
                             value_type='count', operation='extract_subjects',
                             after=len(subjects))
         return tvx_ehr, report
-
