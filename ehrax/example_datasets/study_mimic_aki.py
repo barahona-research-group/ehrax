@@ -1,7 +1,7 @@
 from typing import Final
 
 import sqlalchemy
-
+import equinox as eqx
 from .mimic import MIMICDatasetAuxiliaryResources, MIMICDatasetSchemeSuffixes, ScopedSchemeNames, load_mimic
 from .mimic_sql import SQLMIMICTablesResources
 from ..coding_scheme import CodingSchemesManager
@@ -115,6 +115,10 @@ def default_tvx_ehr_config(scoped_names: ScopedSchemeNames = default_scoped_name
         time_binning=None,
         interventions_segmentation=True,
     )
+
+def default_tb_tvx_ehr_config(scoped_names: ScopedSchemeNames = default_scoped_names()) -> TVxEHRConfig:
+    config = default_tvx_ehr_config(scoped_names)
+    return eqx.tree_at(lambda x: x.time_binning, config, 6.0, is_leaf=lambda x: x is None)
 
 
 def default_tvx_ehr_pipeline() -> AbstractTVxPipeline:
