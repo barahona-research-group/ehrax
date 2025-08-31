@@ -728,7 +728,7 @@ class TVxConcepts(AbstractTransformation):
 
         def time_mask(index: np.ndarray) -> np.ndarray:
             mask = np.zeros(obs_dim, dtype=bool)
-            np.put(mask, index, 1.0)
+            np.put(mask, index, True)
             return mask
 
         def inpatient_obs_data(admission_df: pd.DataFrame) -> Iterable[tuple[float, np.ndarray, np.ndarray]]:
