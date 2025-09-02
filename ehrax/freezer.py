@@ -74,8 +74,7 @@ class FrozenDict1NM(AbstractFrozenDict[str, AbstractFrozenDict[str, float]]):
 
     def to_dataframe(self) -> pd.DataFrame:
         return pd.DataFrame([(k1, k2, v) for k1, kv in self.data.items() for k2, v in kv.items()],
-                            columns=['key1', 'key2', 'value']).sort_values(['key1', 'key2', 'value']).reset_index(
-            drop=True)
+                            columns=['k1', 'k2', 'v']).sort_values(['k1', 'k2', 'v']).reset_index(drop=True)
 
     @classmethod
     def from_dataframe(cls, df: pd.DataFrame) -> Self:
