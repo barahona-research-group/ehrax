@@ -1,18 +1,7 @@
-
 # AI Assistant Coding Guidelines
-# --------------------------------
-#
-# (1)  The file contains high‑level rules that steer the behavior of the AI assistant
-#      in a Python project.  The content is intentionally concise – only the most
-#      critical instructions are kept here.  Whenever a rule is generic, an example
-#      or reference follows it so that the assistant never needs to guess the exact
-#      intent.
-#
-# (2)  The rules are grouped by section.  A short description precedes each section.
-#      The order of the sections is irrelevant for the assistant, but the sections
-#      themselves are numbered to help us locate items quickly.
-#
-# ==========================================================================
+
+1. The file contains high‑level rules that steer the behavior of the AI assistant in a Python project.  The content is intentionally concise – only the most critical instructions are kept here.  Whenever a rule is generic, an example or reference follows it so that the assistant never needs to guess the exact intent.
+2. The rules are grouped by section.  A short description precedes each section. The order of the sections is irrelevant for the assistant, but the sections themselves are numbered to help us locate items quickly.
 
 # Glossary
 
@@ -75,14 +64,14 @@ The files in `ehrax/*.py` go into five categories:
     <Returned value description>
 
     !!! Example
-        <example snippet>
+        <optional example snippet>
 
     !!! Example
-        <another example snippet>
+        <another optional example snippet>
 
     !!! Info
 
-        <supplementary information>
+        <optional supplementary information>
 
     """
 ```
