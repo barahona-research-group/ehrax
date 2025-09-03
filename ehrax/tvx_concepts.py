@@ -113,26 +113,39 @@ class InpatientObservables(AbstractVxData):
         return cls(time=time, value=value, mask=mask)
 
     @staticmethod
-    @functools.cache
-    def type_hint_aggregator() -> dict[NumericalTypeHint, Callable]:
-        """
-        Returns the type hint aggregator based on the type hints of the observables.
+    def _binary_agg(x: np.ndarray, m: np.ndarray) -> np.ndarray:
+        return np.any(x, axis=0, keepdims=True, where=m.reshape(-1, 1, 1)).astype(x.dtype)
 
-        Returns:
-            dict[NumericaltypeHint, Callable]: the type hint aggregator.
-        """
-        return {
-            'B': lambda x, m: np.any(x, axis=0, keepdims=True, where=m.reshape(-1, 1, 1)) * 1.0,
-            # 'O': lambda x, m: np.quantile(a=x[m], q=0.5, interpolation='higher', axis=0, keepdims=True),
-            'O': lambda x, m: np.max(x[m], axis=0, keepdims=True) * 1.0,
-            # Most frequent value (mode) for categorical.
-            'C': lambda x, m: scipy.stats.mode(x[m], axis=0, keepdims=True)[0],
-            'N': lambda x, m: np.mean(x, axis=0, keepdims=True, where=m.reshape(-1, 1, 1))
-        }
+    @staticmethod
+    def _ordinal_agg(x: jnp.ndarray, m: np.ndarray) -> np.ndarray:
+        return np.max(x[m], axis=0, keepdims=True).astype(x.dtype)
+
+    @staticmethod
+    def _categorical_agg(x: np.ndarray, m: np.ndarray) -> np.ndarray:
+        # Most frequent value (mode) for categorical.
+        return scipy.stats.mode(x[m], axis=0, keepdims=True)[0].astype(x.dtype)
+
+    @staticmethod
+    def _continuous_agg(x: np.ndarray, m: np.ndarray) -> np.ndarray:
+        return np.mean(x, axis=0, keepdims=True, where=m.reshape(-1, 1, 1)).astype(x.dtype)
+
+    @staticmethod
+    def agg(t: NumericalTypeHint, x: np.ndarray, m: np.ndarray) -> np.ndarray:
+        match t:
+            case 'B':
+                return InpatientObservables._binary_agg(x, m)
+            case 'O':
+                return InpatientObservables._ordinal_agg(x, m)
+            case 'C':
+                return InpatientObservables._categorical_agg(x, m)
+            case 'N':
+                return InpatientObservables._continuous_agg(x, m)
+            case _:
+                raise ValueError(f"Unrecognized aggregation type: {t}.")
 
     @staticmethod
     def _time_binning_aggregate(x: Array, mask: Array,
-                                type_hint: tuple[NumericalTypeHint, ...]) -> Array:
+                                types: tuple[NumericalTypeHint, ...]) -> Array:
         """
         Aggregates the values in a given array based on the type hint.
 
@@ -143,23 +156,22 @@ class InpatientObservables(AbstractVxData):
         Returns:
             Array: The aggregated array.
         """
-        _agg = InpatientObservables.type_hint_aggregator()
-        f = tuple(_agg[ti] for ti in type_hint)
-
         assert mask.dtype == bool
         assert x.ndim == 3 and mask.ndim == 2, f"Expected x to be 3D, mask to be 2D, got ({x.ndim}, {mask.ndim})"
         assert x.shape[:2] == mask.shape, f"Expected x.shape to be {mask.shape}, got {x.shape}"
-        assert x.shape[1] == len(type_hint), f"Expected x.shape[1] to be {len(type_hint)}, got {x.shape[1]}"
+        assert x.shape[1] == len(types), f"Expected x.shape[1] to be {len(types)}, got {x.shape[1]}"
 
-        dim_mask_sum = mask.sum(axis=0)
-        if dim_mask_sum.sum() == 0:
-            return np.ones((1,) + x.shape[1:]) + np.nan
+        dim_mask = mask.sum(axis=0).astype(mask.dtype)
+        if not dim_mask.any():
+            v = np.array([0] * np.prod(x.shape[1:]), dtype=x.dtype).reshape(1, *x.shape[1:])
+            return v, dim_mask
 
-        def _apply(xi: np.ndarray, mi: np.ndarray, i: int) -> np.ndarray:
-            if dim_mask_sum[i] == 0: return np.ones((1, 1, xi.shape[2])) + np.nan
-            return f[i](xi, mi)
+        def _apply(ti: NumericalTypeHint, xi: np.ndarray, mi: np.ndarray, i: int) -> np.ndarray:
+            if dim_mask[i] == 0: return np.array([xi.flatten()[0]], dtype=x.dtype).reshape(1, 1, *x.shape[2:])
+            return InpatientObservables.agg(ti, xi, mi)
 
-        return np.concatenate([_apply(x[:, (dim,), :], mask[:, dim], dim) for dim in range(x.shape[1])], axis=1)
+        v = np.concatenate([_apply(ti, x[:, (dim,), :], mask[:, dim], dim) for dim, ti in enumerate(types)], axis=1)
+        return v, dim_mask
 
     def time_binning(self, hours: float, type_hint: tuple[NumericalTypeHint, ...]) -> Self:
         """
@@ -188,15 +200,13 @@ class InpatientObservables(AbstractVxData):
         masks = []
         for ti, tf in zip(new_time[:-1], new_time[1:]):
             time_mask = (ti <= self.time) & (self.time < tf)
-            value = self._time_binning_aggregate(self.value[time_mask], self.mask[time_mask], type_hint)
-            mask = np.where(np.isnan(value).any(axis=2), False, True)
+            value, mask = self._time_binning_aggregate(self.value[time_mask], self.mask[time_mask], type_hint)
             values.append(value)
             masks.append(mask)
 
         values = np.concatenate(values, axis=0)
-        masks = np.concatenate(masks, axis=0)
-        values = np.where(np.broadcast_to(np.expand_dims(masks, 2), values.shape),
-                          values, np.zeros_like(values))
+        masks = np.stack(masks, axis=0)
+
         return type(self)(time=new_time[1:], value=values, mask=masks)
 
     @cached_property

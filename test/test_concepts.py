@@ -1,13 +1,11 @@
 from copy import deepcopy
-from typing import Callable
 from unittest import mock
 
+import ehrax as rx
 import equinox as eqx
 import numpy as np
 import pytest
 import tables as tb
-
-import ehrax as rx
 from common_setup import ADMISSION_CONCEPT_MAX_STAY_HOURS
 from ehrax.testing.common_setup import BINARY_OBSERVATION_CODE_INDEX, CATEGORICAL_OBSERVATION_CODE_INDEX, \
     NUMERIC_OBSERVATION_CODE_INDEX, ORDINAL_OBSERVATION_CODE_INDEX, SCHEMES, inpatient_binary_input, \
@@ -125,10 +123,8 @@ class TestInpatientObservables:
 
     @pytest.mark.parametrize("ntype", ['N', 'B', 'C', 'O'])
     def test_type_aggregator(self, ntype: rx.NumericalTypeHint):
-        aggregator = rx.InpatientObservables.type_hint_aggregator()
-        assert isinstance(aggregator, dict)
-        assert isinstance(aggregator[ntype], Callable)
-        assert np.size(aggregator[ntype](np.array([1, 2, 3]).reshape(-1, 1, 1), np.ones((3,), dtype=bool))) == 1
+        a = rx.InpatientObservables.agg(ntype, np.array([1, 2, 3]).reshape(-1, 1, 1), np.ones((3,), dtype=bool))
+        assert np.size(a) == 1
 
     # mask = (1, 0, 1)
     # @pytest.mark.serial_test
@@ -157,10 +153,10 @@ class TestInpatientObservables:
         time_mask = np.broadcast_to(np.array([1, 0, 1]).reshape(-1, 1).astype(bool), x.shape[:2])
         out = np.array([out]).reshape((1,) + x.shape[1:])
 
-        np.testing.assert_equal(rx.InpatientObservables._time_binning_aggregate(x, time_mask, ntype), out)
-        # if mask is all zeros, then the result is nan.
-        assert np.isnan(
-            rx.InpatientObservables._time_binning_aggregate(x, np.zeros_like(time_mask, dtype=bool), ntype)).all()
+        np.testing.assert_equal(rx.InpatientObservables._time_binning_aggregate(x, time_mask, ntype)[0], out)
+        # if the input mask is all zeros, then the resulting mask is all zeros:
+        v, m = rx.InpatientObservables._time_binning_aggregate(x, np.zeros_like(time_mask, dtype=bool), ntype)
+        assert all(m == 0)
 
         with pytest.raises(AssertionError):
             rx.InpatientObservables._time_binning_aggregate(x, time_mask.astype(int), ntype)
