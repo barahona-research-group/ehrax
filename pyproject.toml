@@ -40,3 +40,15 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Information Analysis"
 ]
 urls = {repository = "https://github.com/barahona-research-group/ehrax"}
+
+
+[project.optional-dependencies]
+docs = [
+  "mkdocs==1.6.1",
+  "mkdocs-material==9.6.7",
+  "mkdocstrings[python]==0.28.3",
+  "pymdown-extensions==10.14.3",
+  "mkdocs-git-revision-date-localized-plugin>=1.2.6",
+  "mkdocs-jupyter==0.24.8",
+  "jupyter>=1.0.0"
+]

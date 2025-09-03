@@ -1,0 +1,88 @@
+site_name: EHRAx
+site_description: Documentation for the EHRAx Python package
+site_url: https://example.com/ehrax
+repo_url: https://github.com/your-org/ehrax
+repo_name: your-org/ehrax
+edit_uri: edit/dev/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - toc.integrate
+    - content.code.copy
+    - content.tabs.link
+    - search.suggest
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - footnotes
+  - attr_list
+  - def_list
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.details
+  - pymdownx.inlinehilite
+  - pymdownx.magiclink
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.critic
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_if_no_docstring: true
+            members_order: source
+            inherited_members: true
+            filters:
+              - '!^_'
+  - git-revision-date-localized:
+      fallback_to_build_date: true
+  - mkdocs-jupyter:
+      execute: false
+      include_source: true
+
+nav:
+  - Home: index.md
+  - Why EHRAx: why-ehrax.md
+  - FAQ: faq.md
+  - Notebooks:
+      - Quality of ICD10→CCS Map: notebooks/quality_of_icd10_to_ccs_map.ipynb
+  - API Reference:
+      - Package overview: api.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/your-org/ehrax
+
+extra_css: []
+extra_javascript:
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
