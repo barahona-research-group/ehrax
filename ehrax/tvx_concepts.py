@@ -176,7 +176,7 @@ class InpatientObservables(AbstractVxData):
 
         def _apply(ti: NumericalTypeHint, xi: np.ndarray, mi: np.ndarray, i: int) -> np.ndarray:
             if dim_mask[i] == 0:
-                return np.array([xi.flatten()[0]], dtype=x.dtype).reshape(1, 1, *x.shape[2:])
+                return np.array([0], dtype=x.dtype).reshape(1, 1, *x.shape[2:])
             return InpatientObservables.agg(ti, xi, mi)
 
         v = np.concatenate([_apply(ti, x[:, (dim,), :], mask[:, dim], dim) for dim, ti in enumerate(types)], axis=1)

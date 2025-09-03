@@ -534,7 +534,7 @@ class TestInterventionSegmentation:
             if a0.interventions.icu_inputs is None:
                 raise pytest.skip("No icu inputs in admission.")
             assert a0.interventions.icu_inputs is not None
-            a1 = eqx.tree_at(lambda x: x.interventions.icu_inputs.rate, a0, a0.interventions.icu_inputs.rate + 0.1)
+            a1 = eqx.tree_at(lambda x: x.interventions.icu_inputs, a0, a0.interventions.icu_inputs + 0.1)
         else:
             raise ValueError(f"Invalid param: {request.param}")
 

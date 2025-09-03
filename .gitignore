@@ -12,3 +12,4 @@ icenode-env/**
 .cursorignore
 .cursor/
 .voidrules
+site
