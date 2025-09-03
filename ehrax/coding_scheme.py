@@ -267,13 +267,13 @@ class NumericScheme(CodingScheme):
             f"The set of type hints ({self.type_hint.values()}) contains invalid values."
 
     @cached_property
-    def type_array(self) -> Array:
+    def types(self) -> tuple[NumericalTypeHint, ...]:
         """
         Returns the type hint of the codes in the scheme as a numpy array.
         """
         assert set(self.index[c] for c in self.codes) == set(range(len(self))), \
             f"The order of codes ({self.codes}) does not match the order of type hints ({self.type_hint.keys()})."
-        return np.array([self.type_hint[code] for code in self.codes])
+        return tuple(self.type_hint[code] for code in self.codes)
 
     @cached_property
     def index2group(self) -> dict[int, str]:
@@ -285,7 +285,7 @@ class NumericScheme(CodingScheme):
             {
                 "code": self.index2code,
                 "desc": self.index2desc,
-                "type": self.type_array,
+                "type": self.types,
                 "group": self.index2group
             },
             index=index,

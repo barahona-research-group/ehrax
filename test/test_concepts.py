@@ -147,7 +147,7 @@ class TestInpatientObservables:
                                                         [[2.0, 4.0], [4.0, 0.0], [5.0, 1.0]],
                                                         [[6.0, 1.0], [7.0, 0.0], [8.0, 0.0]]]), ('N', 'N', 'N'),
                                               np.array([[3.5, 0.5], [4.5, 0.5], [5.5, 0.0]]))])
-    def test_time_binning_aggregate(self, x, ntype, out):
+    def test_time_binning_aggregate(self, x, ntype: tuple[rx.NumericalTypeHint, ...], out):
 
         if x.ndim == 1:
             x = x.reshape(-1, 1, 1)
@@ -155,7 +155,6 @@ class TestInpatientObservables:
             x = x.reshape(x.shape + (1,))
 
         time_mask = np.broadcast_to(np.array([1, 0, 1]).reshape(-1, 1).astype(bool), x.shape[:2])
-        ntype = np.array(ntype)
         out = np.array([out]).reshape((1,) + x.shape[1:])
 
         np.testing.assert_equal(rx.InpatientObservables._time_binning_aggregate(x, time_mask, ntype), out)
@@ -175,7 +174,7 @@ class TestInpatientObservables:
         if len(inpatient_observables) == 0:
             raise pytest.skip("No observations to test")
 
-        binned = inpatient_observables.time_binning(hours, SCHEMES['obs'].type_array)
+        binned = inpatient_observables.time_binning(hours, SCHEMES['obs'].types)
         assert np.all(binned.time % hours == 0.0)
         assert sorted(binned.time) == binned.time.tolist()
 
@@ -186,7 +185,7 @@ class TestInpatientObservables:
             # NUMERIC_OBSERVATION_CODE_INDEX is aggregated with mean.
             val[i:, NUMERIC_OBSERVATION_CODE_INDEX] = np.inf
             obs = eqx.tree_at(lambda x: x.value, inpatient_observables, val)
-            binned = obs.time_binning(hours, SCHEMES['obs'].type_array)
+            binned = obs.time_binning(hours, SCHEMES['obs'].types)
             assert np.all(binned.value[binned.time < ti] < np.inf)
 
             mask = inpatient_observables.mask.copy()

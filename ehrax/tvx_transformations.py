@@ -1,6 +1,6 @@
 import random
 from abc import ABCMeta
-from typing import Any, Callable, Hashable, Optional, Iterable
+from typing import Any, Callable, Hashable, Iterable, Optional
 
 import equinox as eqx
 import numpy as np
@@ -457,7 +457,7 @@ class ObsTimeBinning(AbstractTransformation):
         tvx_concept_path = TVxReportAttributes.admission_attribute_prefix('observables',
                                                                           InpatientObservables)
         tvx_binned_ehr = eqx.tree_at(lambda x: x.subjects, tvx_ehr,
-                                     {subject_id: subject.observables_time_binning(interval, obs_scheme)
+                                     {subject_id: subject.observables_time_binning(interval, obs_scheme.types)
                                       for subject_id, subject in tvx_ehr.subjects.items()})
 
         report = report.add(tvx_concept=tvx_concept_path,
@@ -483,12 +483,11 @@ class LeadingObservableExtraction(AbstractTransformation):
     @classmethod
     def apply(cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport) -> tuple[
         TVxEHR, TVxReport]:
-        extractor = LeadingObservableExtractor(tvx_ehr.config.leading_observable,
-                                               observable_scheme=tvx_ehr.dataset.scheme_proxy(schemes_context).obs)
-
         if tvx_ehr.config.leading_observable is None:
             return cls.skip(tvx_ehr, report, reason='config.leading_observable is None')
 
+        extractor = LeadingObservableExtractor(tvx_ehr.config.leading_observable,
+                                               observable_scheme=tvx_ehr.dataset.scheme_proxy(schemes_context).obs)
         tvx_concept_path = TVxReportAttributes.admission_attribute_prefix('leading_observables',
                                                                           InpatientObservables)
         tvx_ehr = eqx.tree_at(lambda x: x.subjects, tvx_ehr,

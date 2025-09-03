@@ -132,7 +132,7 @@ class InpatientObservables(AbstractVxData):
 
     @staticmethod
     def _time_binning_aggregate(x: Array, mask: Array,
-                                type_hint: Array) -> Array:
+                                type_hint: tuple[NumericalTypeHint, ...]) -> Array:
         """
         Aggregates the values in a given array based on the type hint.
 
@@ -143,7 +143,9 @@ class InpatientObservables(AbstractVxData):
         Returns:
             Array: The aggregated array.
         """
-        type_hint_aggregator = InpatientObservables.type_hint_aggregator()
+        _agg = InpatientObservables.type_hint_aggregator()
+        f = tuple(_agg[ti] for ti in type_hint)
+
         assert mask.dtype == bool
         assert x.ndim == 3 and mask.ndim == 2, f"Expected x to be 3D, mask to be 2D, got ({x.ndim}, {mask.ndim})"
         assert x.shape[:2] == mask.shape, f"Expected x.shape to be {mask.shape}, got {x.shape}"
@@ -152,11 +154,14 @@ class InpatientObservables(AbstractVxData):
         dim_mask_sum = mask.sum(axis=0)
         if dim_mask_sum.sum() == 0:
             return np.ones((1,) + x.shape[1:]) + np.nan
-        safe_apply = lambda f, x, m, d: f(x, m) if dim_mask_sum[d] != 0 else np.ones((1, 1, x.shape[2])) + np.nan
-        return np.concatenate([safe_apply(type_hint_aggregator[obs_type], x[:, (dim,), :], mask[:, dim], dim)
-                               for dim, obs_type in enumerate(type_hint)], axis=1)
 
-    def time_binning(self, hours: float, type_hint: Array) -> Self:
+        def _apply(xi: np.ndarray, mi: np.ndarray, i: int) -> np.ndarray:
+            if dim_mask_sum[i] == 0: return np.ones((1, 1, xi.shape[2])) + np.nan
+            return f[i](xi, mi)
+
+        return np.concatenate([_apply(x[:, (dim,), :], mask[:, dim], dim) for dim in range(x.shape[1])], axis=1)
+
+    def time_binning(self, hours: float, type_hint: tuple[NumericalTypeHint, ...]) -> Self:
         """
         Bin the time-series into time-windows of length `hours`.
         The values are aggregated in each window and assigned to the
@@ -869,7 +874,7 @@ class Admission(AbstractVxData):
                           leading_observable=leading_observable,
                           interventions=self.interventions)
 
-    def observables_time_binning(self, interval: float, obs_scheme: NumericScheme) -> Self:
+    def observables_time_binning(self, interval: float, types: tuple[NumericalTypeHint, ...]) -> Self:
         """
         Bins the observables data into time intervals of the specified length.
 
@@ -882,7 +887,7 @@ class Admission(AbstractVxData):
 
         """
         assert self.observables is not None, "Observables must be provided to bin the time series."
-        observables = self.observables.time_binning(interval, obs_scheme.type_array)
+        observables = self.observables.time_binning(interval, types)
         return type(self)(admission_id=self.admission_id,
                           admission_dates=self.admission_dates,
                           dx_codes=self.dx_codes,
@@ -1174,7 +1179,7 @@ class Patient(AbstractVxData):
         return type(self)(subject_id=self.subject_id, static_info=self.static_info, admissions=admissions)
 
     def observables_time_binning(self, interval: float,
-                                 obs_scheme: NumericScheme) -> Self:
+                                 types: tuple[NumericalTypeHint, ...]) -> Self:
         """
         Bins the observables for all admissions.
 
@@ -1184,7 +1189,7 @@ class Patient(AbstractVxData):
         Returns:
             Patient: the patient data with the observables binned.
         """
-        admissions = [a.observables_time_binning(interval, obs_scheme) for a in self.admissions]
+        admissions = [a.observables_time_binning(interval, types) for a in self.admissions]
         return type(self)(subject_id=self.subject_id, static_info=self.static_info, admissions=admissions)
 
 

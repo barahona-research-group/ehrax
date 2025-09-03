@@ -405,7 +405,7 @@ class GroupedMultivariateTimeSeriesTableResource(CodedTableResource):
         if attributes_selection is None:
             attributes_selection = space_table
         else:
-            if 'type' not in attributes_selection.columns:
+            if 'type_hint' not in attributes_selection.columns:
                 attributes_selection = pd.merge(attributes_selection, space_table,
                                                 left_on=['group', 'attribute'],
                                                 right_on=['group', 'attribute'],
@@ -414,11 +414,11 @@ class GroupedMultivariateTimeSeriesTableResource(CodedTableResource):
 
         # format codes to be of the form 'group.attribute'
         df = attributes_selection.astype({'attribute': str, 'type_hint': str, 'group': str})
-        codes = tuple(sorted(df['group'] + '.' + df['attribute'].tolist()))
+        codes = tuple(df['group'] + '.' + df['attribute'].tolist())
         desc = FrozenDict11(dict(zip(codes, codes)))
         group = FrozenDict11(dict(zip(codes, df.index.astype(str).values)))
         type_hint = FrozenDict11(dict(zip(codes, df['type_hint'].tolist())))
-        scheme = NumericScheme(name=name, codes=codes, group=group, desc=desc, type_hint=type_hint)  # type: ignore
+        scheme = NumericScheme(name=name, codes=tuple(sorted(codes)), group=group, desc=desc, type_hint=type_hint) # noqa
         return CodingSchemesManager().add_scheme(scheme)
 
 
