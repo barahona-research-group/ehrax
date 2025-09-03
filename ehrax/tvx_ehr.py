@@ -1,7 +1,8 @@
 from abc import ABC, ABCMeta, abstractmethod
+from collections.abc import Iterable
 from functools import cached_property
 from types import MappingProxyType
-from typing import ClassVar, Iterable, Optional, Self
+from typing import ClassVar, Self
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -10,13 +11,32 @@ import numpy as np
 import pandas as pd
 
 from ._literals import SplitLiteral
-from .base import AbstractConfig, AbstractVxData, HDFVirtualNode, fetch_at
-from .coding_scheme import CodeMap, CodesVector, CodingSchemesManager, GroupingData, FilterOutcomeMap, ReducedCodeMapN1
-from .dataset import AbstractDatasetPipeline, AbstractProcessedDataset, AbstractTransformation, COLUMN, Dataset, \
-    DatasetSchemeConfig, DatasetSchemeProxy, PipelineReportTable, Report, ReportAttributes
-from .tvx_concepts import (Admission, AdmissionDates, DemographicVectorConfig, InpatientInput, InpatientInterventions,
-                           InpatientObservables, LeadingObservableExtractorConfig, Patient, SegmentedPatient,
-                           StaticInfo)
+from .base import AbstractConfig, AbstractVxData, fetch_at, HDFVirtualNode
+from .coding_scheme import CodeMap, CodesVector, CodingSchemesManager, FilterOutcomeMap, GroupingData, ReducedCodeMapN1
+from .dataset import (
+    AbstractDatasetPipeline,
+    AbstractProcessedDataset,
+    AbstractTransformation,
+    COLUMN,
+    Dataset,
+    DatasetSchemeConfig,
+    DatasetSchemeProxy,
+    PipelineReportTable,
+    Report,
+    ReportAttributes,
+)
+from .tvx_concepts import (
+    Admission,
+    AdmissionDates,
+    DemographicVectorConfig,
+    InpatientInput,
+    InpatientInterventions,
+    InpatientObservables,
+    LeadingObservableExtractorConfig,
+    Patient,
+    SegmentedPatient,
+    StaticInfo,
+)
 from .utils import Array
 
 
@@ -33,8 +53,13 @@ class TVxEHRSplitsConfig(AbstractConfig):
     balance: SplitLiteral
     discount_first_admission: bool
 
-    def __init__(self, split_quantiles: list[float], seed: int = 0, balance: SplitLiteral = 'subjects',
-                 discount_first_admission: bool = False):
+    def __init__(
+        self,
+        split_quantiles: list[float],
+        seed: int = 0,
+        balance: SplitLiteral = "subjects",
+        discount_first_admission: bool = False,
+    ):
         self.split_quantiles = split_quantiles
         self.seed = seed
         self.balance = balance
@@ -59,11 +84,14 @@ class IQROutlierRemoverConfig(AbstractConfig):
     outlier_z1: float
     outlier_z2: float
 
-    def __init__(self, outlier_q1: float = 0.25,
-                 outlier_q2: float = 0.75,
-                 outlier_iqr_scale: float = 1.5,
-                 outlier_z1: float = -2.5,
-                 outlier_z2: float = 2.5):
+    def __init__(
+        self,
+        outlier_q1: float = 0.25,
+        outlier_q2: float = 0.75,
+        outlier_iqr_scale: float = 1.5,
+        outlier_z1: float = -2.5,
+        outlier_z2: float = 2.5,
+    ):
         self.outlier_q1 = outlier_q1
         self.outlier_q2 = outlier_q2
         self.outlier_iqr_scale = outlier_iqr_scale
@@ -72,40 +100,51 @@ class IQROutlierRemoverConfig(AbstractConfig):
 
 
 class OutlierRemoversConfig(AbstractConfig):
-    obs: Optional[IQROutlierRemoverConfig]
+    obs: IQROutlierRemoverConfig | None
 
     def __init__(self, obs: IQROutlierRemoverConfig = IQROutlierRemoverConfig()):
         self.obs = obs
 
 
 class ScalersConfig(AbstractConfig):
-    obs: Optional[ScalerConfig]
-    icu_inputs: Optional[ScalerConfig]
+    obs: ScalerConfig | None
+    icu_inputs: ScalerConfig | None
 
-    def __init__(self, obs: ScalerConfig = ScalerConfig(use_float16=True),
-                 icu_inputs: ScalerConfig = ScalerConfig(use_float16=True)):
+    def __init__(
+        self,
+        obs: ScalerConfig = ScalerConfig(use_float16=True),
+        icu_inputs: ScalerConfig = ScalerConfig(use_float16=True),
+    ):
         self.obs = obs
         self.icu_inputs = icu_inputs
 
 
 class DatasetNumericalProcessorsConfig(AbstractConfig):
-    scalers: Optional[ScalersConfig]
-    outlier_removers: Optional[OutlierRemoversConfig]
+    scalers: ScalersConfig | None
+    outlier_removers: OutlierRemoversConfig | None
 
-    def __init__(self, scalers: ScalersConfig = ScalersConfig(),
-                 outlier_removers: OutlierRemoversConfig = OutlierRemoversConfig()):
+    def __init__(
+        self,
+        scalers: ScalersConfig = ScalersConfig(),
+        outlier_removers: OutlierRemoversConfig = OutlierRemoversConfig(),
+    ):
         self.scalers = scalers
         self.outlier_removers = outlier_removers
 
 
 class CodedValueProcessor(AbstractVxData, ABC):
     config: ScalerConfig | IQROutlierRemoverConfig
-    table_name: Optional[str]
-    code_column: Optional[str]
-    value_column: Optional[str]
+    table_name: str | None
+    code_column: str | None
+    value_column: str | None
 
-    def __init__(self, config: ScalerConfig | IQROutlierRemoverConfig, table_name: Optional[str] = None,
-                 code_column: Optional[str] = None, value_column: Optional[str] = None):
+    def __init__(
+        self,
+        config: ScalerConfig | IQROutlierRemoverConfig,
+        table_name: str | None = None,
+        code_column: str | None = None,
+        value_column: str | None = None,
+    ):
         self.config = config
         self.table_name = table_name
         self.code_column = code_column
@@ -114,8 +153,9 @@ class CodedValueProcessor(AbstractVxData, ABC):
     def table_getter(self, dataset: Dataset) -> pd.DataFrame:
         return getattr(dataset.tables, self.table_name)
 
-    def fit(self, dataset: Dataset, admission_ids: list[str],
-            table_name: str, code_column: str, value_column: str) -> Self:
+    def fit(
+        self, dataset: Dataset, admission_ids: list[str], table_name: str, code_column: str, value_column: str
+    ) -> Self:
         df = getattr(dataset.tables, table_name)
         c_adm_id = getattr(dataset.config.columns, table_name).admission_id
         df = df[[code_column, value_column, c_adm_id]]
@@ -125,9 +165,8 @@ class CodedValueProcessor(AbstractVxData, ABC):
         for k, v in self._extract_stats(df, code_column, value_column).items():
             fitted = eqx.tree_at(lambda x: getattr(x, k), fitted, v)
 
-        for k, v in {'table_name': table_name, 'code_column': code_column, 'value_column': value_column}.items():
-            fitted = eqx.tree_at(lambda x: getattr(x, k), fitted, v,
-                                 is_leaf=lambda x: x is None)
+        for k, v in {"table_name": table_name, "code_column": code_column, "value_column": value_column}.items():
+            fitted = eqx.tree_at(lambda x: getattr(x, k), fitted, v, is_leaf=lambda x: x is None)
         return fitted
 
     @abstractmethod
@@ -144,7 +183,7 @@ class CodedValueProcessor(AbstractVxData, ABC):
 
     @property
     def processing_target(self) -> dict[str, str]:
-        return {'table_name': self.table_name, 'code_column': self.code_column, 'value_column': self.value_column}
+        return {"table_name": self.table_name, "code_column": self.code_column, "value_column": self.value_column}
 
 
 class CodedValueScaler(CodedValueProcessor, ABC):
@@ -174,9 +213,7 @@ def outcome_first_occurrence(sorted_admissions: list[Admission]) -> str:
     Returns:
         np.ndarray: an array containing the admission index of the first occurrence of each outcome for each admission. -1 means no occurrence.
     """
-    first_occurrence = np.empty_like(
-        sorted_admissions[0].outcome.vec,
-        dtype=type[sorted_admissions[0].admission_id])
+    first_occurrence = np.empty_like(sorted_admissions[0].outcome.vec, dtype=type[sorted_admissions[0].admission_id])
     first_occurrence[:] = -1
     for adm in sorted_admissions:
         update_mask = (first_occurrence < 0) & adm.outcome.vec
@@ -185,15 +222,15 @@ def outcome_first_occurrence(sorted_admissions: list[Admission]) -> str:
 
 
 class OutlierRemovers(AbstractVxData):
-    obs: Optional[CodedValueProcessor]
+    obs: CodedValueProcessor | None
 
     def __init__(self, obs: CodedValueProcessor = None):
         self.obs = obs
 
 
 class Scalers(AbstractVxData):
-    obs: Optional[CodedValueScaler]
-    icu_inputs: Optional[CodedValueScaler]
+    obs: CodedValueScaler | None
+    icu_inputs: CodedValueScaler | None
 
     def __init__(self, obs: CodedValueScaler = None, icu_inputs: CodedValueScaler = None):
         self.obs = obs
@@ -210,14 +247,28 @@ class DatasetNumericalProcessors(AbstractVxData):
 
 
 class TVxEHRSchemeConfig(DatasetSchemeConfig):
-    outcome: Optional[str] = None
+    outcome: str | None = None
 
-    def __init__(self, ethnicity: Optional[str] = None, gender: Optional[str] = None,
-                 dx_discharge: Optional[str] = None, obs: Optional[str] = None,
-                 icu_procedures: Optional[str] = None, hosp_procedures: Optional[str] = None,
-                 icu_inputs: Optional[str] = None, outcome: Optional[str] = None):
-        super().__init__(ethnicity=ethnicity, gender=gender, dx_discharge=dx_discharge, obs=obs,
-                         icu_procedures=icu_procedures, hosp_procedures=hosp_procedures, icu_inputs=icu_inputs)
+    def __init__(
+        self,
+        ethnicity: str | None = None,
+        gender: str | None = None,
+        dx_discharge: str | None = None,
+        obs: str | None = None,
+        icu_procedures: str | None = None,
+        hosp_procedures: str | None = None,
+        icu_inputs: str | None = None,
+        outcome: str | None = None,
+    ):
+        super().__init__(
+            ethnicity=ethnicity,
+            gender=gender,
+            dx_discharge=dx_discharge,
+            obs=obs,
+            icu_procedures=icu_procedures,
+            hosp_procedures=hosp_procedures,
+            icu_inputs=icu_inputs,
+        )
         self.outcome = outcome
 
 
@@ -228,9 +279,10 @@ class TVxEHRSchemeProxy(DatasetSchemeProxy):
         super().__init__(config=config, schemes_context=schemes_context)
 
     @cached_property
-    def outcome(self) -> Optional[FilterOutcomeMap]:
-        return self.schemes_context.outcome[
-            self.config.dx_discharge, self.config.outcome] if self.config.outcome else None
+    def outcome(self) -> FilterOutcomeMap | None:
+        return (
+            self.schemes_context.outcome[self.config.dx_discharge, self.config.outcome] if self.config.outcome else None
+        )
 
     @cached_property
     def outcome_size(self) -> int | None:
@@ -241,17 +293,20 @@ class TVxEHRSchemeProxy(DatasetSchemeProxy):
         return self.outcome.codemap
 
     @staticmethod
-    def validate_mapping(coding_scheme_manager: CodingSchemesManager, source: DatasetSchemeConfig,
-                         target: TVxEHRSchemeConfig):
+    def validate_mapping(
+        coding_scheme_manager: CodingSchemesManager, source: DatasetSchemeConfig, target: TVxEHRSchemeConfig
+    ):
         target_schemes = target.scheme_fields()
         for key, source_scheme in source.scheme_fields().items():
             target_scheme = target_schemes[key]
-            assert target_scheme is None or coding_scheme_manager.map[(source_scheme, target_scheme)] is not None, \
+            assert target_scheme is None or coding_scheme_manager.map[(source_scheme, target_scheme)] is not None, (
                 f"Cannot map {key} from {source_scheme} to {target_scheme}"
+            )
 
         if target.outcome is not None:
-            assert (coding_scheme_manager.supported_outcome(target.outcome, target.dx_discharge)
-                    ), f"Outcome {target.outcome} not supported for {target.dx_discharge}"
+            assert coding_scheme_manager.supported_outcome(target.outcome, target.dx_discharge), (
+                f"Outcome {target.outcome} not supported for {target.dx_discharge}"
+            )
 
     def demographic_vector_size(self, demographic_vector_config: DemographicVectorConfig):
         size = 0
@@ -263,41 +318,41 @@ class TVxEHRSchemeProxy(DatasetSchemeProxy):
             size += len(self.ethnicity)
         return size
 
-    def mapper(self, source_scheme_config: DatasetSchemeConfig, key: str) -> Optional[CodeMap]:
+    def mapper(self, source_scheme_config: DatasetSchemeConfig, key: str) -> CodeMap | None:
         pair = (getattr(source_scheme_config, key), getattr(self, key).name)
         return self.schemes_context.map[pair] if pair in self.schemes_context.map else None
 
-    def dx_mapper(self, source_scheme_config: DatasetSchemeConfig) -> Optional[CodeMap]:
-        return self.mapper(source_scheme_config, 'dx_discharge')
+    def dx_mapper(self, source_scheme_config: DatasetSchemeConfig) -> CodeMap | None:
+        return self.mapper(source_scheme_config, "dx_discharge")
 
-    def ethnicity_mapper(self, source_scheme_config: DatasetSchemeConfig) -> Optional[CodeMap]:
-        return self.mapper(source_scheme_config, 'ethnicity')
+    def ethnicity_mapper(self, source_scheme_config: DatasetSchemeConfig) -> CodeMap | None:
+        return self.mapper(source_scheme_config, "ethnicity")
 
-    def gender_mapper(self, source_scheme_config: DatasetSchemeConfig) -> Optional[CodeMap]:
-        return self.mapper(source_scheme_config, 'gender')
+    def gender_mapper(self, source_scheme_config: DatasetSchemeConfig) -> CodeMap | None:
+        return self.mapper(source_scheme_config, "gender")
 
-    def icu_procedures_mapper(self, source_scheme_config: DatasetSchemeConfig) -> Optional[CodeMap]:
-        return self.mapper(source_scheme_config, 'icu_procedures')
+    def icu_procedures_mapper(self, source_scheme_config: DatasetSchemeConfig) -> CodeMap | None:
+        return self.mapper(source_scheme_config, "icu_procedures")
 
-    def hosp_procedures_mapper(self, source_scheme_config: DatasetSchemeConfig) -> Optional[CodeMap]:
-        return self.mapper(source_scheme_config, 'hosp_procedures')
+    def hosp_procedures_mapper(self, source_scheme_config: DatasetSchemeConfig) -> CodeMap | None:
+        return self.mapper(source_scheme_config, "hosp_procedures")
 
-    def icu_inputs_mapper(self, source_scheme_config: DatasetSchemeConfig) -> Optional[ReducedCodeMapN1]:
-        return self.mapper(source_scheme_config, 'icu_inputs')
+    def icu_inputs_mapper(self, source_scheme_config: DatasetSchemeConfig) -> ReducedCodeMapN1 | None:
+        return self.mapper(source_scheme_config, "icu_inputs")
 
-    def icu_inputs_grouping(self, source_scheme_config: DatasetSchemeConfig) -> Optional[GroupingData]:
+    def icu_inputs_grouping(self, source_scheme_config: DatasetSchemeConfig) -> GroupingData | None:
         mapper = self.icu_inputs_mapper(source_scheme_config)
         return mapper.grouping_data(self.schemes_context.scheme[source_scheme_config.icu_inputs].index)
 
     @staticmethod
-    def check_target_scheme_support(scheme_manager: CodingSchemesManager, dataset_scheme: DatasetSchemeProxy) -> dict[
-        str, tuple[str, ...]]:
+    def check_target_scheme_support(
+        scheme_manager: CodingSchemesManager, dataset_scheme: DatasetSchemeProxy
+    ) -> dict[str, tuple[str, ...]]:
         supported_attr_targets = {
-            k: scheme_manager.scheme_supported_targets(v)
-            for k, v in dataset_scheme.scheme_dict.items()
+            k: scheme_manager.scheme_supported_targets(v) for k, v in dataset_scheme.scheme_dict.items()
         }
         supported_outcomes = scheme_manager.supported_outcomes(dataset_scheme.dx_discharge.name)
-        return supported_attr_targets | {'outcome': supported_outcomes}
+        return supported_attr_targets | {"outcome": supported_outcomes}
 
 
 class TVxEHRConfig(AbstractConfig):
@@ -310,24 +365,31 @@ class TVxEHRConfig(AbstractConfig):
         scheme (dict[str, str]): dictionary representing the scheme.
         time_binning (Optional[int]): time binning configuration to aggregate observables/measurements over intervals (optional).
     """
+
     scheme: TVxEHRSchemeConfig
     demographic: DemographicVectorConfig
-    sample: Optional[TVxEHRSampleConfig]
-    splits: Optional[TVxEHRSplitsConfig]
+    sample: TVxEHRSampleConfig | None
+    splits: TVxEHRSplitsConfig | None
     numerical_processors: DatasetNumericalProcessorsConfig
     interventions: bool
     observables: bool
-    time_binning: Optional[float]
-    leading_observable: Optional[LeadingObservableExtractorConfig]
+    time_binning: float | None
+    leading_observable: LeadingObservableExtractorConfig | None
     interventions_segmentation: bool
 
-    def __init__(self, scheme: TVxEHRSchemeConfig, demographic: DemographicVectorConfig,
-                 sample: Optional[TVxEHRSampleConfig] = None, splits: Optional[TVxEHRSplitsConfig] = None,
-                 numerical_processors: DatasetNumericalProcessorsConfig = DatasetNumericalProcessorsConfig(),
-                 interventions: bool = False, observables: bool = False,
-                 time_binning: Optional[float] = None,
-                 leading_observable: Optional[LeadingObservableExtractorConfig] = None,
-                 interventions_segmentation: bool = False):
+    def __init__(
+        self,
+        scheme: TVxEHRSchemeConfig,
+        demographic: DemographicVectorConfig,
+        sample: TVxEHRSampleConfig | None = None,
+        splits: TVxEHRSplitsConfig | None = None,
+        numerical_processors: DatasetNumericalProcessorsConfig = DatasetNumericalProcessorsConfig(),
+        interventions: bool = False,
+        observables: bool = False,
+        time_binning: float | None = None,
+        leading_observable: LeadingObservableExtractorConfig | None = None,
+        interventions_segmentation: bool = False,
+    ):
         self.scheme = scheme
         self.demographic = demographic
         self.sample = sample
@@ -353,34 +415,34 @@ class TVxReportAttributes(ReportAttributes):
 
     @classmethod
     def subjects_prefix(cls) -> str:
-        return f'{cls.ehr_prefix()}.dict[str, {cls._t(Patient)}]'
+        return f"{cls.ehr_prefix()}.dict[str, {cls._t(Patient)}]"
 
     @classmethod
     def subject_prefix(cls) -> str:
-        return f'{cls.subjects_prefix()}[i]'
+        return f"{cls.subjects_prefix()}[i]"
 
     @classmethod
     def static_info_prefix(cls) -> str:
-        return f'{cls.subject_prefix()}.{cls._t(StaticInfo)}'
+        return f"{cls.subject_prefix()}.{cls._t(StaticInfo)}"
 
     @classmethod
     def admissions_prefix(cls) -> str:
-        return f'{cls.subject_prefix()}.list[{cls._t(Admission)}]'
+        return f"{cls.subject_prefix()}.list[{cls._t(Admission)}]"
 
     @classmethod
     def inpatient_input_prefix(cls, attribute) -> str:
-        return f'{cls.admissions_prefix()}[j].{cls._t(InpatientInterventions)}.{attribute}({cls._t(InpatientInput)})'
+        return f"{cls.admissions_prefix()}[j].{cls._t(InpatientInterventions)}.{attribute}({cls._t(InpatientInput)})"
 
     @classmethod
     def admission_attribute_prefix(cls, attribute: str, attribute_type: str | type) -> str:
         if isinstance(attribute_type, type):
             attribute_type = cls._t(attribute_type)
 
-        return f'{cls.admissions_prefix()}[j].{attribute}({attribute_type})'
+        return f"{cls.admissions_prefix()}[j].{attribute}({attribute_type})"
 
     @classmethod
     def admission_codes_attribute(cls, attribute) -> str:
-        return f'{cls.admission_attribute_prefix(attribute, CodesVector)}'
+        return f"{cls.admission_attribute_prefix(attribute, CodesVector)}"
 
 
 class TVxReport(Report):
@@ -433,15 +495,20 @@ class TVxEHR(AbstractProcessedDataset):
     config: TVxEHRConfig
     dataset: Dataset
     numerical_processors: DatasetNumericalProcessors
-    splits: Optional[_SplitsType]
-    subjects: Optional[MappingProxyType[str, Patient]]
+    splits: _SplitsType | None
+    subjects: MappingProxyType[str, Patient] | None
     patient_class: ClassVar[type[Patient]] = Patient
     report_class: ClassVar[type[TVxReport]] = TVxReport
 
-    def __init__(self, config: TVxEHRConfig, dataset: Dataset,
-                 numerical_processors: DatasetNumericalProcessors = DatasetNumericalProcessors(),
-                 splits: _SplitsType = None, subjects: dict[str, Patient] = None,
-                 pipeline_report: PipelineReportTable = PipelineReportTable()):
+    def __init__(
+        self,
+        config: TVxEHRConfig,
+        dataset: Dataset,
+        numerical_processors: DatasetNumericalProcessors = DatasetNumericalProcessors(),
+        splits: _SplitsType = None,
+        subjects: dict[str, Patient] = None,
+        pipeline_report: PipelineReportTable = PipelineReportTable(),
+    ):
         self.config = config
         self.dataset = dataset
         self.numerical_processors = numerical_processors
@@ -454,7 +521,7 @@ class TVxEHR(AbstractProcessedDataset):
         """Get the list of subject IDs."""
         return tuple(sorted(self.subjects.keys())) if self.subjects is not None else ()
 
-    def fetch_subjects(self, subject_ids: Optional[tuple[str, ...]] = None) -> Self:
+    def fetch_subjects(self, subject_ids: tuple[str, ...] | None = None) -> Self:
         if subject_ids is None:
             subject_ids = self.subject_ids
         # generating lambdas inside generators can lead to unexpected behaviour, e.g. all lambdas can be bounded
@@ -462,7 +529,7 @@ class TVxEHR(AbstractProcessedDataset):
         # https://stackoverflow.com/a/452660
         return fetch_at(tuple(map(lambda k: lambda x: x.subjects[k], subject_ids)), self)
 
-    def try_fetch_subjects(self, subject_ids: Optional[tuple[str, ...]] = None) -> Self:
+    def try_fetch_subjects(self, subject_ids: tuple[str, ...] | None = None) -> Self:
         if subject_ids is None:
             subject_ids = self.subject_ids
 
@@ -476,22 +543,22 @@ class TVxEHR(AbstractProcessedDataset):
         TVxEHRSchemeProxy.validate_mapping(schemes_context, self.dataset.config.scheme, self.config.scheme)
         return scheme
 
-    def gender_mapper(self, schemes_proxy: TVxEHRSchemeProxy) -> Optional[CodeMap]:
+    def gender_mapper(self, schemes_proxy: TVxEHRSchemeProxy) -> CodeMap | None:
         return schemes_proxy.gender_mapper(self.dataset.config.scheme)
 
-    def ethnicity_mapper(self, schemes_proxy: TVxEHRSchemeProxy) -> Optional[CodeMap]:
+    def ethnicity_mapper(self, schemes_proxy: TVxEHRSchemeProxy) -> CodeMap | None:
         return schemes_proxy.ethnicity_mapper(self.dataset.config.scheme)
 
-    def dx_mapper(self, schemes_proxy: TVxEHRSchemeProxy) -> Optional[CodeMap]:
+    def dx_mapper(self, schemes_proxy: TVxEHRSchemeProxy) -> CodeMap | None:
         return schemes_proxy.dx_mapper(self.dataset.config.scheme)
 
-    def icu_procedures_mapper(self, schemes_proxy: TVxEHRSchemeProxy) -> Optional[CodeMap]:
+    def icu_procedures_mapper(self, schemes_proxy: TVxEHRSchemeProxy) -> CodeMap | None:
         return schemes_proxy.icu_procedures_mapper(self.dataset.config.scheme)
 
-    def hosp_procedures_mapper(self, schemes_proxy: TVxEHRSchemeProxy) -> Optional[CodeMap]:
+    def hosp_procedures_mapper(self, schemes_proxy: TVxEHRSchemeProxy) -> CodeMap | None:
         return schemes_proxy.hosp_procedures_mapper(self.dataset.config.scheme)
 
-    def icu_inputs_grouping(self, schemes_proxy: TVxEHRSchemeProxy) -> Optional[GroupingData]:
+    def icu_inputs_grouping(self, schemes_proxy: TVxEHRSchemeProxy) -> GroupingData | None:
         return schemes_proxy.icu_inputs_grouping(self.dataset.config.scheme)
 
     def demographic_vector_size(self, schemes_proxy: TVxEHRSchemeProxy) -> int:
@@ -506,7 +573,6 @@ class TVxEHR(AbstractProcessedDataset):
 
     @cached_property
     def admission_ids(self) -> list[str]:
-
         admission_ids = sum(self.subjects_sorted_admission_ids.values(), [])
         # Check unique admission IDs across all subjects.
         if len(admission_ids) != len(set(admission_ids)):
@@ -519,8 +585,11 @@ class TVxEHR(AbstractProcessedDataset):
 
     @cached_property
     def admission_demographics(self) -> dict[str, jnp.ndarray]:
-        return {admission_id: admission_demo for subject_id in self.subjects for admission_id, admission_demo in
-                self.subject_admission_demographics(subject_id).items()}
+        return {
+            admission_id: admission_demo
+            for subject_id in self.subjects
+            for admission_id, admission_demo in self.subject_admission_demographics(subject_id).items()
+        }
 
     @cached_property
     def admission_dates(self) -> dict[str, AdmissionDates]:
@@ -529,7 +598,7 @@ class TVxEHR(AbstractProcessedDataset):
         c_dischtime = self.dataset.config.columns.admissions.end_time
         return admissions.apply(lambda x: AdmissionDates(x[c_admittime], x[c_dischtime]), axis=1).to_dict()
 
-    def fetch_device_batch(self, subject_ids: Optional[tuple[str, ...]] = None) -> tuple[Self, Self]:
+    def fetch_device_batch(self, subject_ids: tuple[str, ...] | None = None) -> tuple[Self, Self]:
         # 1. Fetch from disk if the subjects are lazy-loaded in a new tree `ehr`.
         # 2. Load the subjects to the device in a new tree `device_ehr`.
         # 3. return as a tuple (`ehr`, `device_ehr`) as `device_ehr` can be re-used avoiding disk reading.
@@ -539,17 +608,16 @@ class TVxEHR(AbstractProcessedDataset):
         device_subjects = {
             i: ehr.subjects[i].to_jax_arrays()
             for i in subject_ids
-            #tqdm_constructor(subject_ids,
-                                      # desc="Loading to device",
-                                      # unit='subject',
-                                      # leave=False)
+            # tqdm_constructor(subject_ids,
+            # desc="Loading to device",
+            # unit='subject',
+            # leave=False)
         }
         return ehr, eqx.tree_at(lambda x: x.subjects, self, device_subjects)
 
-    def epoch_splits(self,
-                     subject_ids: Optional[Iterable[str]],
-                     batch_n_admissions: int,
-                     discount_first_admission: bool = False) -> tuple[tuple[str, ...], ...]:
+    def epoch_splits(
+        self, subject_ids: Iterable[str] | None, batch_n_admissions: int, discount_first_admission: bool = False
+    ) -> tuple[tuple[str, ...], ...]:
         """Generate epoch splits for training.
 
         Args:
@@ -577,7 +645,7 @@ class TVxEHR(AbstractProcessedDataset):
         splits = (a.tolist() for a in np.split(subject_ids, splits))
         return tuple(tuple(s) for s in splits if len(s) > 0)
 
-    def iter_obs(self, subject_ids: Optional[Iterable[str]] = None) -> Iterable[InpatientObservables]:
+    def iter_obs(self, subject_ids: Iterable[str] | None = None) -> Iterable[InpatientObservables]:
         """Iterate over the observables for the given subject IDs.
 
         Args:
@@ -592,7 +660,7 @@ class TVxEHR(AbstractProcessedDataset):
             for adm in self.subjects[s].admissions:
                 yield adm.observables
 
-    def iter_lead_obs(self, subject_ids: Optional[Iterable[str]] = None) -> Iterable[InpatientObservables]:
+    def iter_lead_obs(self, subject_ids: Iterable[str] | None = None) -> Iterable[InpatientObservables]:
         """Iterate over the leading observables for the given subject IDs.
 
         Args:
@@ -607,7 +675,7 @@ class TVxEHR(AbstractProcessedDataset):
             for adm in self.subjects[s].admissions:
                 yield adm.leading_observable
 
-    def n_obs_times(self, subject_ids: Optional[Iterable[str]] = None) -> int:
+    def n_obs_times(self, subject_ids: Iterable[str] | None = None) -> int:
         """Get the total number of observation times.
 
         Args:
@@ -618,7 +686,7 @@ class TVxEHR(AbstractProcessedDataset):
         """
         return sum(len(obs) for obs in self.iter_obs(subject_ids))
 
-    def d2d_interval_days(self, subject_ids: Optional[Iterable[str]] = None) -> float:
+    def d2d_interval_days(self, subject_ids: Iterable[str] | None = None) -> float:
         """Get the total number of days between first discharge and last discharge.
 
         Args:
@@ -632,7 +700,7 @@ class TVxEHR(AbstractProcessedDataset):
 
         return sum(self.subjects[s].d2d_interval_days for s in subject_ids)
 
-    def interval_days(self, subject_ids: Optional[Iterable[str]] = None) -> float:
+    def interval_days(self, subject_ids: Iterable[str] | None = None) -> float:
         """Get the total number of days in-hospital.
 
         Args:
@@ -646,7 +714,7 @@ class TVxEHR(AbstractProcessedDataset):
 
         return sum(a.interval_days for s in subject_ids for a in self.subjects[s].admissions)
 
-    def interval_hours(self, subject_ids: Optional[Iterable[str]] = None) -> float:
+    def interval_hours(self, subject_ids: Iterable[str] | None = None) -> float:
         """Get the total number of hours in-hospital.
 
         Args:
@@ -660,7 +728,7 @@ class TVxEHR(AbstractProcessedDataset):
 
         return sum(a.interval_hours for s in subject_ids for a in self.subjects[s].admissions)
 
-    def p_obs(self, subject_ids: Optional[Iterable[str]] = None) -> float:
+    def p_obs(self, subject_ids: Iterable[str] | None = None) -> float:
         """For a colelction of subjects, compute a measure that is proportional to rate of presence per observation timestamp.
 
         Args:
@@ -671,7 +739,7 @@ class TVxEHR(AbstractProcessedDataset):
         """
         return sum(obs.mask.sum() for obs in self.iter_obs(subject_ids)) / self.n_obs_times()
 
-    def obs_coocurrence_matrix(self, subject_ids: Optional[Iterable[str]] = None) -> jnp.ndarray:
+    def obs_coocurrence_matrix(self, subject_ids: Iterable[str] | None = None) -> jnp.ndarray:
         """Compute the co-occurrence (or co-presence) matrix of observables.
 
         Returns:
@@ -688,9 +756,7 @@ class TVxEHR(AbstractProcessedDataset):
             int: size of the Patients object in bytes.
         """
         is_arr = eqx.filter(self.subjects, eqx.is_array)
-        arr_size = jtu.tree_map(
-            lambda a, m: a.size * a.itemsize
-            if m is not None else 0, self.subjects, is_arr)
+        arr_size = jtu.tree_map(lambda a, m: a.size * a.itemsize if m is not None else 0, self.subjects, is_arr)
         return sum(jtu.tree_leaves(arr_size))
 
     def _unscaled_observation(self, obs: InpatientObservables) -> InpatientObservables:
@@ -730,8 +796,8 @@ class TVxEHR(AbstractProcessedDataset):
         """
         is_arr = eqx.filter(self.subjects[subject_id], eqx.is_array)
         arr_size = jtu.tree_map(
-            lambda a, m: a.size * a.itemsize
-            if m is not None else 0, self.subjects[subject_id], is_arr)
+            lambda a, m: a.size * a.itemsize if m is not None else 0, self.subjects[subject_id], is_arr
+        )
         return sum(jtu.tree_leaves(arr_size))
 
     def outcome_frequency_vec(self, subjects: Iterable[str]) -> Array:
@@ -748,14 +814,14 @@ class TVxEHR(AbstractProcessedDataset):
     def outcome_frequency_partitions(self, n_partitions: int, subjects: Iterable[str]) -> tuple[tuple[int, ...], ...]:
         """
         Get the outcome codes partitioned by their frequency of occurrence into `n_partitions` partitions. The codes in each partition contributes to 1 / n_partitions of the all outcome occurrences.
-        
+
         Args:
             n_partitions (int): number of partitions.
             subjects (list[str]): list of subject IDs.
 
         Returns:
             list[list[int]]: list of outcome codes partitioned by frequency into `n_partitions` partitions.
-        
+
         """
         frequency_vec = self.outcome_frequency_vec(subjects)
         frequency_vec = frequency_vec / frequency_vec.sum()
@@ -805,8 +871,9 @@ class SegmentedTVxEHR(TVxEHR):
     subjects: dict[str, SegmentedPatient]
     patient_class: ClassVar[type[SegmentedPatient]] = SegmentedPatient
 
-    def execute_pipeline(self, pipeline: AbstractDatasetPipeline,
-                         schemes_context: CodingSchemesManager) -> AbstractProcessedDataset:
+    def execute_pipeline(
+        self, pipeline: AbstractDatasetPipeline, schemes_context: CodingSchemesManager
+    ) -> AbstractProcessedDataset:
         raise NotImplementedError("SegmentedPatient is a final representation. It cannot have a pipeline.")
 
     def iter_obs(self, subject_ids=None) -> Iterable[InpatientObservables]:
@@ -831,11 +898,21 @@ class SegmentedTVxEHR(TVxEHR):
         hosp_procedures_size = len(tvx_scheme_proxy.hosp_procedures) if tvx_scheme_proxy.hosp_procedures else None
         icu_procedures_size = len(tvx_scheme_proxy.icu_procedures) if tvx_scheme_proxy.icu_procedures else None
         icu_inputs_size = len(dataset_scheme_proxy.icu_inputs) if dataset_scheme_proxy.icu_inputs else None
-        subjects = {k: SegmentedPatient.from_patient(v, hosp_procedures_size=hosp_procedures_size,
-                                                     icu_procedures_size=icu_procedures_size,
-                                                     icu_inputs_size=icu_inputs_size,
-                                                     maximum_padding=maximum_padding) for k, v in
-                    tvx_ehr.subjects.items()}
-        return SegmentedTVxEHR(config=tvx_ehr.config, dataset=tvx_ehr.dataset,
-                               numerical_processors=tvx_ehr.numerical_processors,
-                               subjects=subjects, splits=tvx_ehr.splits, pipeline_report=tvx_ehr.pipeline_report)
+        subjects = {
+            k: SegmentedPatient.from_patient(
+                v,
+                hosp_procedures_size=hosp_procedures_size,
+                icu_procedures_size=icu_procedures_size,
+                icu_inputs_size=icu_inputs_size,
+                maximum_padding=maximum_padding,
+            )
+            for k, v in tvx_ehr.subjects.items()
+        }
+        return SegmentedTVxEHR(
+            config=tvx_ehr.config,
+            dataset=tvx_ehr.dataset,
+            numerical_processors=tvx_ehr.numerical_processors,
+            subjects=subjects,
+            splits=tvx_ehr.splits,
+            pipeline_report=tvx_ehr.pipeline_report,
+        )

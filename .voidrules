@@ -11,7 +11,7 @@
 # Project summary
 
 This project implements a Python library for EHRs input+output operations, HDF serialisation, pipelined processing, for JAX+equinox compatible tasks, e.g. mainly ML.
-Familiarise your self with [JAX](https://github.com/jax-ml/jax), [equinox](https://github.com/patrick-kidger/equinox) and [pytables](https://www.pytables.org) libraries, with focus on JAX PyTree and equinox PyTree manipulation routines. 
+Familiarise your self with [JAX](https://github.com/jax-ml/jax), [equinox](https://github.com/patrick-kidger/equinox) and [pytables](https://www.pytables.org) libraries, with focus on JAX PyTree and equinox PyTree manipulation routines.
 
 # Project Structure Rules
 
@@ -82,7 +82,7 @@ The files in `ehrax/*.py` go into five categories:
     """
 ```
 - Maintain up-to-date README
-- Keep API documentation current 
+- Keep API documentation current
 
 ## Sourcecode Documentation
 

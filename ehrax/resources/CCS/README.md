@@ -10,5 +10,3 @@
 | `ccs_multi_pr_tool_2015.csv.gz` | Mapping between (procedure, multi-level) CCS and (procedure) ICD-9    | [CCS](https://hcup-us.ahrq.gov/toolssoftware/ccs/ccs.jsp)                         | [Multi Level CCS](https://hcup-us.ahrq.gov/toolssoftware/ccs/Multi_Level_CCS_2015.zip)                                                       |
 | `dxmlabel-13.csv.gz`            | Description table for (diagnostic, multi-level) CCS                   | [CCS](https://hcup-us.ahrq.gov/toolssoftware/ccs/ccs.jsp)                         | [Multi Level CCS](https://hcup-us.ahrq.gov/toolssoftware/ccs/Multi_Level_CCS_2015.zip)                                                       |
 | `prmlabel-09.csv.gz`            | Description table for (procedure, multi-level) CCS                    | [CCS](https://hcup-us.ahrq.gov/toolssoftware/ccs/ccs.jsp)                         | [Multi Level CCS](https://hcup-us.ahrq.gov/toolssoftware/ccs/Multi_Level_CCS_2015.zip)                                                       |
-
-

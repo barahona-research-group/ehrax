@@ -1,8 +1,9 @@
 """Data Model for Subjects in MIMIC-III and MIMIC-IV"""
 
 import functools
+from collections.abc import Callable, Iterator
 from functools import cached_property
-from typing import Callable, ClassVar, Iterator, Optional, Self
+from typing import ClassVar, Self
 
 import jax.numpy as jnp
 import numpy as np
@@ -11,7 +12,7 @@ import scipy
 
 from ._literals import NumericalTypeHint
 from .base import AbstractConfig, AbstractVxData
-from .coding_scheme import (CodesVector, NumericScheme)
+from .coding_scheme import CodesVector, NumericScheme
 from .utils import Array, np_module
 
 
@@ -49,19 +50,25 @@ class InpatientObservables(AbstractVxData):
 
         assert self.mask.dtype == bool, f"Expected mask to be of type bool, got {self.mask.dtype}"
 
-        assert self.value.ndim == 3, f"Expected value to be 3D (n_timestamps, obs_dim, n_channels) or more, got {self.value.ndim}"
+        assert self.value.ndim == 3, (
+            f"Expected value to be 3D (n_timestamps, obs_dim, n_channels) or more, got {self.value.ndim}"
+        )
         assert self.mask.ndim == 2, f"Expected mask to be 2D, got {self.mask.ndim}"
-        assert self.value.shape[:2] == self.mask.shape, f"Expected value.shape to be {self.mask.shape}, " \
-                                                        f"got {self.value.shape}"
+        assert self.value.shape[:2] == self.mask.shape, (
+            f"Expected value.shape to be {self.mask.shape}, got {self.value.shape}"
+        )
         assert self.time.ndim == 1, f"Expected time to be 1D, got {self.time.ndim}"
         assert len(self.time) == len(xnp.unique(self.time)), "Time stamps are not unique."
         assert len(self.time) < 2 or (self.time[:-1] < self.time[1:]).all(), "Time stamps are not sorted."
 
     @classmethod
-    def empty(cls, size: int,
-              time_dtype: type | str = np.float64,
-              value_dtype: type | str = np.float16,
-              mask_dtype: type | str = bool) -> Self:
+    def empty(
+        cls,
+        size: int,
+        time_dtype: type | str = np.float64,
+        value_dtype: type | str = np.float16,
+        mask_dtype: type | str = bool,
+    ) -> Self:
         """
         Create an empty InpatientObservables object.
 
@@ -71,9 +78,11 @@ class InpatientObservables(AbstractVxData):
         Returns:
         - InpatientObservables: an empty InpatientObservables object with zero time, value, and mask arrays.
         """
-        return cls(time=np.zeros(shape=0, dtype=time_dtype),
-                   value=np.zeros(shape=(0, size, 1), dtype=value_dtype),
-                   mask=np.zeros(shape=(0, size), dtype=mask_dtype))
+        return cls(
+            time=np.zeros(shape=0, dtype=time_dtype),
+            value=np.zeros(shape=(0, size, 1), dtype=value_dtype),
+            mask=np.zeros(shape=(0, size), dtype=mask_dtype),
+        )
 
     def __len__(self):
         """
@@ -132,20 +141,19 @@ class InpatientObservables(AbstractVxData):
     @staticmethod
     def agg(t: NumericalTypeHint, x: np.ndarray, m: np.ndarray) -> np.ndarray:
         match t:
-            case 'B':
+            case "B":
                 return InpatientObservables._binary_agg(x, m)
-            case 'O':
+            case "O":
                 return InpatientObservables._ordinal_agg(x, m)
-            case 'C':
+            case "C":
                 return InpatientObservables._categorical_agg(x, m)
-            case 'N':
+            case "N":
                 return InpatientObservables._continuous_agg(x, m)
             case _:
                 raise ValueError(f"Unrecognized aggregation type: {t}.")
 
     @staticmethod
-    def _time_binning_aggregate(x: Array, mask: Array,
-                                types: tuple[NumericalTypeHint, ...]) -> Array:
+    def _time_binning_aggregate(x: Array, mask: Array, types: tuple[NumericalTypeHint, ...]) -> Array:
         """
         Aggregates the values in a given array based on the type hint.
 
@@ -167,7 +175,8 @@ class InpatientObservables(AbstractVxData):
             return v, dim_mask
 
         def _apply(ti: NumericalTypeHint, xi: np.ndarray, mi: np.ndarray, i: int) -> np.ndarray:
-            if dim_mask[i] == 0: return np.array([xi.flatten()[0]], dtype=x.dtype).reshape(1, 1, *x.shape[2:])
+            if dim_mask[i] == 0:
+                return np.array([xi.flatten()[0]], dtype=x.dtype).reshape(1, 1, *x.shape[2:])
             return InpatientObservables.agg(ti, xi, mi)
 
         v = np.concatenate([_apply(ti, x[:, (dim,), :], mask[:, dim], dim) for dim, ti in enumerate(types)], axis=1)
@@ -192,7 +201,9 @@ class InpatientObservables(AbstractVxData):
 
         if len(self) == 0:
             return self
-        assert self.value.ndim == 3, f"Expected value to be with shape (n_time, obs_dims, n_channels), got {self.value.shape}"
+        assert self.value.ndim == 3, (
+            f"Expected value to be with shape (n_time, obs_dims, n_channels), got {self.value.shape}"
+        )
 
         last_ts = (int(self.time[-1] / hours) + 1) * hours
         new_time = np.arange(0, last_ts + hours, hours) * 1.0
@@ -234,8 +245,12 @@ class SegmentedInpatientObservables(InpatientObservables):
 
     @classmethod
     def from_observables(cls, observables: InpatientObservables, time_split: Array) -> Self:
-        return cls(time=observables.time, value=observables.value, mask=observables.mask,
-                   indexed_split=cls.indexed_split_array(observables.time, time_split))
+        return cls(
+            time=observables.time,
+            value=observables.value,
+            mask=observables.mask,
+            indexed_split=cls.indexed_split_array(observables.time, time_split),
+        )
 
     @staticmethod
     def indexed_split_array(time: Array, time_split: Array) -> Array:
@@ -293,11 +308,15 @@ class LeadingObservableExtractorConfig(AbstractConfig):
     minimum_acquisitions: int  # minimum number of acquisitions to consider
     recovery_window: float
 
-    def __init__(self, observable_code: str, scheme: str,
-                 leading_hours: list[float] | tuple[float, ...],
-                 entry_neglect_window: float,
-                 minimum_acquisitions: int,
-                 recovery_window: float = 0.0):
+    def __init__(
+        self,
+        observable_code: str,
+        scheme: str,
+        leading_hours: list[float] | tuple[float, ...],
+        entry_neglect_window: float,
+        minimum_acquisitions: int,
+        recovery_window: float = 0.0,
+    ):
         self.observable_code = observable_code
         self.scheme = scheme
         self.leading_hours = list(leading_hours)
@@ -307,9 +326,9 @@ class LeadingObservableExtractorConfig(AbstractConfig):
 
     def __check_init__(self):
         # `leading_hours` must be sorted.
-        assert all(
-            x <= y for x, y in zip(self.leading_hours[:-1], self.leading_hours[1:])
-        ), f"leading_hours must be sorted"
+        assert all(x <= y for x, y in zip(self.leading_hours[:-1], self.leading_hours[1:])), (
+            "leading_hours must be sorted"
+        )
         assert isinstance(self.scheme, str), f"Expected scheme to be a string, got {type(self.scheme)}"
 
 
@@ -322,13 +341,14 @@ class LeadingObservableExtractor(AbstractVxData):
         self.observable_scheme = observable_scheme
 
     def __check_init__(self):
-        assert self.type_hint in ('B', 'O'), (
+        assert self.type_hint in ("B", "O"), (
             f"LeadingObservableExtractor only supports binary and ordinal observables, "
             f"got {self.type_hint}. Categorical and Numeric types "
             "would require custom aggregation function specific to the observation of interest,"
             "e.g. the mode of categorical or the mean of numerical. In other cases, it could be more "
             "relevant to use max/min aggregation over numeric observables. Create a feature request "
-            "if you need this feature.")
+            "if you need this feature."
+        )
 
     @cached_property
     def code_index(self) -> int:
@@ -358,10 +378,10 @@ class LeadingObservableExtractor(AbstractVxData):
         Returns:
             Callable: the aggregation function.
         """
-        if self.type_hint == 'B':
-            return 'any'
-        elif self.type_hint == 'O':
-            return 'max'
+        if self.type_hint == "B":
+            return "any"
+        elif self.type_hint == "O":
+            return "max"
         else:
             assert False, f"unsupported type hint {self.type_hint}"
 
@@ -384,8 +404,8 @@ class LeadingObservableExtractor(AbstractVxData):
         """
         desc = self.observable_scheme.desc[self.config.observable_code]
         return dict(
-            zip(range(len(self.config.leading_hours)),
-                [f'{desc}_next_{h}hrs' for h in self.config.leading_hours]))
+            zip(range(len(self.config.leading_hours)), [f"{desc}_next_{h}hrs" for h in self.config.leading_hours])
+        )
 
     @cached_property
     def index2desc(self):
@@ -480,16 +500,16 @@ class LeadingObservableExtractor(AbstractVxData):
         mask = np.ones_like(x).astype(bool)
         if len(t) == 0 or len(t) == 1:
             return mask
-        x0 = x[0: -1]
+        x0 = x[0:-1]
         x1 = x[1:]
         next_recovery = (x0 != 0) & (~np.isnan(x0)) & (x1 == 0)
 
         for i in np.flatnonzero(next_recovery):
-            mask[i + 1:] = np.where(t[i + 1:] - t[i] <= recovery_window, 0, 1)
+            mask[i + 1 :] = np.where(t[i + 1 :] - t[i] <= recovery_window, 0, 1)
         return mask
 
     @staticmethod
-    def _nan_agg_nonzero(x: Array, axis: Optional[int]) -> Array:
+    def _nan_agg_nonzero(x: Array, axis: int | None) -> Array:
         """
         Aggregates the values in a given array along the specified axis, treating NaN values as zero.
 
@@ -505,7 +525,7 @@ class LeadingObservableExtractor(AbstractVxData):
         return np.where(all_nan, np.nan, np.any(replaced_nan, axis=axis) * 1.0)
 
     @staticmethod
-    def _nan_agg_max(x: Array, axis: Optional[int]):
+    def _nan_agg_max(x: Array, axis: int | None):
         """
         Aggregates the values in a given array along the specified axis, treating NaN values as zero.
 
@@ -526,16 +546,17 @@ class LeadingObservableExtractor(AbstractVxData):
         Returns:
             Callable: the aggregation function.
         """
-        if aggregation == 'max':
+        if aggregation == "max":
             return cls._nan_agg_max
-        elif aggregation == 'any':
+        elif aggregation == "any":
             return cls._nan_agg_nonzero
         else:
             raise ValueError(f"Aggregation {aggregation} not supported")
 
     @classmethod
-    def mask_noisy_observations(cls, t: Array, x: Array, entry_neglect_window: float, recovery_window: float,
-                                minimum_acquisitions: int) -> Array:
+    def mask_noisy_observations(
+        cls, t: Array, x: Array, entry_neglect_window: float, recovery_window: float, minimum_acquisitions: int
+    ) -> Array:
         # neutralize the first acquisitions
         m = cls.filter_first_acquisitions(len(t), minimum_acquisitions)
         # neutralize the observations in the beginning within the entry neglect window.
@@ -545,8 +566,7 @@ class LeadingObservableExtractor(AbstractVxData):
         return m
 
     @classmethod
-    def extract_leading_window(cls, t: Array, x: Array, leading_hours: list[float],
-                               aggregation: str) -> Array:
+    def extract_leading_window(cls, t: Array, x: Array, leading_hours: list[float], aggregation: str) -> Array:
         agg = cls.aggregation(aggregation)
         # a time-window starting from timestamp_i for each row_i
         # if time = [t0, t1, t2, t3]
@@ -603,10 +623,13 @@ class LeadingObservableExtractor(AbstractVxData):
         time = observables.time
         value = observables.value[:, self.code_index].squeeze(axis=-1)
         mask = observables.mask[:, self.code_index]
-        mask &= self.mask_noisy_observations(time, value,
-                                             entry_neglect_window=self.config.entry_neglect_window,
-                                             recovery_window=self.config.recovery_window,
-                                             minimum_acquisitions=self.config.minimum_acquisitions)
+        mask &= self.mask_noisy_observations(
+            time,
+            value,
+            entry_neglect_window=self.config.entry_neglect_window,
+            recovery_window=self.config.recovery_window,
+            minimum_acquisitions=self.config.minimum_acquisitions,
+        )
         value = np.where(mask, value, np.nan)
         value = self.extract_leading_window(time, value, self.config.leading_hours, self.aggregation_name)
         return InpatientObservables(time, value, mask=~np.isnan(value))
@@ -628,7 +651,7 @@ class InpatientInput(AbstractVxData):
     endtime: Array
     rate: Array
 
-    def __init__(self, code_index: Array, starttime: Array, endtime: Array, rate: Optional[Array] = None):
+    def __init__(self, code_index: Array, starttime: Array, endtime: Array, rate: Array | None = None):
         self.code_index = code_index
         self.starttime = starttime
         self.endtime = endtime
@@ -665,27 +688,27 @@ class InpatientInput(AbstractVxData):
         return vec_input
 
     @classmethod
-    def empty(cls,
-              code_index_dtype=int,
-              starttime_dtype=float,
-              endtime_dtype=float,
-              rate_dtype=float) -> Self:
+    def empty(cls, code_index_dtype=int, starttime_dtype=float, endtime_dtype=float, rate_dtype=float) -> Self:
         zero_vec = np.zeros(0, dtype=bool)
-        return cls(code_index=zero_vec.astype(code_index_dtype),
-                   starttime=zero_vec.astype(starttime_dtype),
-                   endtime=zero_vec.astype(endtime_dtype),
-                   rate=zero_vec.astype(rate_dtype))
+        return cls(
+            code_index=zero_vec.astype(code_index_dtype),
+            starttime=zero_vec.astype(starttime_dtype),
+            endtime=zero_vec.astype(endtime_dtype),
+            rate=zero_vec.astype(rate_dtype),
+        )
 
 
 class InpatientInterventions(AbstractVxData):
-    hosp_procedures: Optional[InpatientInput]
-    icu_procedures: Optional[InpatientInput]
-    icu_inputs: Optional[InpatientInput]
+    hosp_procedures: InpatientInput | None
+    icu_procedures: InpatientInput | None
+    icu_inputs: InpatientInput | None
 
-    def __init__(self,
-                 hosp_procedures: Optional[InpatientInput] = None,
-                 icu_procedures: Optional[InpatientInput] = None,
-                 icu_inputs: Optional[InpatientInput] = None):
+    def __init__(
+        self,
+        hosp_procedures: InpatientInput | None = None,
+        icu_procedures: InpatientInput | None = None,
+        icu_inputs: InpatientInput | None = None,
+    ):
         self.hosp_procedures = hosp_procedures
         self.icu_procedures = icu_procedures
         self.icu_inputs = icu_inputs
@@ -707,24 +730,32 @@ class InpatientInterventions(AbstractVxData):
 
 class SegmentedInpatientInterventions(AbstractVxData):
     time: Array
-    icu_inputs: Optional[Array]
-    icu_procedures: Optional[Array]
-    hosp_procedures: Optional[Array]
+    icu_inputs: Array | None
+    icu_procedures: Array | None
+    hosp_procedures: Array | None
 
-    def __init__(self, time: Array, icu_inputs: Optional[Array] = None, icu_procedures: Optional[Array] = None,
-                 hosp_procedures: Optional[Array] = None):
+    def __init__(
+        self,
+        time: Array,
+        icu_inputs: Array | None = None,
+        icu_procedures: Array | None = None,
+        hosp_procedures: Array | None = None,
+    ):
         self.time = time
         self.icu_inputs = icu_inputs
         self.icu_procedures = icu_procedures
         self.hosp_procedures = hosp_procedures
 
     @classmethod
-    def from_interventions(cls, inpatient_interventions: InpatientInterventions, terminal_time: float,
-                           hosp_procedures_size: Optional[int] = None,
-                           icu_procedures_size: Optional[int] = None,
-                           icu_inputs_size: Optional[int] = None,
-                           maximum_padding: int = 100) -> Self:
-
+    def from_interventions(
+        cls,
+        inpatient_interventions: InpatientInterventions,
+        terminal_time: float,
+        hosp_procedures_size: int | None = None,
+        icu_procedures_size: int | None = None,
+        icu_inputs_size: int | None = None,
+        maximum_padding: int = 100,
+    ) -> Self:
         timestamps = inpatient_interventions.timestamps
         assert terminal_time >= max(timestamps, default=0.0), (
             f"Terminal time {terminal_time} should be greater than the maximum timestamp {max(timestamps, default=0.0)}"
@@ -748,19 +779,17 @@ class SegmentedInpatientInterventions(AbstractVxData):
         return cls(time=time, hosp_procedures=hosp_procedures, icu_procedures=icu_procedures, icu_inputs=icu_inputs)
 
     @staticmethod
-    def pad_array(array: Array,
-                  maximum_padding: int = 100,
-                  value: float = 0.0) -> Array:
+    def pad_array(array: Array, maximum_padding: int = 100, value: float = 0.0) -> Array:
         """
         Pad array to be a multiple of maximum_padding. This is to
         minimize the number of jit-compiling that is made for the same functions
         when the input shape changes.
-        
+
         Args:
             array (Array): the array to be padded.
             maximum_padding (int, optional): the maximum padding. Defaults to 100.
             value (float, optional): the value to pad with. Defaults to 0.0.
-            
+
         Returns:
             Array: the padded array."""
 
@@ -769,7 +798,7 @@ class SegmentedInpatientInterventions(AbstractVxData):
         if n_pad == maximum_padding:
             return array
 
-        return np.pad(array, pad_width=(0, n_pad), mode='constant', constant_values=value)
+        return np.pad(array, pad_width=(0, n_pad), mode="constant", constant_values=value)
 
     @staticmethod
     def _segment(t0_padded: Array, inpatient_input: InpatientInput, input_size: int) -> Array:
@@ -827,7 +856,7 @@ class AdmissionDates(AbstractVxData):
 
 class Admission(AbstractVxData):
     """Admission data class representing a hospital admission.
-    
+
     Attributes:
         admission_id: unique ID for the admission.
         admission_dates: start and end dates for the admission.
@@ -835,25 +864,32 @@ class Admission(AbstractVxData):
         dx_codes_history: historical diagnosis codes prior to admission.
         outcome: outcome codes of interest derived from the diagnosis codes.
         observables: timeseries clinical observations data.
-        interventions: timeseries clinical interventions data.  
-        leading_observable: timeseries clinical leading observable (of interest). 
+        interventions: timeseries clinical interventions data.
+        leading_observable: timeseries clinical leading observable (of interest).
     """
+
     admission_id: str  # Unique ID for each admission
     admission_dates: AdmissionDates
     dx_codes: CodesVector
     dx_codes_history: CodesVector
     outcome: CodesVector
-    observables: Optional[InpatientObservables]
-    interventions: Optional[InpatientInterventions]
-    leading_observable: Optional[InpatientObservables]
+    observables: InpatientObservables | None
+    interventions: InpatientInterventions | None
+    leading_observable: InpatientObservables | None
 
     interventions_class: ClassVar[type[InpatientInterventions]] = InpatientInterventions
 
-    def __init__(self, admission_id: str, admission_dates: AdmissionDates, dx_codes: CodesVector,
-                 dx_codes_history: CodesVector, outcome: CodesVector,
-                 observables: Optional[InpatientObservables] = None,
-                 interventions: Optional[InpatientInterventions] = None,
-                 leading_observable: Optional[InpatientObservables] = None):
+    def __init__(
+        self,
+        admission_id: str,
+        admission_dates: AdmissionDates,
+        dx_codes: CodesVector,
+        dx_codes_history: CodesVector,
+        outcome: CodesVector,
+        observables: InpatientObservables | None = None,
+        interventions: InpatientInterventions | None = None,
+        leading_observable: InpatientObservables | None = None,
+    ):
         self.admission_id = admission_id
         self.admission_dates = admission_dates
         self.dx_codes = dx_codes
@@ -875,14 +911,16 @@ class Admission(AbstractVxData):
         """
         assert self.observables is not None, "Observables must be provided to extract leading observable."
         leading_observable = leading_observable_extractor(self.observables)
-        return type(self)(admission_id=self.admission_id,
-                          admission_dates=self.admission_dates,
-                          dx_codes=self.dx_codes,
-                          dx_codes_history=self.dx_codes_history,
-                          outcome=self.outcome,
-                          observables=self.observables,
-                          leading_observable=leading_observable,
-                          interventions=self.interventions)
+        return type(self)(
+            admission_id=self.admission_id,
+            admission_dates=self.admission_dates,
+            dx_codes=self.dx_codes,
+            dx_codes_history=self.dx_codes_history,
+            outcome=self.outcome,
+            observables=self.observables,
+            leading_observable=leading_observable,
+            interventions=self.interventions,
+        )
 
     def observables_time_binning(self, interval: float, types: tuple[NumericalTypeHint, ...]) -> Self:
         """
@@ -898,14 +936,16 @@ class Admission(AbstractVxData):
         """
         assert self.observables is not None, "Observables must be provided to bin the time series."
         observables = self.observables.time_binning(interval, types)
-        return type(self)(admission_id=self.admission_id,
-                          admission_dates=self.admission_dates,
-                          dx_codes=self.dx_codes,
-                          dx_codes_history=self.dx_codes_history,
-                          outcome=self.outcome,
-                          observables=observables,
-                          leading_observable=self.leading_observable,
-                          interventions=self.interventions)
+        return type(self)(
+            admission_id=self.admission_id,
+            admission_dates=self.admission_dates,
+            dx_codes=self.dx_codes,
+            dx_codes_history=self.dx_codes_history,
+            outcome=self.outcome,
+            observables=observables,
+            leading_observable=self.leading_observable,
+            interventions=self.interventions,
+        )
 
     @cached_property
     def interval_hours(self) -> float:
@@ -943,29 +983,35 @@ class Admission(AbstractVxData):
 
 
 class SegmentedAdmission(Admission):
-    observables: Optional[SegmentedInpatientObservables]  # type: ignore
-    interventions: Optional[SegmentedInpatientInterventions]  # type: ignore
-    leading_observable: Optional[SegmentedInpatientObservables]  # type: ignore
+    observables: SegmentedInpatientObservables | None  # type: ignore
+    interventions: SegmentedInpatientInterventions | None  # type: ignore
+    leading_observable: SegmentedInpatientObservables | None  # type: ignore
     interventions_class: ClassVar[type[InpatientInterventions]] = SegmentedInpatientInterventions  # type: ignore
 
     @staticmethod
-    def _segment_interventions(interventions: Optional[InpatientInterventions],
-                               terminal_time: float,
-                               hosp_procedures_size: Optional[int], icu_procedures_size: Optional[int],
-                               icu_inputs_size: Optional[int], maximum_padding: int = 100) -> Optional[
-        SegmentedInpatientInterventions]:
+    def _segment_interventions(
+        interventions: InpatientInterventions | None,
+        terminal_time: float,
+        hosp_procedures_size: int | None,
+        icu_procedures_size: int | None,
+        icu_inputs_size: int | None,
+        maximum_padding: int = 100,
+    ) -> SegmentedInpatientInterventions | None:
         if interventions is None:
             return None
-        return SegmentedInpatientInterventions.from_interventions(interventions, terminal_time,
-                                                                  hosp_procedures_size=hosp_procedures_size,
-                                                                  icu_procedures_size=icu_procedures_size,
-                                                                  icu_inputs_size=icu_inputs_size,
-                                                                  maximum_padding=maximum_padding)
+        return SegmentedInpatientInterventions.from_interventions(
+            interventions,
+            terminal_time,
+            hosp_procedures_size=hosp_procedures_size,
+            icu_procedures_size=icu_procedures_size,
+            icu_inputs_size=icu_inputs_size,
+            maximum_padding=maximum_padding,
+        )
 
     @staticmethod
-    def _segment_observables(observables: Optional[InpatientObservables],
-                             interventions: Optional[SegmentedInpatientInterventions]) -> Optional[
-        SegmentedInpatientObservables]:
+    def _segment_observables(
+        observables: InpatientObservables | None, interventions: SegmentedInpatientInterventions | None
+    ) -> SegmentedInpatientObservables | None:
         if observables is None:
             return None
         if interventions is None:
@@ -975,25 +1021,33 @@ class SegmentedAdmission(Admission):
         return SegmentedInpatientObservables.from_observables(observables, t_sep)
 
     @staticmethod
-    def from_admission(admission: Admission, hosp_procedures_size: Optional[int],
-                       icu_procedures_size: Optional[int],
-                       icu_inputs_size: Optional[int],
-                       maximum_padding: int = 100) -> 'SegmentedAdmission':
-        interventions = SegmentedAdmission._segment_interventions(admission.interventions, admission.interval_hours,
-                                                                  hosp_procedures_size=hosp_procedures_size,
-                                                                  icu_procedures_size=icu_procedures_size,
-                                                                  icu_inputs_size=icu_inputs_size,
-                                                                  maximum_padding=maximum_padding)
+    def from_admission(
+        admission: Admission,
+        hosp_procedures_size: int | None,
+        icu_procedures_size: int | None,
+        icu_inputs_size: int | None,
+        maximum_padding: int = 100,
+    ) -> "SegmentedAdmission":
+        interventions = SegmentedAdmission._segment_interventions(
+            admission.interventions,
+            admission.interval_hours,
+            hosp_procedures_size=hosp_procedures_size,
+            icu_procedures_size=icu_procedures_size,
+            icu_inputs_size=icu_inputs_size,
+            maximum_padding=maximum_padding,
+        )
         observables = SegmentedAdmission._segment_observables(admission.observables, interventions)
         leading_observable = SegmentedAdmission._segment_observables(admission.leading_observable, interventions)
-        return SegmentedAdmission(admission_id=admission.admission_id,
-                                  admission_dates=admission.admission_dates,
-                                  dx_codes=admission.dx_codes,
-                                  dx_codes_history=admission.dx_codes_history,
-                                  outcome=admission.outcome,
-                                  observables=observables,
-                                  interventions=interventions,
-                                  leading_observable=leading_observable)
+        return SegmentedAdmission(
+            admission_id=admission.admission_id,
+            admission_dates=admission.admission_dates,
+            dx_codes=admission.dx_codes,
+            dx_codes_history=admission.dx_codes_history,
+            outcome=admission.outcome,
+            observables=observables,
+            interventions=interventions,
+            leading_observable=leading_observable,
+        )
 
 
 class DemographicVectorConfig(AbstractConfig):
@@ -1005,6 +1059,7 @@ class DemographicVectorConfig(AbstractConfig):
         age (bool): indicates whether age is included in the vector.
         ethnicity (bool): indicates whether ethnicity is included in the vector.
     """
+
     gender: bool
     age: bool
     ethnicity: bool
@@ -1019,6 +1074,7 @@ class CPRDDemographicVectorConfig(DemographicVectorConfig):
     """
     Configuration class for CPRD demographic vector.
     """
+
     imd: bool = True
 
 
@@ -1037,12 +1093,12 @@ class StaticInfo(AbstractVxData):
         _concat: concatenates the age and vector.
 
     """
-    gender: Optional[CodesVector]
-    ethnicity: Optional[CodesVector]
-    date_of_birth: Optional[pd.Timestamp]
 
-    def __init__(self, gender: Optional[CodesVector], ethnicity: Optional[CodesVector],
-                 date_of_birth: Optional[pd.Timestamp]):
+    gender: CodesVector | None
+    ethnicity: CodesVector | None
+    date_of_birth: pd.Timestamp | None
+
+    def __init__(self, gender: CodesVector | None, ethnicity: CodesVector | None, date_of_birth: pd.Timestamp | None):
         self.gender = gender
         self.ethnicity = ethnicity
         self.date_of_birth = date_of_birth
@@ -1053,8 +1109,7 @@ class StaticInfo(AbstractVxData):
             assert self.gender is not None and len(self.gender.scheme) > 0, "Gender is not extracted from the dataset"
             attrs_vec.append(self.gender.vec)
         if demographic_vector_config.ethnicity:
-            assert self.ethnicity is not None, \
-                "Ethnicity is not extracted from the dataset"
+            assert self.ethnicity is not None, "Ethnicity is not extracted from the dataset"
             attrs_vec.append(self.ethnicity.vec)
         return attrs_vec
 
@@ -1097,23 +1152,24 @@ class StaticInfo(AbstractVxData):
 
 class Patient(AbstractVxData):
     """
-    Represents a patient with demographic information and a clinical history 
+    Represents a patient with demographic information and a clinical history
     of admissions.
-    
+
     Attributes:
         subject_id: Unique identifier for the patient.
         static_info: Static demographic and geographic data for the patient.
         admissions: list of hospital/clinic admissions for the patient.
-    
-    
+
+
     Properties:
-        d2d_interval_days: number of days between first and last discharge.  
-        
-        
+        d2d_interval_days: number of days between first and last discharge.
+
+
     Methods:
-        outcome_frequency_vec: accumulates outcome vectors from all admissions to get 
+        outcome_frequency_vec: accumulates outcome vectors from all admissions to get
         aggregate vector for patient.
     """
+
     subject_id: str
     static_info: StaticInfo
     admissions: list[Admission]
@@ -1138,8 +1194,10 @@ class Patient(AbstractVxData):
         Returns:
             Array: the demographic vector.
         """
-        return {a.admission_id: self.static_info.admission_demographics(a, demographic_vector_config)
-                for a in self.admissions}
+        return {
+            a.admission_id: self.static_info.admission_demographics(a, demographic_vector_config)
+            for a in self.admissions
+        }
 
     @cached_property
     def d2d_interval_days(self):
@@ -1188,8 +1246,7 @@ class Patient(AbstractVxData):
         admissions = [a.extract_leading_observable(leading_observable_extractor) for a in self.admissions]
         return type(self)(subject_id=self.subject_id, static_info=self.static_info, admissions=admissions)
 
-    def observables_time_binning(self, interval: float,
-                                 types: tuple[NumericalTypeHint, ...]) -> Self:
+    def observables_time_binning(self, interval: float, types: tuple[NumericalTypeHint, ...]) -> Self:
         """
         Bins the observables for all admissions.
 
@@ -1211,12 +1268,21 @@ class SegmentedPatient(Patient):
         raise NotImplementedError("SegmentedPatient does not support leading observable extraction")
 
     @staticmethod
-    def from_patient(patient: Patient, hosp_procedures_size: Optional[int],
-                     icu_procedures_size: Optional[int],
-                     icu_inputs_size: Optional[int],
-                     maximum_padding: int = 100) -> 'SegmentedPatient':
-        admissions = [SegmentedAdmission.from_admission(a, hosp_procedures_size=hosp_procedures_size,
-                                                        icu_procedures_size=icu_procedures_size,
-                                                        icu_inputs_size=icu_inputs_size,
-                                                        maximum_padding=maximum_padding) for a in patient.admissions]
+    def from_patient(
+        patient: Patient,
+        hosp_procedures_size: int | None,
+        icu_procedures_size: int | None,
+        icu_inputs_size: int | None,
+        maximum_padding: int = 100,
+    ) -> "SegmentedPatient":
+        admissions = [
+            SegmentedAdmission.from_admission(
+                a,
+                hosp_procedures_size=hosp_procedures_size,
+                icu_procedures_size=icu_procedures_size,
+                icu_inputs_size=icu_inputs_size,
+                maximum_padding=maximum_padding,
+            )
+            for a in patient.admissions
+        ]
         return SegmentedPatient(subject_id=patient.subject_id, static_info=patient.static_info, admissions=admissions)

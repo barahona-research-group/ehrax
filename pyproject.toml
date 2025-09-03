@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "ehrax"
 version = "2025.0.0"
 authors = [
-    {name= "Asem Alaa", email = "asem.a.abdelaziz@proton.me"}
+    { name = "Asem Alaa", email = "asem.a.abdelaziz@proton.me" }
 ]
 description = "EHRs io+processing for JAX+equinox compatible tasks, e.g. mainly ML."
 readme = "README.md"
@@ -39,34 +39,48 @@ classifiers = [
     "Topic :: Database",
     "Topic :: Scientific/Engineering :: Information Analysis"
 ]
-urls = {repository = "https://github.com/barahona-research-group/ehrax"}
+urls = { repository = "https://github.com/barahona-research-group/ehrax" }
 
 
 [project.optional-dependencies]
 docs = [
-  "mkdocs==1.6.1",
-  "mkdocs-material==9.6.7",
-  "mkdocstrings[python]==0.28.3",
-  "pymdown-extensions==10.14.3",
-  "mkdocs-git-revision-date-localized-plugin>=1.2.6",
-  "mkdocs-jupyter==0.24.8",
-  "jupyter>=1.0.0"
+    "mkdocs==1.6.1",
+    "mkdocs-material==9.6.7",
+    "mkdocstrings[python]==0.28.3",
+    "pymdown-extensions==10.14.3",
+    "mkdocs-git-revision-date-localized-plugin>=1.2.6",
+    "mkdocs-jupyter==0.24.8",
+    "jupyter>=1.0.0"
 ]
 
 
 [tool.ruff]
-extend-include = ["*.ipynb"]
+#extend-include = ["*.ipynb"]
 src = []
 line-length = 120
 indent-width = 4
 
-#[tool.ruff.lint]
-#fixable = ["I001", "F401", "UP"]
-#ignore = ["E402", "E721", "E731", "E741", "F722", "UP038"]
-#select = ["E", "F", "I001", "UP"]
+
+[tool.ruff.lint]
+fixable = ["I001", "F401", "UP"]
+ignore = ["E402", "E721", "E731", "E741", "F722", "UP038"]
+select = ["E", "F", "I001", "UP"]
+
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
 extra-standard-library = ["typing_extensions"]
 lines-after-imports = 2
 order-by-type = false
+
+[tool.pyright]
+include = [
+    "ehrax",
+#    "test"
+]
+exclude = ["test"]
+reportFunctionMemberAccess = false
+reportOptionalSubscript = false
+reportOptionalMemberAccess = false
+reportIncompatibleMethodOverride = true
+reportIncompatibleVariableOverride = false # Incompatible with eqx.AbstractVar

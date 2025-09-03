@@ -1,5 +1,6 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping, TYPE_CHECKING, get_args
+from typing import get_args, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -8,16 +9,17 @@ import scipy.stats.distributions as dist
 from .._literals import TableAggregationLiteral
 from ..coding_scheme import CodeMap, CodingSchemesManager
 
+
 if TYPE_CHECKING:
-    from ..dataset import (AdmissionsTableColumns, Dataset, DatasetSchemeProxy)  # type: ignore
+    from ..dataset import AdmissionsTableColumns, Dataset, DatasetSchemeProxy  # type: ignore
 
 
 @dataclass
 class TargetHistogram:
-    dataset: 'Dataset'
+    dataset: "Dataset"
     schemes_manager: CodingSchemesManager
 
-    def __init__(self, dataset: 'Dataset', schemes_manager: CodingSchemesManager):
+    def __init__(self, dataset: "Dataset", schemes_manager: CodingSchemesManager):
         self.dataset = dataset
         self.schemes_manager = schemes_manager
 
@@ -30,15 +32,19 @@ class TargetHistogram:
         return t_table.explode().value_counts()
 
     @staticmethod
-    def adapt_aggregation_level(admissions: pd.DataFrame, admissions_cols: 'AdmissionsTableColumns',
-                                table: pd.DataFrame, c_admission_id: str,
-                                aggregation_level: TableAggregationLiteral) -> tuple[pd.DataFrame, int]:
+    def adapt_aggregation_level(
+        admissions: pd.DataFrame,
+        admissions_cols: "AdmissionsTableColumns",
+        table: pd.DataFrame,
+        c_admission_id: str,
+        aggregation_level: TableAggregationLiteral,
+    ) -> tuple[pd.DataFrame, int]:
         c_subject_id = admissions_cols.subject_id
         match aggregation_level:
-            case 'admission':
+            case "admission":
                 # do nothing.
                 return table, len(admissions)
-            case 'first_admission':
+            case "first_admission":
                 # Apply the statistics only on the first admission for each subject.
                 # Collect the first admission id for each subject and remove the rest.
                 admissions = admissions.sort_values(by=admissions_cols.start_time, ascending=True)
@@ -46,27 +52,36 @@ class TargetHistogram:
                 assert admission_index == c_admission_id
                 first_admissions = admissions.reset_index(drop=False).groupby(c_subject_id)[admission_index].first()
                 return table[table[c_admission_id].isin(first_admissions)], len(first_admissions)
-            case 'subject':
+            case "subject":
                 # Apply the statistics on the level of each subject as a whole.
                 # To adapt to the same function of `compute`, we just rename admission ids of each subject
                 # to have the same dummy value. We just set the values of admission ids to the subject ids.
                 table = table.assign(**{c_admission_id: table[c_admission_id].map(admissions[c_subject_id].to_dict())})
                 return table, admissions[c_subject_id].nunique()
             case _:
-                raise ValueError(f"Unknown aggregation level '{aggregation_level}'. "
-                                 f"Expected one of: {get_args(TableAggregationLiteral)}.")
+                raise ValueError(
+                    f"Unknown aggregation level '{aggregation_level}'. "
+                    f"Expected one of: {get_args(TableAggregationLiteral)}."
+                )
 
-    def _dx_discharge(self, codemap: CodeMap, target_codes: tuple[str, ...],
-                      aggregation_level: TableAggregationLiteral = 'admission') -> tuple[pd.Series, int]:
+    def _dx_discharge(
+        self, codemap: CodeMap, target_codes: tuple[str, ...], aggregation_level: TableAggregationLiteral = "admission"
+    ) -> tuple[pd.Series, int]:
         table = self.dataset.tables.dx_discharge
         cols = self.dataset.config.columns.dx_discharge
-        table, n = self.adapt_aggregation_level(self.dataset.tables.admissions, self.dataset.config.columns.admissions,
-                                                table, cols.admission_id, aggregation_level)
+        table, n = self.adapt_aggregation_level(
+            self.dataset.tables.admissions,
+            self.dataset.config.columns.admissions,
+            table,
+            cols.admission_id,
+            aggregation_level,
+        )
         hist = self.compute(table, cols.admission_id, cols.code, codemap)
         return hist.reindex(pd.Index(target_codes, name=cols.code), fill_value=0), n
 
-    def dx_discharge(self, target_scheme: str | tuple[str, ...],
-                     aggregation_level: TableAggregationLiteral = 'admission') -> tuple[pd.Series, int]:
+    def dx_discharge(
+        self, target_scheme: str | tuple[str, ...], aggregation_level: TableAggregationLiteral = "admission"
+    ) -> tuple[pd.Series, int]:
         if isinstance(target_scheme, str):
             codemap = self.schemes_manager.map[self.dataset.config.scheme.dx_discharge, target_scheme]
         elif isinstance(target_scheme, tuple):
@@ -79,8 +94,9 @@ class TargetHistogram:
         codes = self.schemes_manager.scheme[target_scheme].codes
         return self._dx_discharge(codemap, codes, aggregation_level)
 
-    def outcome(self, outcome: str | tuple[str, ...],
-                aggregation_level: TableAggregationLiteral = 'admission') -> tuple[pd.Series, int]:
+    def outcome(
+        self, outcome: str | tuple[str, ...], aggregation_level: TableAggregationLiteral = "admission"
+    ) -> tuple[pd.Series, int]:
         dx_scheme = self.dataset.config.scheme.dx_discharge
         if isinstance(outcome, str):
             o = self.schemes_manager.outcome[dx_scheme, outcome]
@@ -99,34 +115,36 @@ class MultiDatasetTargetHistogram:
     target_hist: tuple[TargetHistogram, ...]
     schemes_manager: CodingSchemesManager
 
-    def __init__(self, datasets: tuple['Dataset', ...], schemes_manager: CodingSchemesManager):
+    def __init__(self, datasets: tuple["Dataset", ...], schemes_manager: CodingSchemesManager):
         self.target_hist = tuple(TargetHistogram(dataset, schemes_manager) for dataset in datasets)
         self.schemes_manager = schemes_manager
 
     @staticmethod
     def compile(results: tuple[pd.Series, ...], normalize: tuple[int, ...]) -> tuple[pd.DataFrame, pd.Series]:
         df = pd.concat(results, axis=1)
-        df.columns = [f'D{i}' for i in range(len(results))]
+        df.columns = [f"D{i}" for i in range(len(results))]
         df.index.name = results[0].index.name
         return df, pd.Series(normalize, index=df.columns)
 
-    def dx_discharge(self, target_scheme: str,
-                     aggregation_level: TableAggregationLiteral = 'admission') -> tuple[pd.DataFrame, pd.Series]:
+    def dx_discharge(
+        self, target_scheme: str, aggregation_level: TableAggregationLiteral = "admission"
+    ) -> tuple[pd.DataFrame, pd.Series]:
         results, norm = zip(*[h.dx_discharge(target_scheme, aggregation_level) for h in self.target_hist])
         return self.compile(results, norm)
 
-    def outcome(self, target_scheme: str, aggregation_level: TableAggregationLiteral = 'admission') -> tuple[
-        pd.DataFrame, pd.Series]:
+    def outcome(
+        self, target_scheme: str, aggregation_level: TableAggregationLiteral = "admission"
+    ) -> tuple[pd.DataFrame, pd.Series]:
         results, norm = zip(*[h.outcome(target_scheme, aggregation_level) for h in self.target_hist])
         return self.compile(results, norm)
 
 
 @dataclass
 class DatasetStatsInterface:
-    dataset: 'Dataset'
+    dataset: "Dataset"
     schemes_manager: CodingSchemesManager
 
-    def __init__(self, dataset: 'Dataset', schemes_manager: CodingSchemesManager):
+    def __init__(self, dataset: "Dataset", schemes_manager: CodingSchemesManager):
         self.dataset = dataset
         self.schemes_manager = schemes_manager
 
@@ -141,7 +159,7 @@ class DatasetStatsInterface:
         return pd.Series(admission_year - birth_year, index=first_admission[c_subject_id])
 
     @property
-    def schemes_proxy(self) -> 'DatasetSchemeProxy':
+    def schemes_proxy(self) -> "DatasetSchemeProxy":
         return self.dataset.scheme_proxy(self.schemes_manager)
 
     @property
@@ -151,17 +169,17 @@ class DatasetStatsInterface:
 
 @dataclass
 class TwoDatasetsTargetHistogram(MultiDatasetTargetHistogram):
-    def __init__(self, datasets: tuple['Dataset', ...], schemes_manager: CodingSchemesManager):
+    def __init__(self, datasets: tuple["Dataset", ...], schemes_manager: CodingSchemesManager):
         super().__init__(datasets, schemes_manager)
         assert len(datasets) == 2
 
 
 @dataclass
 class MultiDatasetsStatsInterface:
-    datasets: tuple['Dataset', ...]
+    datasets: tuple["Dataset", ...]
     schemes_manager: CodingSchemesManager
 
-    def __init__(self, *datasets: 'Dataset', schemes_manager: CodingSchemesManager):
+    def __init__(self, *datasets: "Dataset", schemes_manager: CodingSchemesManager):
         self.datasets = datasets
         self.schemes_manager = schemes_manager
 
@@ -187,35 +205,40 @@ class TwoSamplesTest:
         z_val = (x1 / n1 - x2 / n2) / np.sqrt(avg_p * (1 - avg_p) * (1 / n1 + 1 / n2))
         z_prob = pd.Series(-np.abs(z_val)).map(dist.norm.cdf)
         normal_assumption = (x1 >= 10) & (x2 >= 10) & (n1 - x1 >= 10) & (n2 - x2 >= 10)  # same blog post.
-        return pd.DataFrame({
-            'code_description': list(map(code_description.get, counts.index)),
-            'p_val_two_sided': 2 * z_prob,
-            'normal_assumption': normal_assumption,
-            'D0_counts': x1,
-            'D1_counts': x2,
-            'D0_p': x1 / n1,
-            'D1_p': x2 / n2,
-        }, index=counts.index)
+        return pd.DataFrame(
+            {
+                "code_description": list(map(code_description.get, counts.index)),
+                "p_val_two_sided": 2 * z_prob,
+                "normal_assumption": normal_assumption,
+                "D0_counts": x1,
+                "D1_counts": x2,
+                "D0_p": x1 / n1,
+                "D1_p": x2 / n2,
+            },
+            index=counts.index,
+        )
 
     @staticmethod
     def summerise(stats: pd.DataFrame, alpha: float = 0.05) -> pd.Series:
-        divergent = (stats['normal_assumption']) & (stats['p_val_two_sided'] < alpha)
-        convergent = (stats['normal_assumption']) & (stats['p_val_two_sided'] > alpha)
+        divergent = (stats["normal_assumption"]) & (stats["p_val_two_sided"] < alpha)
+        convergent = (stats["normal_assumption"]) & (stats["p_val_two_sided"] > alpha)
         n_divergent = divergent.sum()
         n_convergent = convergent.sum()
-        n_skip_test = (~stats['normal_assumption']).sum()
+        n_skip_test = (~stats["normal_assumption"]).sum()
         n = stats.shape[0]
-        return pd.Series({'total': n, 'divergent': n_divergent, 'convergent': n_convergent, 'skip_test': n_skip_test})
+        return pd.Series({"total": n, "divergent": n_divergent, "convergent": n_convergent, "skip_test": n_skip_test})
 
-    def dx_discharge(self, target_scheme: str | tuple[str, ...],
-                     aggregation_level: TableAggregationLiteral = 'admission') -> pd.DataFrame:
+    def dx_discharge(
+        self, target_scheme: str | tuple[str, ...], aggregation_level: TableAggregationLiteral = "admission"
+    ) -> pd.DataFrame:
         counts, n = self.target_hist.dx_discharge(target_scheme, aggregation_level)
         if isinstance(target_scheme, tuple):
             target_scheme = target_scheme[-1]
         return self.proportion_tests(counts, n, self.target_hist.schemes_manager.scheme[target_scheme].desc)
 
-    def outcome(self, target_scheme: str | tuple[str, ...],
-                aggregation_level: TableAggregationLiteral = 'admission') -> pd.DataFrame:
+    def outcome(
+        self, target_scheme: str | tuple[str, ...], aggregation_level: TableAggregationLiteral = "admission"
+    ) -> pd.DataFrame:
         counts, n = self.target_hist.outcome(target_scheme, aggregation_level)
         if isinstance(target_scheme, tuple):
             target_scheme = target_scheme[-1]
@@ -224,10 +247,10 @@ class TwoSamplesTest:
 
 @dataclass
 class TwoDatasetsStatsInterface:
-    datasets: tuple['Dataset', ...]
+    datasets: tuple["Dataset", ...]
     schemes_manager: CodingSchemesManager
 
-    def __init__(self, *datasets: 'Dataset', schemes_manager: CodingSchemesManager):
+    def __init__(self, *datasets: "Dataset", schemes_manager: CodingSchemesManager):
         self.datasets = datasets
         self.schemes_manager = schemes_manager
         assert len(datasets) == 2
