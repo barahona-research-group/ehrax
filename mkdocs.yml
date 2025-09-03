@@ -1,8 +1,8 @@
-site_name: EHRAx
-site_description: Documentation for the EHRAx Python package
-site_url: https://example.com/ehrax
-repo_url: https://github.com/your-org/ehrax
-repo_name: your-org/ehrax
+site_name: ehrax
+site_description: Documentation for the ehrax Python package
+site_url: https://github.com/barahona-research-group/ehrax
+repo_url: https://github.com/barahona-research-group/ehrax
+repo_name: ehrax
 edit_uri: edit/dev/docs/
 
 docs_dir: docs
@@ -70,19 +70,19 @@ plugins:
 
 nav:
   - Home: index.md
-  - Why EHRAx: why-ehrax.md
+  - Why ehrax: why-ehrax.md
   - FAQ: faq.md
-  - Notebooks:
-      - Quality of ICD10→CCS Map: notebooks/quality_of_icd10_to_ccs_map.ipynb
+  #  - Notebooks:
+  #      - Quality of ICD10→CCS Map: notebooks/quality_of_icd10_to_ccs_map.ipynb
   - API Reference:
       - Package overview: api.md
 
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/your-org/ehrax
+      link: https://github.com/barahona-research-group/ehrax
 
-extra_css: []
+extra_css: [ ]
 extra_javascript:
   - https://polyfill.io/v3/polyfill.min.js?features=es6
   - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
