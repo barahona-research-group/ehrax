@@ -52,3 +52,21 @@ docs = [
   "mkdocs-jupyter==0.24.8",
   "jupyter>=1.0.0"
 ]
+
+
+[tool.ruff]
+extend-include = ["*.ipynb"]
+src = []
+line-length = 120
+indent-width = 4
+
+#[tool.ruff.lint]
+#fixable = ["I001", "F401", "UP"]
+#ignore = ["E402", "E721", "E731", "E741", "F722", "UP038"]
+#select = ["E", "F", "I001", "UP"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+extra-standard-library = ["typing_extensions"]
+lines-after-imports = 2
+order-by-type = false
