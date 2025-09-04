@@ -891,19 +891,19 @@ class TVxConcepts(AbstractTransformation):
 
         def time_values(index: np.ndarray, values: np.ndarray) -> np.ndarray:
             value = np.zeros(obs_dim, dtype=np.float16)
-            np.put(value, index, values)
+            value[index] = values
             return value
 
         def time_mask(index: np.ndarray) -> np.ndarray:
             mask = np.zeros(obs_dim, dtype=bool)
-            np.put(mask, index, True)
+            mask[index] = True
             return mask
 
         def inpatient_obs_data(admission_df: pd.DataFrame) -> Iterable[tuple[float, np.ndarray, np.ndarray]]:
             admission_df = admission_df.sort_values(c_timestamp)
             for timestamp, time_df in admission_df.groupby(c_timestamp):
                 index = time_df[c_code].values
-                yield timestamp, time_values(index, admission_df[c_value].values), time_mask(index)
+                yield timestamp, time_values(index, time_df[c_value].values), time_mask(index)
 
         def make_inpatient_obs(admission_df: pd.DataFrame) -> InpatientObservables:
             time, value, mask = zip(*inpatient_obs_data(admission_df))

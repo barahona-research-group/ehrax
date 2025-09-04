@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from typing import Any
 
+import pandas as pd
+
 import ehrax as rx
 import equinox as eqx
 import numpy as np
@@ -337,6 +339,15 @@ class TestTVxConcepts:
 
         for admission_id, admission_obs_df in obs_df.groupby(c_admission_id):
             tvx_obs = admission_obs[admission_id]
+            vals = tvx_obs.value.flatten()[tvx_obs.mask.flatten()]
+            tvx_time_vals = pd.Series(tvx_obs.time)
+            tbl_time_vals = pd.Series(np.unique(admission_obs_df[rx.COLUMN.time]))
+
+            tvx_vals_count = pd.Series(vals, name=rx.COLUMN.measurement).value_counts().sort_index()
+            tbl_vals_count = admission_obs_df[rx.COLUMN.measurement].astype(vals.dtype).value_counts().sort_index()
+
+            assert tvx_vals_count.equals(tbl_vals_count)
+            assert tvx_time_vals.equals(tbl_time_vals)
             assert tvx_obs.mask.sum() == len(admission_obs_df)
             assert tvx_obs.value.shape[1] == len(tvx_ehr_with_obs.dataset.scheme_proxy(DATASET_SCHEME_MANAGER).obs)
 
