@@ -211,7 +211,8 @@ def outcome_first_occurrence(sorted_admissions: list[Admission]) -> str:
         sorted_admissions (list[Admission]): a list of sorted Admission objects.
 
     Returns:
-        np.ndarray: an array containing the admission index of the first occurrence of each outcome for each admission. -1 means no occurrence.
+        np.ndarray: an array containing the admission index of the first occurrence of
+        each outcome for each admission. -1 means no occurrence.
     """
     first_occurrence = np.empty_like(sorted_admissions[0].outcome.vec, dtype=type[sorted_admissions[0].admission_id])
     first_occurrence[:] = -1
@@ -356,16 +357,6 @@ class TVxEHRSchemeProxy(DatasetSchemeProxy):
 
 
 class TVxEHRConfig(AbstractConfig):
-    """
-    Configuration class for the interface.
-
-    Attributes:
-        demographic (DemographicVectorConfig): configuration for the demographic vector.
-        leading_observable (Optional[LeadingObservableExtractorConfig]): configuration for the leading observable (optional).
-        scheme (dict[str, str]): dictionary representing the scheme.
-        time_binning (Optional[int]): time binning configuration to aggregate observables/measurements over intervals (optional).
-    """
-
     scheme: TVxEHRSchemeConfig
     demographic: DemographicVectorConfig
     sample: TVxEHRSampleConfig | None
@@ -458,40 +449,6 @@ _SplitsType = tuple[tuple[str, ...], ...]
 
 
 class TVxEHR(AbstractProcessedDataset):
-    """
-    A class representing a sequence of patients in the EHR system, in ML-compliant format.
-
-    Attributes:
-        config (TVxEHRConfig): the configuration for the interface.
-        dataset (Dataset): the dataset containing the patient data.
-        subjects (dict[str, Patient]): a dictionary of patient objects, where the keys are subject IDs.
-
-    Methods:
-        subject_ids: returns a sorted list of subject IDs.
-        scheme: returns the target scheme for the dataset.
-        schemes: returns a tuple containing the dataset scheme and the target scheme.
-        __len__: returns the number of patients in the dataset.
-        equal_config: checks if the given configuration is equal to the cached configuration.
-        save: saves the Patients object to disk.
-        load: loads a Patients object from disk.
-        try_load_cached: tries to load a cached Patients object, or creates a new one if the cache does not match the configuration.
-        load_subjects: loads the subjects from the dataset.
-        device_batch: loads the subjects and moves them to the device (e.g. GPU).
-        epoch_splits: generates epoch splits for the subjects.
-        batch_gen: generates batches of subjects.
-        n_admissions: returns the total number of admissions for the given subjects.
-        n_segments: returns the total number of segments for the given subjects.
-        n_obs_times: returns the total number of observation timestamps for the given subjects.
-        d2d_interval_days: returns the total number of days between the first and last discharge.
-        interval_days: returns the total number of days between admissions for the given subjects.
-        interval_hours: returns the total number of hours between admissions for the given subjects.
-        p_obs: returns the proportion of present observations in the timestamped vectorized representation in the dataset.
-        obs_coocurrence_matrix: returns the co-occurrence (or co-presence) matrix of the observables.
-        size_in_bytes: returns the size of the Patients object in bytes.
-        _unscaled_observation: unscales the observation values, undos the preprocessing scaling.
-        _unscaled_leading_observable: unscales the leading observable values, undos the preprocessing scaling.
-    """
-
     config: TVxEHRConfig
     dataset: Dataset
     numerical_processors: DatasetNumericalProcessors
@@ -623,7 +580,8 @@ class TVxEHR(AbstractProcessedDataset):
         Args:
             subject_ids (Optional[list[str]]): list of subject IDs to split.
             batch_n_admissions (int): number of admissions per batch.
-            discount_first_admission (bool, optional): whether to ignore the first admission from the counts. Defaults to False.
+            discount_first_admission (bool, optional): whether to ignore the first admission from the counts.
+            Defaults to False.
 
         Returns:
             list[list[str]]: list of lists containing the split subject IDs.
@@ -729,7 +687,8 @@ class TVxEHR(AbstractProcessedDataset):
         return sum(a.interval_hours for s in subject_ids for a in self.subjects[s].admissions)
 
     def p_obs(self, subject_ids: Iterable[str] | None = None) -> float:
-        """For a colelction of subjects, compute a measure that is proportional to rate of presence per observation timestamp.
+        """For a collection of subjects, compute a measure that is proportional to the rate of presence per
+        observation timestamp.
 
         Args:
             subject_ids: list of subject IDs.
@@ -813,14 +772,15 @@ class TVxEHR(AbstractProcessedDataset):
 
     def outcome_frequency_partitions(self, n_partitions: int, subjects: Iterable[str]) -> tuple[tuple[int, ...], ...]:
         """
-        Get the outcome codes partitioned by their frequency of occurrence into `n_partitions` partitions. The codes in each partition contributes to 1 / n_partitions of the all outcome occurrences.
+        Get the outcome codes partitioned by their frequency of occurrence into `n_partitions` partitions. The codes in
+        each partition contribute to 1 / n_partitions of the all outcome occurrences.
 
         Args:
             n_partitions (int): number of partitions.
             subjects (list[str]): list of subject IDs.
 
         Returns:
-            list[list[int]]: list of outcome codes partitioned by frequency into `n_partitions` partitions.
+            list[list[int]]: a list of outcome codes partitioned by frequency into `n_partitions` partitions.
 
         """
         frequency_vec = self.outcome_frequency_vec(subjects)
@@ -833,7 +793,8 @@ class TVxEHR(AbstractProcessedDataset):
         return tuple(tuple(p.astype(int)) for p in np.hsplit(sorted_codes, splitters))
 
     def outcome_first_occurrence(self, subject_id: str) -> str:
-        """Get the first occurrence admission index of each outcome for a subject. If an outcome does not occur, the index is set to -1.
+        """Get the first occurrence admission index of each outcome for a subject. If an outcome does not occur,
+        the index is set to -1.
 
         Args:
             subject_id (str): subject ID.
@@ -881,8 +842,7 @@ class SegmentedTVxEHR(TVxEHR):
             subject_ids = self.subjects.keys()
         for s in subject_ids:
             for adm in self.subjects[s].admissions:
-                for obs_segment in adm.observables:
-                    yield obs_segment
+                yield from adm.observables
 
     def iter_lead_obs(self, subject_ids=None) -> Iterable[InpatientObservables]:
         if subject_ids is None:

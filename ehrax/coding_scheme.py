@@ -355,7 +355,8 @@ class CodingSchemeWithUOM(CodingScheme):
 
             uom_universal = uom_universal_a | uom_universal_b | uom_universal_c
 
-        # Narrow down the codes to those who have at least one universal unit (the target unit to which all units are converted).
+        # Narrow down the codes to those who have at least one universal unit (the target unit to which all
+        # units are converted).
         df = df[df.index.isin(uom_universal.keys())]
         uom_data = {
             code: code_df.set_index(c_unit)[c_normalization_factor].to_dict() for code, code_df in df.groupby(df.index)
@@ -418,7 +419,8 @@ class HierarchicalScheme(CodingScheme):
             assert all(isinstance(c, str) for c in collection), f"{self}: All name types should be str."
 
         # Check sizes
-        # TODO: note in the documentation that dag2code size can be less than the dag_codes since some dag_codes are internal nodes that themselves are not are not complete clinical concepts.
+        # TODO: note in the documentation that dag2code size can be less than the dag_codes since some dag_codes are
+        #  internal nodes that themselves are not are not complete clinical concepts.
         for collection in [self.dag_codes, self.dag_desc]:
             assert len(collection) == len(self.dag_codes), f"{self}: All collections should have the same size."
 
@@ -430,7 +432,8 @@ class HierarchicalScheme(CodingScheme):
             include_itself (bool): whether to include the code itself as its own ancestor. Defaults to True.
 
         Returns:
-            Array: a boolean matrix where each element (i, j) is True if code i is an ancestor of code j, and False otherwise.
+            Array: a boolean matrix where each element (i, j) is True if code i is an ancestor of code j, and
+                False otherwise.
         """
         parents_indices = [[] for _ in range(len(self.dag_index))]
         for code_i, i in self.dag_index.items():
@@ -1285,8 +1288,10 @@ class CodingSchemesManager(AbstractVxData):
 
     def make_chained_map(self, chain: tuple[str, ...]) -> CodeMap:
         """
-        Registers a chained CodeMap. The source and target coding schemes are chained together if there is an intermediate scheme that can act as a bridge between the two.
-        There must be registered two CodeMaps, one that maps between the source and intermediate coding schemes and one that maps between the intermediate and target coding schemes.
+        Registers a chained CodeMap. The source and target coding schemes are chained together if there is an
+        intermediate scheme that can act as a bridge between the two. There must be registered two CodeMaps, one that
+        maps between the source and intermediate coding schemes and one that maps between the intermediate and
+        target coding schemes.
         Args:
             s_scheme (str): the source coding scheme.
             inter_scheme (str): the intermediate coding scheme.
@@ -1312,8 +1317,10 @@ class CodingSchemesManager(AbstractVxData):
 
     def add_chained_map(self, s_scheme: str, inter_scheme: str, t_scheme: str, overwrite: bool = False) -> Self:
         """
-        Registers a chained CodeMap. The source and target coding schemes are chained together if there is an intermediate scheme that can act as a bridge between the two.
-        There must be registered two CodeMaps, one that maps between the source and intermediate coding schemes and one that maps between the intermediate and target coding schemes.
+        Registers a chained CodeMap. The source and target coding schemes are chained together if there is an
+        intermediate scheme that can act as a bridge between the two. There must be registered two CodeMaps, one that
+        maps between the source and intermediate coding schemes and one that maps between the intermediate and target
+        coding schemes.
         Args:
             s_scheme (str): the source coding scheme.
             inter_scheme (str): the intermediate coding scheme.

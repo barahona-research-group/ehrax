@@ -105,7 +105,7 @@ class AbstractTestDataset:
             k for k in all_tables_keys if getattr(dataset_tables, k) is not None
         )
 
-    def test_save_load(self, dataset_tables: rx.DatasetTables, tmpdir):
+    def test_save_load_tables(self, dataset_tables: rx.DatasetTables, tmpdir):
         with tb.open_file(f"{tmpdir}/test_dataset_tables.h5", "w") as hf5:
             dataset_tables.save(hf5.create_group("/", "dataset_tables"))
         with tb.open_file(f"{tmpdir}/test_dataset_tables.h5", "r") as hf5:
@@ -358,7 +358,8 @@ class TestTargetHistogram:
         assert hist == expected
 
     @pytest.mark.parametrize(
-        "admission_id, subject_id, admission_time, expected_agg_admission, expected_agg_first_admission, expected_agg_subject",
+        "admission_id, subject_id, admission_time, expected_agg_admission, "
+        "expected_agg_first_admission, expected_agg_subject",
         [
             [(), (), (), (), (), ()],
             [("1",), ("a",), (0,), ("1",), ("1",), ("a",)],

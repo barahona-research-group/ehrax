@@ -726,27 +726,3 @@ class ICUInputRateUnitConversion(DatasetTransformation):
         )
 
         return dataset, report
-
-
-# DS_DEPENDS_RELATIONS: Final[dict[type[DatasetTransformation], set[type[DatasetTransformation]]]] = {
-#     SetAdmissionRelativeTimes: {CastTimestamps, SetIndex},
-#     FilterSubjectsNegativeAdmissionLengths: {CastTimestamps, SetIndex},
-#     ProcessOverlappingAdmissions: {SetIndex, CastTimestamps},
-#     FilterClampTimestampsToAdmissionInterval: {SetIndex, CastTimestamps},
-#     SelectSubjectsWithObservation: {SetIndex},
-#     FilterInvalidInputRatesSubjects: {SetIndex, ICUInputRateUnitConversion},
-# }
-#
-# DS_BLOCKED_BY_RELATIONS: Final[dict[type[DatasetTransformation], set[type[DatasetTransformation]]]] = {
-#     FilterClampTimestampsToAdmissionInterval: {SetAdmissionRelativeTimes},
-#     ICUInputRateUnitConversion: {SetAdmissionRelativeTimes}
-# }
-# DS_PIPELINE_VALIDATOR: Final[TransformationsDependency] = TransformationsDependency({}, {}
-#                                                                                     # depends=DS_DEPENDS_RELATIONS,
-#                                                                                     # blocked_by=DS_BLOCKED_BY_RELATIONS,
-#                                                                                     )
-#
-#
-# class ValidatedDatasetPipeline(AbstractDatasetPipeline):
-#     transformations: list[DatasetTransformation] = field(kw_only=True)
-#     validator: ClassVar[TransformationsDependency] = DS_PIPELINE_VALIDATOR

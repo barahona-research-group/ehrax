@@ -1,11 +1,10 @@
 from collections.abc import Callable
 from typing import Any
 
-import pandas as pd
-
 import ehrax as rx
 import equinox as eqx
 import numpy as np
+import pandas as pd
 import pytest
 import tables as tb
 from ehrax.testing.common_setup import BINARY_OBSERVATION_CODE_INDEX, DATASET_SCHEME_MANAGER

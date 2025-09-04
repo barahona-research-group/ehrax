@@ -103,7 +103,7 @@ class AbstractHDFSerializable(AbstractModule):
 class HDFVirtualNode(AbstractHDFSerializable):
     """
     This class represents an unfetched node in a PyTree/AbstractHDFSerializable.
-    This is similar to the notion of lazy-loading, but the library explicitly requires calling `fetch_at(..,..)`
+    This is similar to the notion of lazy-loading, but the library explicitly requires calling `fetch_at(..,.)`
     or `fetch_all()` on any of the node ancestors, a
     """
 
@@ -124,7 +124,7 @@ class HDFVirtualNode(AbstractHDFSerializable):
             assert isinstance(value, field.type)
 
     @property
-    def _v_parent_path_seq(self) -> list[str]:  # to a series of directories with root directory represented by ''
+    def _v_parent_path_seq(self) -> list[str]:  # to a series of directories with the root directory represented by ''
         if len(self.parent_path) == 0:
             return []
         if len(self.parent_path) == 1:
@@ -142,7 +142,8 @@ class HDFVirtualNode(AbstractHDFSerializable):
 
     def to_hdf_group(self, group: tb.Group) -> None:
         raise ValueError(
-            "You are trying to serialize an unfetched node in a PyTree/AbstractHDFSerializable. Please call `fetch_at(..,..)` or "
+            "You are trying to serialize an unfetched node in a PyTree/AbstractHDFSerializable. "
+            "Please call `fetch_at(..,..)` or "
             "`fetch_all()` on any of the node ancestors first."
         )
 
@@ -436,7 +437,8 @@ COMPARISON_PRIORITY = MappingProxyType(
             SERIALIZABLE_FIELD.pandas_equivalent,
         )
     }
-)  # collections, mappings, and HDFSerializable subclasses are left because they can be nested with other HDFSerializables
+)  # collections, mappings, and HDFSerializable subclasses are left because they can be nested with
+# other HDFSerializables
 assert all(isinstance(e.value, tuple) and all(isinstance(t, type) for t in e.value) for e in SERIALIZABLE_FIELD), (
     "Expected a tuple of types."
 )
@@ -512,11 +514,12 @@ class AbstractVxData(AbstractHDFSerializable):
             if obj is None:
                 continue
             try:
-                enum_type = self.object_type_enum_name(obj)
+                _ = self.object_type_enum_name(obj)
             except (KeyError, StopIteration):
                 assert False, (
                     f"Unsupported field type {type(obj)} for attribute {f}. It must be a type in "
-                    f"{tuple(t.__qualname__ for t in SERIALIZABLE_FIELD_TYPES)} or a subclass of AbstractHDFSerializable."
+                    f"{tuple(t.__qualname__ for t in SERIALIZABLE_FIELD_TYPES)} or a subclass of "
+                    f"AbstractHDFSerializable."
                 )
 
     @property
@@ -909,7 +912,7 @@ T = TypeVar("T", bound=AbstractVxData)
 HDFVirtualNodeGet = Callable[[T], HDFVirtualNode]
 
 
-def fetch_at(
+def fetch_at[T](
     where: HDFVirtualNodeGet[T] | tuple[HDFVirtualNodeGet[T], ...],
     tree: T,
     levels: int | None | tuple[int, ...] = None,
@@ -950,13 +953,13 @@ def fetch_at(
     assert 0, "Unreachable."
 
 
-def fetch_one_level_at(where: HDFVirtualNodeGet[T] | tuple[HDFVirtualNodeGet[T], ...], tree: T) -> T:
+def fetch_one_level_at[T](where: HDFVirtualNodeGet[T] | tuple[HDFVirtualNodeGet[T], ...], tree: T) -> T:
     # Useful to fetch dictionary keys with virtual nodes for values.
     # Or a sequence of vitruals, or object with virtual nodes for attributes.
     return fetch_at(where, tree=tree, levels=1)
 
 
-def fetch_all(tree: T) -> T:
+def fetch_all[T](tree: T) -> T:
     # Note 1:
     # Preprocessing to catch any set in the pytree. JAX pytree does not
     # navigate into sets as it does with list/dicts/tuples.

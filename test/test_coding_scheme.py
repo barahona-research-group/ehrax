@@ -359,9 +359,9 @@ class TestFlatScheme:
         Test the `as_dataframe` method of the FlatScheme class.
 
         This method tests whether the `as_dataframe` method returns a DataFrame with the expected structure and values.
-        It checks if the index of the DataFrame matches the index values of the scheme, and if the columns of the DataFrame
-        are 'code' and 'desc'. It also verifies if the scheme object is equal to a new FlatScheme object created with the
-        same configuration, codes, descriptions, and index.
+        It checks if the index of the DataFrame matches the index values of the scheme and if the columns of the
+        DataFrame are 'code' and 'desc'. It also verifies if the scheme object is equal to a new FlatScheme object
+        created with the same configuration, codes, descriptions, and index.
         """
         df = primitive_flat_scheme.as_dataframe()
         assert set(df.index) == set(primitive_flat_scheme.index.values())
