@@ -1,0 +1,40 @@
+fail_fast: true
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-json
+      - id: check-toml
+      - id: check-ast
+      - id: debug-statements
+
+  # Python code formatting and linting with ruff (Equinox-style, fast)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.11
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.404
+    hooks:
+    - id: pyright
+      additional_dependencies:
+                [
+                  pytest,
+                  equinox,
+                  numpy,
+                  jax,
+                  pandas,
+                  tables,
+                  scipy,
+                  tqdm,
+                  networkx,
+                  SQLAlchemy,
+                  psycopg
+                ]

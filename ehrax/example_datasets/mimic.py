@@ -3,23 +3,43 @@
 import warnings
 from abc import abstractmethod
 from collections.abc import Callable, Iterable
-from typing import Any, Optional, Self, cast
+from typing import Any, cast, Self
 
 import equinox as eqx
 import numpy as np
 import pandas as pd
 
 from ..base import AbstractConfig
-from ..coding_scheme import (CodeMap, CodingScheme, CodingSchemeWithUOM, CodingSchemesManager, FrozenDict11,
-                             NumericScheme, ReducedCodeMapN1)
-from ..dataset import AdmissionIntervalEventsTableColumns, AdmissionIntervalRatesTableColumns, \
-    AdmissionSummaryTableColumns, AdmissionTimeSeriesTableColumns, COLUMN, Dataset, DatasetConfig, DatasetSchemeConfig, \
-    DatasetTables, MultivariateTimeSeriesTableMeta, SECONDS_TO_HOURS_SCALER, StaticTableColumns, TableColumns
+from ..coding_scheme import (
+    CodeMap,
+    CodingScheme,
+    CodingSchemesManager,
+    CodingSchemeWithUOM,
+    FrozenDict11,
+    NumericScheme,
+    ReducedCodeMapN1,
+)
+from ..dataset import (
+    AdmissionIntervalEventsTableColumns,
+    AdmissionIntervalRatesTableColumns,
+    AdmissionSummaryTableColumns,
+    AdmissionTimeSeriesTableColumns,
+    COLUMN,
+    Dataset,
+    DatasetConfig,
+    DatasetSchemeConfig,
+    DatasetTables,
+    MultivariateTimeSeriesTableMeta,
+    SECONDS_TO_HOURS_SCALER,
+    StaticTableColumns,
+    TableColumns,
+)
 from ..example_schemes.icd_ccs_integration import setup_standard_icd_ccs
 from ..example_schemes.mixed_icd import MultiVersionScheme
 from ..utils import resources_path
 
-warnings.filterwarnings('error', category=RuntimeWarning, message=r'overflow encountered in cast')
+
+warnings.filterwarnings("error", category=RuntimeWarning, message=r"overflow encountered in cast")
 
 
 class TableResource(AbstractConfig):
@@ -55,7 +75,7 @@ class TableResource(AbstractConfig):
         """
         Some code cells are empty (e.g., ROW_ID=7969 in MIMIC-III v1.3 DIAGNOSES_ICD.csv.gz). Filter these rows.
         """
-        not_null = df[COLUMN.code].notnull() & (df[COLUMN.code] != '')
+        not_null = df[COLUMN.code].notnull() & (df[COLUMN.code] != "")
         return df.loc[not_null]
 
     @property
@@ -76,11 +96,15 @@ class TableResource(AbstractConfig):
         return self.apply_pipeline(self.pipeline, self.load_standard_columns_table(data_connection, **kwargs))
 
 
-CodedColumns = AdmissionSummaryTableColumns | AdmissionTimeSeriesTableColumns | AdmissionIntervalEventsTableColumns | AdmissionIntervalRatesTableColumns
+CodedColumns = (
+    AdmissionSummaryTableColumns
+    | AdmissionTimeSeriesTableColumns
+    | AdmissionIntervalEventsTableColumns
+    | AdmissionIntervalRatesTableColumns
+)
 
 
 class CodedTableResource(TableResource):
-
     def __check_init__(self):
         assert all(c in self.columns for c in (COLUMN.code, COLUMN.description))
 
@@ -136,32 +160,41 @@ class StaticTableResource(TableResource):
         return None
 
     def gender_space(self, date_source: Any) -> pd.DataFrame:
-        p = self.substitute_null_function(str(COLUMN.gender), 'MISSING_GENDER')
+        p = self.substitute_null_function(str(COLUMN.gender), "MISSING_GENDER")
         return p(self.load_gender_space_table(date_source))
 
     def ethnicity_space(self, data_connection: Any) -> pd.DataFrame:
-        p = self.substitute_null_function(str(COLUMN.race), 'MISSING_ETHNICITY')
+        p = self.substitute_null_function(str(COLUMN.race), "MISSING_ETHNICITY")
         return p(self.load_ethnicity_space_table(data_connection))
 
     def __call__(self, data_connection: Any, **kwargs) -> pd.DataFrame:
-        assert 'admissions' in kwargs, "Pass the processed admissions table."
-        admissions = kwargs.pop('admissions')
-        pipeline = (self._coerce_id_to_str, self._add_deshifted_date_of_birth(admissions=admissions),
-                    self.substitute_null_function(str(COLUMN.race), 'MISSING_ETHNICITY'),
-                    self.substitute_null_function(str(COLUMN.gender), 'MISSING_GENDER'))
+        assert "admissions" in kwargs, "Pass the processed admissions table."
+        admissions = kwargs.pop("admissions")
+        pipeline = (
+            self._coerce_id_to_str,
+            self._add_deshifted_date_of_birth(admissions=admissions),
+            self.substitute_null_function(str(COLUMN.race), "MISSING_ETHNICITY"),
+            self.substitute_null_function(str(COLUMN.gender), "MISSING_GENDER"),
+        )
         return self.apply_pipeline(pipeline, self.load_standard_columns_table(data_connection, **kwargs))
 
 
 class StaticTableResource_MIMICIV(StaticTableResource):
     @classmethod
     def derive_deshifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.Series:
-        return pd.Series(list(map(lambda dt, age: dt + pd.DateOffset(years=-age),
-                                  pd.to_datetime(patients[COLUMN.anchor_year], format='%Y').dt.normalize(),
-                                  patients[COLUMN.anchor_age].astype(int))), index=patients.index)
+        return pd.Series(
+            list(
+                map(
+                    lambda dt, age: dt + pd.DateOffset(years=-age),
+                    pd.to_datetime(patients[COLUMN.anchor_year], format="%Y").dt.normalize(),
+                    patients[COLUMN.anchor_age].astype(int),
+                )
+            ),
+            index=patients.index,
+        )
 
 
 class StaticTableResource_MIMICIII(StaticTableResource):
-
     @classmethod
     def derive_deshifted_date_of_birth(cls, patients: pd.DataFrame, **kwargs) -> pd.Series:
         """
@@ -176,8 +209,8 @@ class StaticTableResource_MIMICIII(StaticTableResource):
 
         # TODO: check https://mimic.mit.edu/docs/iii/about/time/
         """
-        assert 'admissions' in kwargs, "Should pass the admissions table as keyword argument."
-        admissions = kwargs.pop('admissions').loc[:, [COLUMN.subject_id, COLUMN.start_time, COLUMN.end_time]]
+        assert "admissions" in kwargs, "Should pass the admissions table as keyword argument."
+        admissions = kwargs.pop("admissions").loc[:, [COLUMN.subject_id, COLUMN.start_time, COLUMN.end_time]]
         admissions[COLUMN.start_time] = pd.to_datetime(admissions[COLUMN.start_time])
         admissions[COLUMN.end_time] = pd.to_datetime(admissions[COLUMN.end_time])
         dob = pd.to_datetime(patients[COLUMN.date_of_birth])
@@ -205,36 +238,52 @@ class MixedICDTableResource(CodedTableResource):
     def __init__(self):
         super().__init__(MixedVersionICDSummaryTableColumns())
 
-    def setup_schemes(self, manager: CodingSchemesManager, name: str,
-                      component_schemes: dict[str, str],
-                      infer_maps: tuple[str, ...],
-                      target_name: Optional[str],
-                      mapping: Optional[pd.DataFrame],
-                      selection: Optional[pd.DataFrame], *,
-                      c_code: str, c_version: str, c_target_code: str, c_target_desc: str) -> CodingSchemesManager:
-        scheme = self.register_scheme(name=name,
-                                      selection=selection,
-                                      component_schemes={k: manager.scheme[v] for k, v in component_schemes.items()})
+    def setup_schemes(
+        self,
+        manager: CodingSchemesManager,
+        name: str,
+        component_schemes: dict[str, str],
+        infer_maps: tuple[str, ...],
+        target_name: str | None,
+        mapping: pd.DataFrame | None,
+        selection: pd.DataFrame | None,
+        *,
+        c_code: str,
+        c_version: str,
+        c_target_code: str,
+        c_target_desc: str,
+    ) -> CodingSchemesManager:
+        scheme = self.register_scheme(
+            name=name,
+            selection=selection,
+            component_schemes={k: manager.scheme[v] for k, v in component_schemes.items()},
+        )
         manager = manager.add_scheme(scheme)
         if target_name is not None and mapping is not None:
-            manager = scheme.register_map(manager=manager, target_name=target_name, mapping=mapping,
-                                          c_code=c_code, c_version=c_version, c_target_code=c_target_code,
-                                          c_target_desc=c_target_desc)
+            manager = scheme.register_map(
+                manager=manager,
+                target_name=target_name,
+                mapping=mapping,
+                c_code=c_code,
+                c_version=c_version,
+                c_target_code=c_target_code,
+                c_target_desc=c_target_desc,
+            )
         for target in infer_maps:
             manager = scheme.register_infer_map(manager, target)
         return manager
 
     @staticmethod
-    def register_scheme(name: str,
-                        component_schemes: dict[str, MultiVersionScheme],
-                        selection: Optional[pd.DataFrame]) -> MultiVersionScheme:
+    def register_scheme(
+        name: str, component_schemes: dict[str, MultiVersionScheme], selection: pd.DataFrame | None
+    ) -> MultiVersionScheme:
         return MultiVersionScheme.from_selection(name, selection, component_schemes=component_schemes)
 
     @staticmethod
     @abstractmethod
     def _add_version_column_if_not_exists(df: pd.DataFrame) -> pd.DataFrame:
         # This is specifically added for MIMIC-III, pure ICD-9 codes.
-        raise NotImplementedError('Override this method in subclass')
+        raise NotImplementedError("Override this method in subclass")
 
     @classmethod
     def _coerce_version_to_str(cls, df: pd.DataFrame) -> pd.DataFrame:
@@ -250,8 +299,9 @@ class MixedICDTableResource(CodedTableResource):
         return df
 
     @staticmethod
-    def _mixed_code_format(mixed_scheme_name: str, schemes_manager: CodingSchemesManager) -> Callable[
-        [pd.DataFrame], pd.DataFrame]:
+    def _mixed_code_format(
+        mixed_scheme_name: str, schemes_manager: CodingSchemesManager
+    ) -> Callable[[pd.DataFrame], pd.DataFrame]:
         scheme = cast(MultiVersionScheme, schemes_manager.scheme[mixed_scheme_name])
 
         def _transform(df: pd.DataFrame) -> pd.DataFrame:
@@ -264,20 +314,31 @@ class MixedICDTableResource(CodedTableResource):
         return None
 
     def space(self, data_connection: Any) -> pd.DataFrame:
-        pipeline = (self._coerce_code_to_str, self._filter_null_codes,
-                    self._strip_icd_codes,
-                    self._add_version_column_if_not_exists, self._coerce_version_to_str)
+        pipeline = (
+            self._coerce_code_to_str,
+            self._filter_null_codes,
+            self._strip_icd_codes,
+            self._add_version_column_if_not_exists,
+            self._coerce_version_to_str,
+        )
         return self.apply_pipeline(pipeline, self.load_space_table(data_connection))
 
-    def _custom_pipeline(self, mixed_scheme_name: str, schemes_manager: CodingSchemesManager) -> tuple[
-        Callable[[pd.DataFrame], pd.DataFrame], ...]:
-        return (self._coerce_id_to_str, self._filter_null_codes, self._coerce_code_to_str, self._strip_icd_codes,
-                self._add_version_column_if_not_exists, self._coerce_version_to_str,
-                self._mixed_code_format(mixed_scheme_name, schemes_manager))
+    def _custom_pipeline(
+        self, mixed_scheme_name: str, schemes_manager: CodingSchemesManager
+    ) -> tuple[Callable[[pd.DataFrame], pd.DataFrame], ...]:
+        return (
+            self._coerce_id_to_str,
+            self._filter_null_codes,
+            self._coerce_code_to_str,
+            self._strip_icd_codes,
+            self._add_version_column_if_not_exists,
+            self._coerce_version_to_str,
+            self._mixed_code_format(mixed_scheme_name, schemes_manager),
+        )
 
     def __call__(self, data_connection: Any, **kwargs) -> pd.DataFrame:
-        mixed_scheme_name = kwargs.pop('mixed_scheme_name')
-        schemes_manager = kwargs.pop('schemes_manager')
+        mixed_scheme_name = kwargs.pop("mixed_scheme_name")
+        schemes_manager = kwargs.pop("schemes_manager")
         pipeline = self._custom_pipeline(mixed_scheme_name, schemes_manager)
         return self.apply_pipeline(pipeline, self.load_standard_columns_table(data_connection, **kwargs))
 
@@ -309,16 +370,20 @@ class MultivariateTimeSeriesTableResource(CodedTableResource):
     @staticmethod
     def _validate_columns(table: pd.DataFrame, attributes: tuple[str, ...]) -> pd.DataFrame:
         # Perform any necessary validations on the table.
-        assert all(attr not in COLUMN for attr in attributes), (f"Attributes {attributes} must not be in COLUMN enum.")
-        assert len(set(attributes)) == len(attributes), (f"Duplicate attributes {attributes} found.")
+        assert all(attr not in COLUMN for attr in attributes), f"Attributes {attributes} must not be in COLUMN enum."
+        assert len(set(attributes)) == len(attributes), f"Duplicate attributes {attributes} found."
         assert all(c in COLUMN for c in set(table.columns) - set(attributes)), (
-            f"Some columns {set(table.columns) - set(attributes)} are not in COLUMN enum.")
+            f"Some columns {set(table.columns) - set(attributes)} are not in COLUMN enum."
+        )
         return table
 
     @staticmethod
     def _melt_attributes(table: pd.DataFrame) -> pd.DataFrame:
-        melted_obs_df = table.melt(id_vars=[str(COLUMN.admission_id), str(COLUMN.time)],
-                                   var_name=str(COLUMN.code), value_name=str(COLUMN.measurement))
+        melted_obs_df = table.melt(
+            id_vars=[str(COLUMN.admission_id), str(COLUMN.time)],
+            var_name=str(COLUMN.code),
+            value_name=str(COLUMN.measurement),
+        )
         return melted_obs_df[melted_obs_df[COLUMN.measurement].notnull()]
 
     @staticmethod
@@ -329,21 +394,27 @@ class MultivariateTimeSeriesTableResource(CodedTableResource):
         return df.astype({str(COLUMN.measurement): float})
 
     def _rename_attributes(self, df: pd.DataFrame) -> pd.DataFrame:
-        df[COLUMN.code] = pd.Series([self.config.name] * len(df)) + '.' + df[COLUMN.code]
+        df[COLUMN.code] = pd.Series([self.config.name] * len(df)) + "." + df[COLUMN.code]
         return df
 
     @property
     def pipeline(self) -> tuple[Callable[[pd.DataFrame], pd.DataFrame], ...]:
-        return (lambda df: self._validate_columns(df, self.config.attributes),
-                self._coerce_id_to_str, self._melt_attributes, self._rename_attributes,
-                self._coerce_code_to_str, self._coerce_value_to_real)
+        return (
+            lambda df: self._validate_columns(df, self.config.attributes),
+            self._coerce_id_to_str,
+            self._melt_attributes,
+            self._rename_attributes,
+            self._coerce_code_to_str,
+            self._coerce_value_to_real,
+        )
 
     def load_space_table(self, data_sourece: None = None) -> pd.DataFrame:
         space = pd.DataFrame(
             [(self.config.name, a, self.config.type_hint[i]) for i, a in enumerate(self.config.attributes)],
-            columns=['group', 'attribute', 'type_hint'])
-        space['code'] = space['group'] + '.' + space['attribute']
-        return space.sort_values('code')
+            columns=["group", "attribute", "type_hint"],
+        )
+        space["code"] = space["group"] + "." + space["attribute"]
+        return space.sort_values("code")
 
     def space(self, data_connection: None = None):
         # to skip applying pipeline
@@ -365,13 +436,13 @@ class GroupedMultivariateTimeSeriesTableResource(CodedTableResource):
         time_deltas = (timestamps[c_time].diff().dt.total_seconds() * SECONDS_TO_HOURS_SCALER).iloc[1:]
         in_admission = pd.Series(timestamps[c_admission_id] == timestamps[c_admission_id].shift()).iloc[1:]
         time_deltas_stats = time_deltas[in_admission].describe()
-        return time_deltas_stats.rename(index={k: f'time_delta_{k}' for k in time_deltas_stats.index})
+        return time_deltas_stats.rename(index={k: f"time_delta_{k}" for k in time_deltas_stats.index})
 
     @staticmethod
     def _stats(code: str, code_table: pd.DataFrame) -> pd.DataFrame:
         values = code_table[COLUMN.measurement]
         stats = values.describe()
-        stats['nunique'] = values.nunique()
+        stats["nunique"] = values.nunique()
         time_stats = GroupedMultivariateTimeSeriesTableResource._time_stat(code_table)
         stats = pd.concat([stats, time_stats])
         stats = stats.to_frame().T
@@ -393,42 +464,45 @@ class GroupedMultivariateTimeSeriesTableResource(CodedTableResource):
         return pd.concat(dfs, axis=0)
 
     def load_space_table(self, data_sourece: None = None) -> pd.DataFrame:
-        return pd.concat([c.space(None) for c in self.groups]).sort_values(['code'])
+        return pd.concat([c.space(None) for c in self.groups]).sort_values(["code"])
 
     def space(self, data_connection: None = None) -> pd.DataFrame:
         return self.load_space_table(None)
 
     @staticmethod
-    def register_scheme(name: str,
-                        space_table: pd.DataFrame,
-                        attributes_selection: Optional[pd.DataFrame]) -> CodingSchemesManager:
+    def register_scheme(
+        name: str, space_table: pd.DataFrame, attributes_selection: pd.DataFrame | None
+    ) -> CodingSchemesManager:
         if attributes_selection is None:
             attributes_selection = space_table
         else:
-            if 'type' not in attributes_selection.columns:
-                attributes_selection = pd.merge(attributes_selection, space_table,
-                                                left_on=['group', 'attribute'],
-                                                right_on=['group', 'attribute'],
-                                                suffixes=(None, '_y'),
-                                                how='inner')
+            if "type_hint" not in attributes_selection.columns:
+                attributes_selection = pd.merge(
+                    attributes_selection,
+                    space_table,
+                    left_on=["group", "attribute"],
+                    right_on=["group", "attribute"],
+                    suffixes=(None, "_y"),
+                    how="inner",
+                )
 
         # format codes to be of the form 'group.attribute'
-        df = attributes_selection.astype({'attribute': str, 'type_hint': str, 'group': str})
-        codes = tuple(sorted(df['group'] + '.' + df['attribute'].tolist()))
+        df = attributes_selection.astype({"attribute": str, "type_hint": str, "group": str})
+        codes = tuple(df["group"] + "." + df["attribute"].tolist())
         desc = FrozenDict11(dict(zip(codes, codes)))
         group = FrozenDict11(dict(zip(codes, df.index.astype(str).values)))
-        type_hint = FrozenDict11(dict(zip(codes, df['type_hint'].tolist())))
-        scheme = NumericScheme(name=name, codes=codes, group=group, desc=desc, type_hint=type_hint)  # type: ignore
+        type_hint = FrozenDict11(dict(zip(codes, df["type_hint"].tolist())))
+        scheme = NumericScheme(name=name, codes=tuple(sorted(codes)), group=group, desc=desc, type_hint=type_hint)  # noqa
         return CodingSchemesManager().add_scheme(scheme)
 
 
 class DatasetSchemeMapsFileNames(AbstractConfig):
-    gender: Optional[str] = 'gender.csv'
-    ethnicity: Optional[str] = 'ethnicity.csv'
-    icu_inputs: Optional[str] = 'icu_inputs.csv'
-    icu_procedures: Optional[str] = 'icu_procedures.csv'
-    hosp_procedures: Optional[str] = 'hosp_procedures.csv'
-    dx_discharge: Optional[str] = 'dx_discharge.csv'
+    gender: str | None = "gender.csv"
+    ethnicity: str | None = "ethnicity.csv"
+    icu_inputs: str | None = "icu_inputs.csv"
+    icu_procedures: str | None = "icu_procedures.csv"
+    hosp_procedures: str | None = "hosp_procedures.csv"
+    dx_discharge: str | None = "dx_discharge.csv"
 
 
 class ExternalMapResources(AbstractConfig):
@@ -439,45 +513,45 @@ class ExternalMapResources(AbstractConfig):
         self.filenames = filenames
         self.resources_dir = resources_dir
 
-    def map_file(self, filename: str) -> Optional[pd.DataFrame]:
+    def map_file(self, filename: str) -> pd.DataFrame | None:
         try:
             return pd.read_csv(resources_path(self.resources_dir, filename)).astype(str)
         except FileNotFoundError:
             return None
 
     @property
-    def dx_discharge(self) -> Optional[pd.DataFrame]:
+    def dx_discharge(self) -> pd.DataFrame | None:
         return self.map_file(self.filenames.dx_discharge)
 
     @property
-    def gender(self) -> Optional[pd.DataFrame]:
+    def gender(self) -> pd.DataFrame | None:
         return self.map_file(self.filenames.gender)
 
     @property
-    def ethnicity(self) -> Optional[pd.DataFrame]:
+    def ethnicity(self) -> pd.DataFrame | None:
         return self.map_file(self.filenames.ethnicity)
 
     @property
-    def icu_inputs(self) -> Optional[pd.DataFrame]:
+    def icu_inputs(self) -> pd.DataFrame | None:
         return self.map_file(self.filenames.icu_inputs)
 
     @property
-    def icu_procedures(self) -> Optional[pd.DataFrame]:
+    def icu_procedures(self) -> pd.DataFrame | None:
         return self.map_file(self.filenames.icu_procedures)
 
     @property
-    def hosp_procedures(self) -> Optional[pd.DataFrame]:
+    def hosp_procedures(self) -> pd.DataFrame | None:
         return self.map_file(self.filenames.hosp_procedures)
 
 
 class DatasetSchemeSelectionFiles(AbstractConfig):
-    gender: Optional[str] = 'gender.csv'
-    ethnicity: Optional[str] = 'ethnicity.csv'
-    icu_inputs: Optional[str] = 'icu_inputs.csv'
-    icu_procedures: Optional[str] = 'icu_procedures.csv'
-    hosp_procedures: Optional[str] = 'hosp_procedures.csv'
-    obs: Optional[str] = 'obs.csv'
-    dx_discharge: Optional[str] = 'dx_discharge.csv'
+    gender: str | None = "gender.csv"
+    ethnicity: str | None = "ethnicity.csv"
+    icu_inputs: str | None = "icu_inputs.csv"
+    icu_procedures: str | None = "icu_procedures.csv"
+    hosp_procedures: str | None = "hosp_procedures.csv"
+    obs: str | None = "obs.csv"
+    dx_discharge: str | None = "dx_discharge.csv"
 
 
 class ExternalSelectionResources(AbstractConfig):
@@ -488,55 +562,61 @@ class ExternalSelectionResources(AbstractConfig):
         self.filenames = filenames
         self.resources_dir = resources_dir
 
-    def selection_file(self, path: str) -> Optional[pd.DataFrame]:
+    def selection_file(self, path: str) -> pd.DataFrame | None:
         try:
             return pd.read_csv(resources_path(self.resources_dir, path)).astype(str)
         except FileNotFoundError:
             return None
 
     @property
-    def gender(self) -> Optional[pd.DataFrame]:
+    def gender(self) -> pd.DataFrame | None:
         return self.selection_file(self.filenames.gender)
 
     @property
-    def ethnicity(self) -> Optional[pd.DataFrame]:
+    def ethnicity(self) -> pd.DataFrame | None:
         return self.selection_file(self.filenames.ethnicity)
 
     @property
-    def icu_inputs(self) -> Optional[pd.DataFrame]:
+    def icu_inputs(self) -> pd.DataFrame | None:
         return self.selection_file(self.filenames.icu_inputs)
 
     @property
-    def icu_procedures(self) -> Optional[pd.DataFrame]:
+    def icu_procedures(self) -> pd.DataFrame | None:
         return self.selection_file(self.filenames.icu_procedures)
 
     @property
-    def hosp_procedures(self) -> Optional[pd.DataFrame]:
+    def hosp_procedures(self) -> pd.DataFrame | None:
         return self.selection_file(self.filenames.hosp_procedures)
 
     @property
-    def obs(self) -> Optional[pd.DataFrame]:
+    def obs(self) -> pd.DataFrame | None:
         df = self.selection_file(self.filenames.obs)
-        return df.set_index('group', drop=True).sort_values('attribute').sort_index()
+        return df.set_index("group", drop=True).sort_values("attribute").sort_index()
 
     @property
-    def dx_discharge(self) -> Optional[pd.DataFrame]:
+    def dx_discharge(self) -> pd.DataFrame | None:
         return self.selection_file(self.filenames.dx_discharge)
 
 
 class MIMICDatasetSchemeSuffixes(AbstractConfig):
-    gender: Optional[str]
-    ethnicity: Optional[str]
-    dx_discharge: Optional[str]
-    obs: Optional[str]
-    icu_inputs: Optional[str]
-    icu_procedures: Optional[str]
-    hosp_procedures: Optional[str]
+    gender: str | None
+    ethnicity: str | None
+    dx_discharge: str | None
+    obs: str | None
+    icu_inputs: str | None
+    icu_procedures: str | None
+    hosp_procedures: str | None
 
-    def __init__(self, gender: Optional[str] = None, ethnicity: Optional[str] = None,
-                 dx_discharge: Optional[str] = None,
-                 obs: Optional[str] = None, icu_inputs: Optional[str] = None,
-                 icu_procedures: Optional[str] = None, hosp_procedures: Optional[str] = None):
+    def __init__(
+        self,
+        gender: str | None = None,
+        ethnicity: str | None = None,
+        dx_discharge: str | None = None,
+        obs: str | None = None,
+        icu_inputs: str | None = None,
+        icu_procedures: str | None = None,
+        hosp_procedures: str | None = None,
+    ):
         self.gender = gender
         self.ethnicity = ethnicity
         self.dx_discharge = dx_discharge
@@ -552,51 +632,55 @@ class ScopedSchemeNames(AbstractConfig):
     name_prefix: str
     global_infix: tuple[str, ...] = ()
 
-    def __init__(self, name_separator: str = '.', name_prefix: str = '',
-                 suffixes: MIMICDatasetSchemeSuffixes = MIMICDatasetSchemeSuffixes(),
-                 global_infix: tuple[str, ...] = ()):
+    def __init__(
+        self,
+        name_separator: str = ".",
+        name_prefix: str = "",
+        suffixes: MIMICDatasetSchemeSuffixes = MIMICDatasetSchemeSuffixes(),
+        global_infix: tuple[str, ...] = (),
+    ):
         self.suffixes = suffixes
         self.name_separator = name_separator
         self.name_prefix = name_prefix
         self.global_infix = global_infix
 
-    def _scheme_name(self, k: str) -> Optional[str]:
+    def _scheme_name(self, k: str) -> str | None:
         suffix = getattr(self.suffixes, k)
         if suffix is None:
             return None
         return self.name_separator.join((self.name_prefix,) + self.global_infix + (suffix,))
 
     @property
-    def gender(self) -> Optional[str]:
-        return self._scheme_name('gender')
+    def gender(self) -> str | None:
+        return self._scheme_name("gender")
 
     @property
-    def ethnicity(self) -> Optional[str]:
-        return self._scheme_name('ethnicity')
+    def ethnicity(self) -> str | None:
+        return self._scheme_name("ethnicity")
 
     @property
-    def icu_inputs(self) -> Optional[str]:
-        return self._scheme_name('icu_inputs')
+    def icu_inputs(self) -> str | None:
+        return self._scheme_name("icu_inputs")
 
     @property
-    def icu_procedures(self) -> Optional[str]:
-        return self._scheme_name('icu_procedures')
+    def icu_procedures(self) -> str | None:
+        return self._scheme_name("icu_procedures")
 
     @property
-    def hosp_procedures(self) -> Optional[str]:
-        return self._scheme_name('hosp_procedures')
+    def hosp_procedures(self) -> str | None:
+        return self._scheme_name("hosp_procedures")
 
     @property
-    def dx_discharge(self) -> Optional[str]:
-        return self._scheme_name('dx_discharge')
+    def dx_discharge(self) -> str | None:
+        return self._scheme_name("dx_discharge")
 
     @property
-    def obs(self) -> Optional[str]:
-        return self._scheme_name('obs')
+    def obs(self) -> str | None:
+        return self._scheme_name("obs")
 
     @property
     def mapped(self) -> Self:
-        return eqx.tree_at(lambda x: x.global_infix, self, self.global_infix + ('mapped',))
+        return eqx.tree_at(lambda x: x.global_infix, self, self.global_infix + ("mapped",))
 
     def column_name(self, key: str) -> str:
         return self.name_separator.join(self.global_infix + (key,))
@@ -606,14 +690,17 @@ class MIMICDatasetAuxiliaryResources(AbstractConfig):
     scoped_names: ScopedSchemeNames
     maps: ExternalMapResources
     selections: ExternalSelectionResources
-    icu_inputs_uom_normalization: Optional[str]
-    icu_inputs_aggregation_column: Optional[str]
+    icu_inputs_uom_normalization: str | None
+    icu_inputs_aggregation_column: str | None
 
-    def __init__(self, maps: ExternalMapResources,
-                 selections: ExternalSelectionResources,
-                 scoped_names: ScopedSchemeNames = ScopedSchemeNames(),
-                 icu_inputs_uom_normalization: Optional[str] = None,
-                 icu_inputs_aggregation_column: Optional[str] = None):
+    def __init__(
+        self,
+        maps: ExternalMapResources,
+        selections: ExternalSelectionResources,
+        scoped_names: ScopedSchemeNames = ScopedSchemeNames(),
+        icu_inputs_uom_normalization: str | None = None,
+        icu_inputs_aggregation_column: str | None = None,
+    ):
         self.scoped_names = scoped_names
         self.maps = maps
         self.selections = selections
@@ -621,24 +708,35 @@ class MIMICDatasetAuxiliaryResources(AbstractConfig):
         self.icu_inputs_aggregation_column = icu_inputs_aggregation_column
 
     @classmethod
-    def make_resources(cls, name_prefix: str, resources_root: str,
-                       suffixes: MIMICDatasetSchemeSuffixes = MIMICDatasetSchemeSuffixes(),
-                       name_separator: str = '.', selection_subdir: str = 'selection',
-                       map_subdir: str = 'map', map_files: DatasetSchemeMapsFileNames = DatasetSchemeMapsFileNames(),
-                       selection_files: DatasetSchemeSelectionFiles = DatasetSchemeSelectionFiles(),
-                       icu_inputs_uom_normalization: Optional[tuple[str, ...]] = None,
-                       icu_inputs_aggregation_column: Optional[str] = None):
+    def make_resources(
+        cls,
+        name_prefix: str,
+        resources_root: str,
+        suffixes: MIMICDatasetSchemeSuffixes = MIMICDatasetSchemeSuffixes(),
+        name_separator: str = ".",
+        selection_subdir: str = "selection",
+        map_subdir: str = "map",
+        map_files: DatasetSchemeMapsFileNames = DatasetSchemeMapsFileNames(),
+        selection_files: DatasetSchemeSelectionFiles = DatasetSchemeSelectionFiles(),
+        icu_inputs_uom_normalization: tuple[str, ...] | None = None,
+        icu_inputs_aggregation_column: str | None = None,
+    ):
         scoped_names = ScopedSchemeNames(suffixes=suffixes, name_separator=name_separator, name_prefix=name_prefix)
         maps = ExternalMapResources(resources_path(resources_root, map_subdir), filenames=map_files)
-        selections = ExternalSelectionResources(resources_path(resources_root, selection_subdir),
-                                                filenames=selection_files)
+        selections = ExternalSelectionResources(
+            resources_path(resources_root, selection_subdir), filenames=selection_files
+        )
         if icu_inputs_uom_normalization is not None:
             icu_inputs_uom_normalization = resources_path(resources_root, *icu_inputs_uom_normalization)
 
         icu_inputs_aggregation_column = icu_inputs_aggregation_column
-        return cls(scoped_names=scoped_names, maps=maps, selections=selections,
-                   icu_inputs_uom_normalization=icu_inputs_uom_normalization,
-                   icu_inputs_aggregation_column=icu_inputs_aggregation_column)
+        return cls(
+            scoped_names=scoped_names,
+            maps=maps,
+            selections=selections,
+            icu_inputs_uom_normalization=icu_inputs_uom_normalization,
+            icu_inputs_aggregation_column=icu_inputs_aggregation_column,
+        )
 
     @property
     def icu_inputs_uom_normalization_table(self) -> pd.DataFrame:
@@ -661,64 +759,86 @@ class MIMICSchemeResources(AbstractConfig):
     scheme: DatasetSchemeConfig
     aux: MIMICDatasetAuxiliaryResources
 
-    def __init__(self, tables: DatasetTablesResources, scheme: DatasetSchemeConfig,
-                 aux: MIMICDatasetAuxiliaryResources):
+    def __init__(
+        self, tables: DatasetTablesResources, scheme: DatasetSchemeConfig, aux: MIMICDatasetAuxiliaryResources
+    ):
         self.scheme = scheme
         self.tables = tables
         self.aux = aux
 
-    def _make_demographic_scheme(self, name: str, space_table: pd.DataFrame,
-                                 c_code: str, selection: pd.DataFrame, target_name: Optional[str] = None,
-                                 map_table: Optional[pd.DataFrame] = None) -> CodingSchemesManager:
+    def _make_demographic_scheme(
+        self,
+        name: str,
+        space_table: pd.DataFrame,
+        c_code: str,
+        selection: pd.DataFrame,
+        target_name: str | None = None,
+        map_table: pd.DataFrame | None = None,
+    ) -> CodingSchemesManager:
         # TODO: handle missing values. Options:
         # 1. A missingness-aware CodingScheme (not preferred, requires new class, new logic, new tests).
         # 2. Hard-code replacement here (preferred, just replace 'nan' with 'MISSING').
-        source_scheme = CodingScheme.from_table(name=name,
-                                                table=space_table,
-                                                code_selection=selection,
-                                                c_code=c_code,
-                                                c_desc=c_code)
+        source_scheme = CodingScheme.from_table(
+            name=name, table=space_table, code_selection=selection, c_code=c_code, c_desc=c_code
+        )
         manager = CodingSchemesManager().add_scheme(source_scheme)
         if map_table is not None and target_name is not None:
             names = self.aux.scoped_names
-            target_scheme = CodingScheme.from_table(name=target_name, table=map_table,
-                                                    c_code=names.mapped.column_name(c_code),
-                                                    c_desc=names.mapped.column_name(c_code))
-            code_map = CodeMap.from_table(source_scheme, target_scheme, c_source_code=c_code,
-                                          c_target_code=names.mapped.column_name(c_code), table=map_table)
+            target_scheme = CodingScheme.from_table(
+                name=target_name,
+                table=map_table,
+                c_code=names.mapped.column_name(c_code),
+                c_desc=names.mapped.column_name(c_code),
+            )
+            code_map = CodeMap.from_table(
+                source_scheme,
+                target_scheme,
+                c_source_code=c_code,
+                c_target_code=names.mapped.column_name(c_code),
+                table=map_table,
+            )
             manager = manager.add_scheme(target_scheme).add_map(code_map)
         return manager
 
     def make_gender_scheme(self, data_connection: Any) -> CodingSchemesManager:
         gender_space_table = self.tables.static.gender_space(data_connection)
-        return self._make_demographic_scheme(name=self.scheme.gender, space_table=gender_space_table,
-                                             c_code=COLUMN.gender,
-                                             selection=self.aux.selections.gender)
+        return self._make_demographic_scheme(
+            name=self.scheme.gender,
+            space_table=gender_space_table,
+            c_code=COLUMN.gender,
+            selection=self.aux.selections.gender,
+        )
 
     def make_ethnicity_scheme(self, data_connection: Any) -> CodingSchemesManager:
         race_space_table = self.tables.static.ethnicity_space(data_connection)
-        return self._make_demographic_scheme(name=self.scheme.ethnicity, space_table=race_space_table,
-                                             c_code=COLUMN.race,
-                                             selection=self.aux.selections.ethnicity,
-                                             target_name=self.aux.scoped_names.mapped.ethnicity,
-                                             map_table=self.aux.maps.ethnicity)
+        return self._make_demographic_scheme(
+            name=self.scheme.ethnicity,
+            space_table=race_space_table,
+            c_code=COLUMN.race,
+            selection=self.aux.selections.ethnicity,
+            target_name=self.aux.scoped_names.mapped.ethnicity,
+            map_table=self.aux.maps.ethnicity,
+        )
 
     def make_obs_scheme(self) -> CodingSchemesManager:
         obs = self.tables.obs
-        return obs.register_scheme(name=self.scheme.obs,
-                                   space_table=obs.space(),
-                                   attributes_selection=self.aux.selections.obs)
+        return obs.register_scheme(
+            name=self.scheme.obs, space_table=obs.space(), attributes_selection=self.aux.selections.obs
+        )
 
     def make_icu_inputs_scheme(self) -> CodingSchemesManager:
         c_code = str(COLUMN.code)
         c_desc = str(COLUMN.description)
-        scheme = CodingSchemeWithUOM.from_table(name=self.scheme.icu_inputs,
-                                                table=self.aux.icu_inputs_uom_normalization_table,
-                                                c_code=c_code, c_desc=c_desc,
-                                                c_universal_unit=str(COLUMN.derived_universal_unit),
-                                                c_unit=str(COLUMN.amount_unit),
-                                                c_normalization_factor=str(COLUMN.derived_unit_normalization_factor),
-                                                code_selection=self.aux.selections.icu_inputs)
+        scheme = CodingSchemeWithUOM.from_table(
+            name=self.scheme.icu_inputs,
+            table=self.aux.icu_inputs_uom_normalization_table,
+            c_code=c_code,
+            c_desc=c_desc,
+            c_universal_unit=str(COLUMN.derived_universal_unit),
+            c_unit=str(COLUMN.amount_unit),
+            c_normalization_factor=str(COLUMN.derived_unit_normalization_factor),
+            code_selection=self.aux.selections.icu_inputs,
+        )
         manager = CodingSchemesManager().add_scheme(scheme)
         c_aggregation = self.aux.icu_inputs_aggregation_column
         map_data = self.aux.maps.icu_inputs
@@ -726,33 +846,47 @@ class MIMICSchemeResources(AbstractConfig):
             target_names = self.aux.scoped_names.mapped
             c_target_code = target_names.column_name(c_code)
             c_target_desc = target_names.column_name(c_desc)
-            target_scheme = CodingScheme.from_table(name=target_names.icu_inputs,
-                                                    table=map_data,
-                                                    c_code=c_target_code,
-                                                    c_desc=c_target_desc)
-            codemap = ReducedCodeMapN1.from_table(scheme, target_scheme, c_source_code=c_code,
-                                                  c_target_code=c_target_code, c_target_agg=c_aggregation,
-                                                  table=map_data)
+            target_scheme = CodingScheme.from_table(
+                name=target_names.icu_inputs, table=map_data, c_code=c_target_code, c_desc=c_target_desc
+            )
+            codemap = ReducedCodeMapN1.from_table(
+                scheme,
+                target_scheme,
+                c_source_code=c_code,
+                c_target_code=c_target_code,
+                c_target_agg=c_aggregation,
+                table=map_data,
+            )
             manager = manager.add_scheme(target_scheme).add_map(codemap)
 
         return manager
 
     def make_icu_procedures_scheme(self, data_connection: Any) -> CodingSchemesManager:
         space_table = self.tables.icu_procedures.space(data_connection)
-        source_scheme = CodingScheme.from_table(name=self.scheme.icu_procedures,
-                                                table=space_table,
-                                                code_selection=self.aux.selections.icu_procedures,
-                                                c_code=str(COLUMN.code),
-                                                c_desc=str(COLUMN.description))
+        source_scheme = CodingScheme.from_table(
+            name=self.scheme.icu_procedures,
+            table=space_table,
+            code_selection=self.aux.selections.icu_procedures,
+            c_code=str(COLUMN.code),
+            c_desc=str(COLUMN.description),
+        )
         manager = CodingSchemesManager().add_scheme(source_scheme)
         map_table = self.aux.maps.icu_procedures
         if map_table is not None:
             target_names = self.aux.scoped_names.mapped
-            target_scheme = CodingScheme.from_table(name=target_names.icu_procedures, table=map_table,
-                                                    c_code=target_names.column_name(str(COLUMN.code)),
-                                                    c_desc=target_names.column_name(str(COLUMN.description)))
-            code_map = CodeMap.from_table(source_scheme, target_scheme, c_source_code=str(COLUMN.code),
-                                          c_target_code=target_names.column_name(str(COLUMN.code)), table=map_table)
+            target_scheme = CodingScheme.from_table(
+                name=target_names.icu_procedures,
+                table=map_table,
+                c_code=target_names.column_name(str(COLUMN.code)),
+                c_desc=target_names.column_name(str(COLUMN.description)),
+            )
+            code_map = CodeMap.from_table(
+                source_scheme,
+                target_scheme,
+                c_source_code=str(COLUMN.code),
+                c_target_code=target_names.column_name(str(COLUMN.code)),
+                table=map_table,
+            )
             manager = manager.add_scheme(target_scheme).add_map(code_map)
         return manager
 
@@ -764,14 +898,19 @@ class MIMICSchemeResources(AbstractConfig):
         selection = self.aux.selections.hosp_procedures
         c_target_code = self.aux.scoped_names.mapped.column_name(str(COLUMN.code))
         c_target_desc = self.aux.scoped_names.mapped.column_name(str(COLUMN.description))
-        return table.setup_schemes(manager, name=name,
-                                   component_schemes={'9': 'icd9pcs', '10': 'icd10pcs'},
-                                   infer_maps=('icd9pcs', 'icd10pcs', 'pr_ccs', 'pr_flat_ccs'),
-                                   target_name=target_name,
-                                   mapping=mapping,
-                                   selection=selection,
-                                   c_code=COLUMN.code, c_version=COLUMN.version, c_target_code=c_target_code,
-                                   c_target_desc=c_target_desc)
+        return table.setup_schemes(
+            manager,
+            name=name,
+            component_schemes={"9": "icd9pcs", "10": "icd10pcs"},
+            infer_maps=("icd9pcs", "icd10pcs", "pr_ccs", "pr_flat_ccs"),
+            target_name=target_name,
+            mapping=mapping,
+            selection=selection,
+            c_code=COLUMN.code,
+            c_version=COLUMN.version,
+            c_target_code=c_target_code,
+            c_target_desc=c_target_desc,
+        )
 
     def make_dx_discharge_scheme(self, manager: CodingSchemesManager) -> CodingSchemesManager:
         table = self.tables.dx_discharge
@@ -781,17 +920,25 @@ class MIMICSchemeResources(AbstractConfig):
         selection = self.aux.selections.dx_discharge
         c_target_code = self.aux.scoped_names.mapped.column_name(str(COLUMN.code))
         c_target_desc = self.aux.scoped_names.mapped.column_name(str(COLUMN.description))
-        m = table.setup_schemes(manager, name=name,
-                                component_schemes={'9': 'icd9cm', '10': 'icd10cm'},
-                                infer_maps=('icd9cm', 'icd10cm',  # 'dx_ccs',
-                                            'dx_flat_ccs'),
-                                target_name=target_name,
-                                mapping=mapping,
-                                selection=selection,
-                                c_code=COLUMN.code, c_version=COLUMN.version, c_target_code=c_target_code,
-                                c_target_desc=c_target_desc)
+        m = table.setup_schemes(
+            manager,
+            name=name,
+            component_schemes={"9": "icd9cm", "10": "icd10cm"},
+            infer_maps=(
+                "icd9cm",
+                "icd10cm",  # 'dx_ccs',
+                "dx_flat_ccs",
+            ),
+            target_name=target_name,
+            mapping=mapping,
+            selection=selection,
+            c_code=COLUMN.code,
+            c_version=COLUMN.version,
+            c_target_code=c_target_code,
+            c_target_desc=c_target_desc,
+        )
         # OVERRIDE the low-quality mapping icd10cm->dx_ccs with a chained map icd10cm->icd9cm->dx_ccs
-        m = m.add_chained_map(name, 'icd9cm', 'dx_ccs', overwrite=True)
+        m = m.add_chained_map(name, "icd9cm", "dx_ccs", overwrite=True)
         return m
 
     def make_all_schemes(self, data_connection: Any) -> CodingSchemesManager:
@@ -885,27 +1032,40 @@ class MIMICDatasetCompiler(AbstractConfig):
         admissions = self.load_admissions(data_connection)
         static = self.load_static(data_connection, admissions=admissions)
         dx_discharge = self.load_dx_discharge(data_connection, schemes_manager)
-        return DatasetTables(static=static, admissions=admissions, dx_discharge=dx_discharge, obs=obs,
-                             icu_procedures=icu_procedures, icu_inputs=icu_inputs, hosp_procedures=hosp_procedures)
+        return DatasetTables(
+            static=static,
+            admissions=admissions,
+            dx_discharge=dx_discharge,
+            obs=obs,
+            icu_procedures=icu_procedures,
+            icu_inputs=icu_inputs,
+            hosp_procedures=hosp_procedures,
+        )
 
 
-def load_scheme_manager(tables: DatasetTablesResources,
-                        scheme: DatasetSchemeConfig,
-                        aux: MIMICDatasetAuxiliaryResources, data_connection: Any) -> CodingSchemesManager:
+def load_scheme_manager(
+    tables: DatasetTablesResources,
+    scheme: DatasetSchemeConfig,
+    aux: MIMICDatasetAuxiliaryResources,
+    data_connection: Any,
+) -> CodingSchemesManager:
     schemes_resources = MIMICSchemeResources(tables=tables, scheme=scheme, aux=aux)
     return schemes_resources.make_all_schemes(data_connection=data_connection)
 
 
-def load_tables(tables: DatasetTablesResources,
-                scheme: DatasetSchemeConfig,
-                schemes_manager: CodingSchemesManager,
-                data_connection: Any) -> DatasetTables:
+def load_tables(
+    tables: DatasetTablesResources,
+    scheme: DatasetSchemeConfig,
+    schemes_manager: CodingSchemesManager,
+    data_connection: Any,
+) -> DatasetTables:
     compiler = MIMICDatasetCompiler(tables=tables, scheme=scheme)
     return compiler.load_tables(data_connection=data_connection, schemes_manager=schemes_manager)
 
 
-def load_mimic(config: DatasetConfig, tables: DatasetTablesResources,
-               aux: MIMICDatasetAuxiliaryResources, data_connection: Any) -> tuple[Dataset, CodingSchemesManager]:
+def load_mimic(
+    config: DatasetConfig, tables: DatasetTablesResources, aux: MIMICDatasetAuxiliaryResources, data_connection: Any
+) -> tuple[Dataset, CodingSchemesManager]:
     manager = load_scheme_manager(tables, config.scheme, aux, data_connection)
     tables = load_tables(tables, config.scheme, manager, data_connection)
     return Dataset(tables=tables, config=config), manager

@@ -10,6 +10,3 @@
 | `icd-10-cm-conversion-table-FY2025.csv.gz` | Legacy maps for ICD10-CM              | [ICD-10-CM Files - October 1, 2024, ICD-10-CM release](https://www.cdc.gov/nchs/icd/icd-10-cm/files.html) | [icd-10-cm-conversion-table-FY2025.xlsx](https://ftp.cdc.gov/pub/Health_Statistics/NCHS/Publications/ICD10CM/2025/icd-10-cm-conversion-table-FY2025.xlsx) |
 | `icd10pcs_codes_2024.txt.gz`               | ICD10-PCS Flat Description            | [CMS ICD-10](https://www.cms.gov/medicare/coding-billing/icd-10-codes)                                    | [2024 ICD-10-PCS Codes File (ZIP)](https://www.cms.gov/files/zip/2024-icd-10-pcs-codes-file-updated-12/19/2023.zip)                                       |
 | `icd10pcs_conversion_table.txt.gz`         | Legacy maps for ICD10-PCS             | [CMS ICD-10](https://www.cms.gov/medicare/coding-billing/icd-10-codes)                                    | [2024 ICD-10-PCS Conversion Table (ZIP)](https://www.cms.gov/files/zip/2024-icd-10-pcs-conversion-table-updated-12/19/2023.zip)                           |
-
-
-

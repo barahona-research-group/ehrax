@@ -9,3 +9,7 @@ icenode-env/**
 **/*.log
 **/*.log.csv
 **/*.log.csv.gz
+.cursorignore
+.cursor/
+.voidrules
+site

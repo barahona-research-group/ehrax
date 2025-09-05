@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from dataclasses import field
 from datetime import datetime
 from functools import cached_property
-from typing import ClassVar, Final, Optional, Self, TypeVar
+from typing import ClassVar, Final, Self, TypeVar
 
 import equinox as eqx
 import numpy as np
@@ -19,8 +19,9 @@ import pandas as pd
 from ._literals import NumericalTypeHint, SplitLiteral
 from ._stats.dataset import DatasetStatsInterface, MultiDatasetsStatsInterface, TwoDatasetsStatsInterface
 from .base import AbstractConfig, AbstractVxData, HDFVirtualNode
-from .coding_scheme import CodingScheme, CodingSchemeWithUOM, CodingSchemesManager, NumericScheme
+from .coding_scheme import CodingScheme, CodingSchemesManager, CodingSchemeWithUOM, NumericScheme
 from .utils import tqdm_constructor
+
 
 SECONDS_TO_HOURS_SCALER: Final[float] = 1 / 3600.0  # convert seconds to hours
 SECONDS_TO_DAYS_SCALER: Final[float] = SECONDS_TO_HOURS_SCALER * 1 / 24.0  # convert seconds to days
@@ -54,11 +55,13 @@ class COLUMN(enum.StrEnum):
 
     @property
     def is_time(self):
-        return self in (COLUMN.time,
-                        COLUMN.start_time,
-                        COLUMN.end_time,
-                        COLUMN.date_of_birth,
-                        COLUMN.anchor_year,)
+        return self in (
+            COLUMN.time,
+            COLUMN.start_time,
+            COLUMN.end_time,
+            COLUMN.date_of_birth,
+            COLUMN.anchor_year,
+        )
 
     @property
     def is_code(self):
@@ -77,7 +80,6 @@ class COLUMN(enum.StrEnum):
 
 
 class TableColumns(AbstractConfig):
-
     def __check_init__(self):
         self.validate()
 
@@ -101,7 +103,7 @@ class TableColumns(AbstractConfig):
 
     @property
     def index(self) -> tuple[str, ...]:
-        return tuple(f.name for f in dataclasses.fields(self) if f.metadata.get('index', False))
+        return tuple(f.name for f in dataclasses.fields(self) if f.metadata.get("index", False))
 
     @property
     def time_cols(self) -> tuple[str, ...]:
@@ -168,19 +170,26 @@ class MultivariateTimeSeriesTableMeta(AbstractConfig):
     type_hint: tuple[NumericalTypeHint, ...]
     default_type_hint: NumericalTypeHint
 
-    def __init__(self, name: str, attributes: tuple[str, ...],
-                 type_hint: Optional[tuple[NumericalTypeHint, ...]] = None,
-                 default_type_hint: NumericalTypeHint = 'N'):
+    def __init__(
+        self,
+        name: str,
+        attributes: tuple[str, ...],
+        type_hint: tuple[NumericalTypeHint, ...] | None = None,
+        default_type_hint: NumericalTypeHint = "N",
+    ):
         self.name = name
         self.attributes = attributes
         self.default_type_hint = default_type_hint
         self.type_hint = type_hint or ((default_type_hint,) * len(attributes))
 
     def __check_init__(self):
-        assert len(self.attributes) == len(self.type_hint), \
-            f"Length of attributes and type_hint must be the same. Got {len(self.attributes)} and {len(self.type_hint)}."
-        assert all(t in ('N', 'C', 'B', 'O') for t in self.type_hint), \
+        assert len(self.attributes) == len(self.type_hint), (
+            f"Length of attributes and type_hint must be the same. Got {len(self.attributes)} and "
+            f"{len(self.type_hint)}."
+        )
+        assert all(t in ("N", "C", "B", "O") for t in self.type_hint), (
             f"type hint must be one of 'N', 'C', 'B', 'O'. Got {self.type_hint}."
+        )
 
 
 class DatasetColumns(AbstractConfig):
@@ -192,13 +201,16 @@ class DatasetColumns(AbstractConfig):
     icu_inputs: AdmissionIntervalRatesTableColumns
     hosp_procedures: AdmissionIntervalEventsTableColumns
 
-    def __init__(self, static: StaticTableColumns = StaticTableColumns(),
-                 admissions: AdmissionsTableColumns = AdmissionsTableColumns(),
-                 dx_discharge: AdmissionSummaryTableColumns = AdmissionSummaryTableColumns(),
-                 obs: AdmissionTimeSeriesTableColumns = AdmissionTimeSeriesTableColumns(),
-                 icu_procedures: AdmissionIntervalEventsTableColumns = AdmissionIntervalEventsTableColumns(),
-                 icu_inputs: AdmissionIntervalRatesTableColumns = AdmissionIntervalRatesTableColumns(),
-                 hosp_procedures: AdmissionIntervalEventsTableColumns = AdmissionIntervalEventsTableColumns()):
+    def __init__(
+        self,
+        static: StaticTableColumns = StaticTableColumns(),
+        admissions: AdmissionsTableColumns = AdmissionsTableColumns(),
+        dx_discharge: AdmissionSummaryTableColumns = AdmissionSummaryTableColumns(),
+        obs: AdmissionTimeSeriesTableColumns = AdmissionTimeSeriesTableColumns(),
+        icu_procedures: AdmissionIntervalEventsTableColumns = AdmissionIntervalEventsTableColumns(),
+        icu_inputs: AdmissionIntervalRatesTableColumns = AdmissionIntervalRatesTableColumns(),
+        hosp_procedures: AdmissionIntervalEventsTableColumns = AdmissionIntervalEventsTableColumns(),
+    ):
         self.static = static
         self.admissions = admissions
         self.dx_discharge = dx_discharge
@@ -236,20 +248,19 @@ class DatasetColumns(AbstractConfig):
 
     @property
     def timestamped_tables_config_dict(self):
-        return {k: v for k, v in self.as_one_level_dict().items()
-                if COLUMN.time in v.as_dict().keys()}
+        return {k: v for k, v in self.as_one_level_dict().items() if COLUMN.time in v.as_dict().keys()}
 
     @property
     def interval_based_table_config_dict(self):
-        return {k: v for k, v in self.as_one_level_dict().items()
-                if {COLUMN.start_time, str(COLUMN.end_time)}.issubset(set(v.as_dict().keys()))}
+        return {
+            k: v
+            for k, v in self.as_one_level_dict().items()
+            if {COLUMN.start_time, str(COLUMN.end_time)}.issubset(set(v.as_dict().keys()))
+        }
 
     @property
     def indices(self) -> dict[str, str]:
-        return {
-            k: v.index
-            for k, v in self.as_one_level_dict().items() if len(v.index) > 0
-        }
+        return {k: v.index for k, v in self.as_one_level_dict().items() if len(v.index) > 0}
 
     @property
     def time_cols(self) -> dict[str, tuple[str, ...]]:
@@ -267,15 +278,22 @@ class DatasetColumns(AbstractConfig):
 class DatasetTables(AbstractVxData):
     static: pd.DataFrame
     admissions: pd.DataFrame
-    dx_discharge: Optional[pd.DataFrame]
-    obs: Optional[pd.DataFrame]
-    icu_procedures: Optional[pd.DataFrame]
-    icu_inputs: Optional[pd.DataFrame]
-    hosp_procedures: Optional[pd.DataFrame]
+    dx_discharge: pd.DataFrame | None
+    obs: pd.DataFrame | None
+    icu_procedures: pd.DataFrame | None
+    icu_inputs: pd.DataFrame | None
+    hosp_procedures: pd.DataFrame | None
 
-    def __init__(self, static: pd.DataFrame, admissions: pd.DataFrame, dx_discharge: Optional[pd.DataFrame] = None,
-                 obs: Optional[pd.DataFrame] = None, icu_procedures: Optional[pd.DataFrame] = None,
-                 icu_inputs: Optional[pd.DataFrame] = None, hosp_procedures: Optional[pd.DataFrame] = None):
+    def __init__(
+        self,
+        static: pd.DataFrame,
+        admissions: pd.DataFrame,
+        dx_discharge: pd.DataFrame | None = None,
+        obs: pd.DataFrame | None = None,
+        icu_procedures: pd.DataFrame | None = None,
+        icu_inputs: pd.DataFrame | None = None,
+        hosp_procedures: pd.DataFrame | None = None,
+    ):
         self.static = static
         self.admissions = admissions
         self.dx_discharge = dx_discharge
@@ -293,7 +311,8 @@ class DatasetTables(AbstractVxData):
             admission_id = self.admissions.index
         else:
             raise ValueError(
-                f"Where is the admission_id? columns: {self.admissions.columns}. Index: {self.admissions.index.name}")
+                f"Where is the admission_id? columns: {self.admissions.columns}. Index: {self.admissions.index.name}"
+            )
 
         assert admission_id.nunique() == len(admission_id), (
             "Admission IDs in MIMIC-III and MIMIC-IV were found to be globally unique, i.e. two patients cannot share "
@@ -309,26 +328,28 @@ class DatasetTables(AbstractVxData):
 
     @property
     def tables_dict(self) -> dict[str, pd.DataFrame]:
-        return {
-            k: v
-            for k, v in self.__dict__.items()
-            if isinstance(v, pd.DataFrame)
-        }
+        return {k: v for k, v in self.__dict__.items() if isinstance(v, pd.DataFrame)}
 
 
 class DatasetSchemeConfig(AbstractConfig):
-    ethnicity: Optional[str]
-    gender: Optional[str]
-    dx_discharge: Optional[str]
-    obs: Optional[str]
-    icu_procedures: Optional[str]
-    hosp_procedures: Optional[str]
-    icu_inputs: Optional[str]
+    ethnicity: str | None
+    gender: str | None
+    dx_discharge: str | None
+    obs: str | None
+    icu_procedures: str | None
+    hosp_procedures: str | None
+    icu_inputs: str | None
 
-    def __init__(self, ethnicity: Optional[str] = None, gender: Optional[str] = None,
-                 dx_discharge: Optional[str] = None, obs: Optional[str] = None,
-                 icu_procedures: Optional[str] = None, hosp_procedures: Optional[str] = None,
-                 icu_inputs: Optional[str] = None):
+    def __init__(
+        self,
+        ethnicity: str | None = None,
+        gender: str | None = None,
+        dx_discharge: str | None = None,
+        obs: str | None = None,
+        icu_procedures: str | None = None,
+        hosp_procedures: str | None = None,
+        icu_inputs: str | None = None,
+    ):
         self.ethnicity = ethnicity
         self.gender = gender
         self.dx_discharge = dx_discharge
@@ -338,13 +359,15 @@ class DatasetSchemeConfig(AbstractConfig):
         self.icu_inputs = icu_inputs
 
     def scheme_fields(self) -> dict[str, str]:
-        return {'gender': self.gender,
-                'ethnicity': self.ethnicity,
-                'dx_discharge': self.dx_discharge,
-                'obs': self.obs,
-                'icu_inputs': self.icu_inputs,
-                'icu_procedures': self.icu_procedures,
-                'hosp_procedures': self.hosp_procedures}
+        return {
+            "gender": self.gender,
+            "ethnicity": self.ethnicity,
+            "dx_discharge": self.dx_discharge,
+            "obs": self.obs,
+            "icu_inputs": self.icu_inputs,
+            "icu_procedures": self.icu_procedures,
+            "hosp_procedures": self.hosp_procedures,
+        }
 
 
 @dataclasses.dataclass
@@ -358,13 +381,18 @@ class DatasetSchemeProxy:
     Methods:
         __init__(self, config: DatasetSchemeConfig, **kwargs): initializes a new instance of the DatasetScheme class.
         scheme_dict(self): returns a dictionary of the coding schemes in the dataset scheme.
-        make_target_scheme_config(self, **kwargs): creates a new target scheme configuration based on the current scheme.
+        make_target_scheme_config(self, **kwargs): creates a new target scheme configuration based on the
+            current scheme.
         make_target_scheme(self, config=None, **kwargs): creates a new target scheme based on the current scheme.
-        demographic_vector_size(self, demographic_vector_config: DemographicVectorConfig): calculates the size of the demographic vector.
-        dx_mapper(self, target_scheme: DatasetScheme): returns the mapper for the diagnosis coding scheme to the corresponding target scheme.
-        ethnicity_mapper(self, target_scheme: DatasetScheme): returns the mapper for the ethnicity coding scheme to the corresponding target scheme.
+        demographic_vector_size(self, demographic_vector_config: DemographicVectorConfig): calculates the size of
+            the demographic vector.
+        dx_mapper(self, target_scheme: DatasetScheme): returns the mapper for the diagnosis coding scheme to the
+            corresponding target scheme.
+        ethnicity_mapper(self, target_scheme: DatasetScheme): returns the mapper for the ethnicity coding scheme to
+            the corresponding target scheme.
         supported_target_scheme_options(self): returns the supported target scheme options for each coding scheme.
     """
+
     config: DatasetSchemeConfig
     schemes_context: CodingSchemesManager
 
@@ -372,10 +400,10 @@ class DatasetSchemeProxy:
         self.config = config
         self.schemes_context = schemes_context
 
-    def _scheme(self, name: str) -> Optional[CodingScheme]:
+    def _scheme(self, name: str) -> CodingScheme | None:
         try:
             return self.schemes_context.scheme[name]
-        except KeyError as e:
+        except KeyError:
             return None
 
     @property
@@ -391,26 +419,24 @@ class DatasetSchemeProxy:
         return self._scheme(self.config.dx_discharge)
 
     @property
-    def obs(self) -> Optional[NumericScheme]:
+    def obs(self) -> NumericScheme | None:
         return self._scheme(self.config.obs)
 
     @property
-    def icu_procedures(self) -> Optional[CodingScheme]:
+    def icu_procedures(self) -> CodingScheme | None:
         return self._scheme(self.config.icu_procedures)
 
     @property
-    def hosp_procedures(self) -> Optional[CodingScheme]:
+    def hosp_procedures(self) -> CodingScheme | None:
         return self._scheme(self.config.hosp_procedures)
 
     @property
-    def icu_inputs(self) -> Optional[CodingSchemeWithUOM]:
+    def icu_inputs(self) -> CodingSchemeWithUOM | None:
         return self._scheme(self.config.icu_inputs)
 
     @property
     def scheme_dict(self):
-        return {
-            k: self._scheme(v)
-            for k, v in self.config.scheme_fields().items() if self._scheme(v) is not None}
+        return {k: self._scheme(v) for k, v in self.config.scheme_fields().items() if self._scheme(v) is not None}
 
 
 class ReportAttributes(AbstractConfig):
@@ -419,15 +445,15 @@ class ReportAttributes(AbstractConfig):
     table: str = None
     column: str = None
     value_type: str = None
-    before: Optional[str | int | float | bool] = None
-    after: Optional[str | int | float | bool] = None
-    timestamp: str = field(default_factory=lambda: datetime.now().isoformat(), init=True,
-                           compare=False, repr=False, hash=False)
+    before: str | int | float | bool | None = None
+    after: str | int | float | bool | None = None
+    timestamp: str = field(
+        default_factory=lambda: datetime.now().isoformat(), init=True, compare=False, repr=False, hash=False
+    )
 
     def __post_init__(self):
-
         for k, v in self.__dict__.items():
-            if not k.startswith('_') and v is not None:
+            if not k.startswith("_") and v is not None:
                 if isinstance(v, type):
                     setattr(self, k, v.__name__)
                 elif isinstance(v, np.dtype):
@@ -439,9 +465,9 @@ class PipelineReportTable(pd.DataFrame):
     def equals(self, other: Self) -> bool:
         # Exclude timestamps from comparison.
         report = self
-        if all('timestamp' in r for r in (self.columns, other.columns)):
-            report = report.drop(columns=['timestamp'])
-            other = other.drop(columns=['timestamp'])
+        if all("timestamp" in r for r in (self.columns, other.columns)):
+            report = report.drop(columns=["timestamp"])
+            other = other.drop(columns=["timestamp"])
         return pd.DataFrame.equals(report, other)
 
 
@@ -467,23 +493,22 @@ class Report(AbstractConfig):
     def __len__(self) -> int:
         return len(self.incidents)
 
-    def compile(self, previous_report: Optional[pd.DataFrame] = None) -> PipelineReportTable:
+    def compile(self, previous_report: pd.DataFrame | None = None) -> PipelineReportTable:
         report = self.incidents
         if len(report) == 0:
-            report = (ReportAttributes(transformation='identity'),)
+            report = (ReportAttributes(transformation="identity"),)
 
         df = pd.DataFrame([x.as_dict() for x in report]).astype(str)
-        object_columns = [c for c in df.columns if df[c].dtype == 'object']
-        type_rows = df['value_type'] == 'dtype'
-        type_cols = ['after', 'before']
-        nan_mask = df.loc[:, object_columns].isnull() | df.loc[:, object_columns].isin((None, 'nan', 'NaN', 'None'))
-        df.loc[:, object_columns] = df.loc[:, object_columns].where(~nan_mask, '-')
-        df.loc[type_rows, type_cols] = df.loc[type_rows, type_cols].map(lambda x: f'{x}_type')
+        object_columns = [c for c in df.columns if df[c].dtype == "object"]
+        type_rows = df["value_type"] == "dtype"
+        type_cols = ["after", "before"]
+        nan_mask = df.loc[:, object_columns].isnull() | df.loc[:, object_columns].isin((None, "nan", "NaN", "None"))
+        df.loc[:, object_columns] = df.loc[:, object_columns].where(~nan_mask, "-")
+        df.loc[type_rows, type_cols] = df.loc[type_rows, type_cols].map(lambda x: f"{x}_type")
         if previous_report is None:
             return PipelineReportTable(df)
         else:
-            return PipelineReportTable(pd.concat([previous_report, df], ignore_index=True,
-                                                 axis=0, sort=False))
+            return PipelineReportTable(pd.concat([previous_report, df], ignore_index=True, axis=0, sort=False))
 
 
 class AbstractDataset(AbstractVxData, ABC):
@@ -491,24 +516,22 @@ class AbstractDataset(AbstractVxData, ABC):
     report_class: ClassVar[type[Report]] = Report
 
     @abstractmethod
-    def scheme_proxy(self, schemes_context: CodingSchemesManager):
-        ...
+    def scheme_proxy(self, schemes_context: CodingSchemesManager): ...
 
 
-DType = TypeVar('DType', bound=AbstractDataset)
-RType = TypeVar('RType', bound=Report)
+DType = TypeVar("DType", bound=AbstractDataset)
+RType = TypeVar("RType", bound=Report)
 
 
 class AbstractTransformation(eqx.Module):
-
     @classmethod
     @abstractmethod
     def apply(cls, dataset: DType, schemes_context: CodingSchemesManager, report: RType) -> tuple[DType, RType]:
         raise NotImplementedError
 
     @classmethod
-    def skip(cls, dataset: DType, report: RType, reason: str = '') -> tuple[DType, RType]:
-        return dataset, report.add(transformation=cls, operation=': '.join(('skip', reason)))
+    def skip(cls, dataset: DType, report: RType, reason: str = "") -> tuple[DType, RType]:
+        return dataset, report.add(transformation=cls, operation=": ".join(("skip", reason)))
 
 
 class AbstractDatasetPipelineConfig(AbstractConfig):
@@ -520,8 +543,12 @@ class AbstractDatasetPipeline(AbstractVxData, metaclass=ABCMeta):
     transformations: list[AbstractTransformation]
     report_class: ClassVar[type[Report]] = Report
 
-    def __init__(self, config: AbstractDatasetPipelineConfig = AbstractDatasetPipelineConfig(), *,
-                 transformations: list[AbstractTransformation]):
+    def __init__(
+        self,
+        config: AbstractDatasetPipelineConfig = AbstractDatasetPipelineConfig(),
+        *,
+        transformations: list[AbstractTransformation],
+    ):
         self.config = config
         self.transformations = transformations
 
@@ -539,19 +566,19 @@ class AbstractProcessedDataset(AbstractDataset):
             return self
         return self._execute_pipeline(pipeline.transformations, schemes_context)
 
-    def _execute_pipeline(self, transformations: list[AbstractTransformation],
-                          schemes_context: CodingSchemesManager) -> Self:
+    def _execute_pipeline(
+        self, transformations: list[AbstractTransformation], schemes_context: CodingSchemesManager
+    ) -> Self:
         if self.pipeline_executed:
             logging.warning("A pipeline has already been executed. This will replace the pipeline execution history.")
         report = self.report_class()
         dataset = self
-        with tqdm_constructor(desc='Transforming Dataset', unit='transformations',
-                              total=len(transformations)) as pbar:
+        with tqdm_constructor(desc="Transforming Dataset", unit="transformations", total=len(transformations)) as pbar:
             for t in transformations:
                 pbar.set_description(f"Transforming Dataset: {type(t).__name__}")
-                report = report.add(transformation=type(t), operation='start')
+                report = report.add(transformation=type(t), operation="start")
                 dataset, report = t.apply(dataset, schemes_context, report)
-                report = report.add(transformation=type(t), operation='end')
+                report = report.add(transformation=type(t), operation="end")
                 pbar.update(1)
 
         return eqx.tree_at(lambda x: x.pipeline_report, dataset, report.compile(dataset.pipeline_report))
@@ -560,14 +587,18 @@ class AbstractProcessedDataset(AbstractDataset):
 class DatasetConfig(AbstractConfig):
     scheme: DatasetSchemeConfig
     columns: DatasetColumns
-    select_subjects_with_observation: Optional[str]
-    select_subjects_with_short_admissions: Optional[float]  # number of days.
-    admission_minimum_los: Optional[float]
+    select_subjects_with_observation: str | None
+    select_subjects_with_short_admissions: float | None  # number of days.
+    admission_minimum_los: float | None
 
-    def __init__(self, scheme: DatasetSchemeConfig, columns: DatasetColumns = DatasetColumns(),
-                 select_subjects_with_observation: Optional[str] = None,
-                 select_subjects_with_short_admissions: Optional[float] = None,
-                 admission_minimum_los: Optional[float] = None):
+    def __init__(
+        self,
+        scheme: DatasetSchemeConfig,
+        columns: DatasetColumns = DatasetColumns(),
+        select_subjects_with_observation: str | None = None,
+        select_subjects_with_short_admissions: float | None = None,
+        admission_minimum_los: float | None = None,
+    ):
         self.scheme = scheme
         self.columns = columns
         self.select_subjects_with_observation = select_subjects_with_observation
@@ -589,11 +620,13 @@ class Dataset(AbstractProcessedDataset):
         save(self, path: Union[str, Path], overwrite: bool = False): saves the dataset to disk.
         load(cls, path: Union[str, Path]): loads the dataset from disk.
     """
+
     config: DatasetConfig
     tables: DatasetTables
 
-    def __init__(self, config: DatasetConfig, tables: DatasetTables,
-                 pipeline_report: PipelineReportTable = PipelineReportTable()):
+    def __init__(
+        self, config: DatasetConfig, tables: DatasetTables, pipeline_report: PipelineReportTable = PipelineReportTable()
+    ):
         self.config = config
         self.tables = tables
         self.pipeline_report = PipelineReportTable(pipeline_report)
@@ -609,14 +642,16 @@ class Dataset(AbstractProcessedDataset):
         return MultiDatasetsStatsInterface(*datasets, schemes_manager=coding_schemes_manager)
 
     @classmethod
-    def two_stats(cls, dataset1: Self, dataset2: Self,
-                  coding_schemes_manager: CodingSchemesManager) -> TwoDatasetsStatsInterface:
+    def two_stats(
+        cls, dataset1: Self, dataset2: Self, coding_schemes_manager: CodingSchemesManager
+    ) -> TwoDatasetsStatsInterface:
         return TwoDatasetsStatsInterface(dataset1, dataset2, schemes_manager=coding_schemes_manager)
 
     @cached_property
     def subject_ids(self):
-        assert self.tables.static.index.name == self.config.columns.static.subject_id, \
+        assert self.tables.static.index.name == self.config.columns.static.subject_id, (
             f"Index name of static table must be {self.config.columns.static.subject_id}."
+        )
         return self.tables.static.index.unique()
 
     @cached_property
@@ -628,8 +663,12 @@ class Dataset(AbstractProcessedDataset):
         interval = (admissions[c_dischtime] - admissions[c_admittime]).dt.total_seconds()
         admissions = admissions.assign(interval=interval)
         missed_subjects = set(self.subject_ids).difference(set(admissions[c_subject_id]))
-        return pd.concat([admissions.groupby(c_subject_id)['interval'].sum(),
-                          pd.Series([0] * len(missed_subjects), index=list(missed_subjects))])
+        return pd.concat(
+            [
+                admissions.groupby(c_subject_id)["interval"].sum(),
+                pd.Series([0] * len(missed_subjects), index=list(missed_subjects)),
+            ]
+        )
 
     @cached_property
     def subjects_n_admissions(self) -> pd.Series:
@@ -641,16 +680,19 @@ class Dataset(AbstractProcessedDataset):
             n_admissions.append(pd.Series([0] * len(missed_subjects), index=list(missed_subjects)))
         return pd.concat(n_admissions)
 
-    def random_splits(self,
-                      splits: list[float],
-                      subject_ids: Optional[list[str]] = None,
-                      random_seed: int = 42,
-                      balance: SplitLiteral = 'subjects',
-                      discount_first_admission: bool = False) -> tuple[list[str], ...]:
+    def random_splits(
+        self,
+        splits: list[float],
+        subject_ids: list[str] | None = None,
+        random_seed: int = 42,
+        balance: SplitLiteral = "subjects",
+        discount_first_admission: bool = False,
+    ) -> tuple[list[str], ...]:
         assert len(splits) > 0, "Split quantiles must be non-empty."
         assert list(splits) == sorted(splits), "Splits must be sorted."
-        assert balance in ('subjects', 'admissions',
-                           'admissions_intervals'), "Balanced must be'subjects', 'admissions', or 'admissions_intervals'."
+        assert balance in ("subjects", "admissions", "admissions_intervals"), (
+            "Balanced must be'subjects', 'admissions', or 'admissions_intervals'."
+        )
         if subject_ids is None:
             subject_ids = self.subject_ids
         assert len(subject_ids) > 0, "No subjects in the dataset."
@@ -664,10 +706,10 @@ class Dataset(AbstractProcessedDataset):
 
         admissions = self.tables.admissions[self.tables.admissions[c_subject_id].isin(subject_ids)]
 
-        if balance == 'subjects':
+        if balance == "subjects":
             probs = (np.ones(len(subject_ids)) / len(subject_ids)).cumsum()
 
-        elif balance == 'admissions':
+        elif balance == "admissions":
             assert len(admissions) > 0, "No admissions in the dataset."
             n_admissions = self.subjects_n_admissions.loc[subject_ids]
             if discount_first_admission:
@@ -675,13 +717,13 @@ class Dataset(AbstractProcessedDataset):
             p_admissions = n_admissions / n_admissions.sum()
             probs = p_admissions.values.cumsum()
 
-        elif balance == 'admissions_intervals':
+        elif balance == "admissions_intervals":
             assert len(admissions) > 0, "No admissions in the dataset."
             subjects_intervals_sum = self.subjects_intervals_sum.loc[subject_ids]
             p_subject_intervals = subjects_intervals_sum / subjects_intervals_sum.sum()
             probs = p_subject_intervals.values.cumsum()
         else:
-            raise ValueError(f'Unknown balanced option: {balance}')
+            raise ValueError(f"Unknown balanced option: {balance}")
 
         # Deal with edge cases where the splits are exactly the same as the probabilities.
         for i in range(len(splits)):
