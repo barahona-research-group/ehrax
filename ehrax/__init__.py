@@ -62,6 +62,7 @@ from .transformations import (  # noqa
     SynchronizeSubjects,
     FilterSubjectsWithLongAdmission,
     FilterAdmissionsWithNoDiagnoses,
+    FilterAdmissionsWithNoObservables,
     FilterSubjectsWithSingleOrNoAdmission,
     FilterShortAdmissions,
     SqueezeToStandardColumns,

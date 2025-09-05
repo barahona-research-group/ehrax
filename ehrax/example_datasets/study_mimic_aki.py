@@ -7,7 +7,7 @@ from ..coding_scheme import CodingSchemesManager
 from ..dataset import AbstractDatasetPipeline, Dataset, DatasetColumns, DatasetConfig, DatasetSchemeConfig
 from ..transformations import (
     CastTimestamps,
-    FilterClampTimestampsToAdmissionInterval,
+    FilterAdmissionsWithNoObservables, FilterClampTimestampsToAdmissionInterval,
     FilterInvalidInputRatesSubjects,
     FilterShortAdmissions,
     FilterSubjectsNegativeAdmissionLengths,
@@ -101,6 +101,7 @@ def default_dataset_pipeline() -> AbstractDatasetPipeline:
         CastTimestamps(),
         MergeOverlappingAdmissions(),
         FilterSubjectsNegativeAdmissionLengths(),
+        FilterAdmissionsWithNoObservables(),
         FilterShortAdmissions(),
         FilterClampTimestampsToAdmissionInterval(),
         FilterUnsupportedCodes(),
