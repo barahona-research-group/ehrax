@@ -4,10 +4,10 @@ import json
 import logging
 import re
 from abc import abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sized
 from pathlib import Path
 from types import MappingProxyType, NoneType
-from typing import Any, Self, TYPE_CHECKING, TypeVar
+from typing import Any, cast, Self, TYPE_CHECKING, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -51,7 +51,7 @@ class _ModuleMeta(type(eqx.Module)):
         def __class_key__(cls):
             return f"{cls.__module__}.{cls.__qualname__}"
 
-        def __get_factory__(type_str: str) -> type[Self]:
+        def __get_factory__(type_str: str):
             try:
                 return _factory_registry[type_str]
             except KeyError:
@@ -103,7 +103,7 @@ class AbstractHDFSerializable(AbstractModule):
 class HDFVirtualNode(AbstractHDFSerializable):
     """
     This class represents an unfetched node in a PyTree/AbstractHDFSerializable.
-    This is similar to the notion of lazy-loading, but the library explicitly requires calling `fetch_at(..,.)`
+    This is similar to the notion of lazy-loading, but the library explicitly requires calling `fetch_at(.,.)`
     or `fetch_all()` on any of the node ancestors, a
     """
 
@@ -121,7 +121,7 @@ class HDFVirtualNode(AbstractHDFSerializable):
     def __check_init__(self):
         for field in dataclasses.fields(self):
             value = getattr(self, field.name)
-            assert isinstance(value, field.type)
+            assert isinstance(value, cast(type, field.type))
 
     @property
     def _v_parent_path_seq(self) -> list[str]:  # to a series of directories with the root directory represented by ''
@@ -153,7 +153,7 @@ class HDFVirtualNode(AbstractHDFSerializable):
     ) -> Self:
         raise ValueError("You are trying to deserialize a VirtualNode.")
 
-    def equals(self, other: Self) -> bool:
+    def equals(self, other: AbstractHDFSerializable) -> bool:
         raise ValueError(
             "You are trying to test equality with a virtual unfetched node. Please call `fetch_at(..,..)` or "
             "`fetch_all()` on any of the node ancestors first."
@@ -168,14 +168,14 @@ class AbstractConfig(AbstractHDFSerializable):
         if levels is not None and levels <= 0:
             return x
         next_level = levels if levels is None else levels - 1
-        if isinstance(x, AbstractConfig):
+        if isinstance(x, cls):
             x = unit_config_map(x)
         if isinstance(x, dict):
-            return {k: AbstractConfig._map_hierarchical_config(unit_config_map, v, next_level) for k, v in x.items()}
+            return {k: cls._map_hierarchical_config(unit_config_map, v, next_level) for k, v in x.items()}
         elif isinstance(x, list):
-            return [AbstractConfig._map_hierarchical_config(unit_config_map, v, next_level) for v in x]
+            return [cls._map_hierarchical_config(unit_config_map, v, next_level) for v in x]
         elif isinstance(x, tuple):
-            return tuple(AbstractConfig._map_hierarchical_config(unit_config_map, v, next_level) for v in x)
+            return tuple(cls._map_hierarchical_config(unit_config_map, v, next_level) for v in x)
         else:
             return x
 
@@ -208,7 +208,8 @@ class AbstractConfig(AbstractHDFSerializable):
         # Fully deserializable to a Config object.
         return AbstractConfig._map_config_to_dict(AbstractConfig._as_typed_dict, self)
 
-    def equals(self, other: Self) -> bool:
+    def equals(self, other: AbstractHDFSerializable) -> bool:
+        assert isinstance(other, AbstractConfig), "Can only compare equality with another AbstractConfig."
         return self.to_dict() == other.to_dict()
 
     def to_hdf_group(self, group: tb.Group) -> None:
@@ -220,7 +221,7 @@ class AbstractConfig(AbstractHDFSerializable):
         cls, group: tb.Group, defer: tuple[tuple[str, ...], ...] = (), levels: int | None = None
     ) -> Self:
         assert len(defer) == 0, "Unexpected."
-        return cls.from_dict(json.loads(group["data"].read().decode("utf-8")))
+        return cls.from_dict(json.loads(group["data"].read().decode("utf-8")))  # pyright: ignore[reportAttributeAccessIssue] #
 
     def log_json(self, path: str | Path, key: str):
         path = Path(path)
@@ -234,7 +235,7 @@ class AbstractConfig(AbstractHDFSerializable):
         if isinstance(other, AbstractConfig):
             other = other.to_dict()
             other["_type"] = self.__class_key__()
-        return AbstractConfig.from_dict(self.to_dict() | other)
+        return self.from_dict(self.to_dict() | other)
 
     @classmethod
     def from_dict(cls, config: dict[str, Any]) -> Self:
@@ -252,7 +253,7 @@ class AbstractConfig(AbstractHDFSerializable):
             else:
                 return x
 
-        return _map_dict_to_config(config)
+        return _map_dict_to_config(config)  # pyright: ignore[reportReturnType]
 
     def path_update(self, path, value) -> Self:
         nesting = path.split(".")
@@ -262,8 +263,9 @@ class AbstractConfig(AbstractHDFSerializable):
                 x = getattr(x, n)
             return x
 
-        _constructor = type(_get(self)) if value is not None else lambda x: None
-        return eqx.tree_at(_get, self, _constructor(value))
+        if value is not None:
+            return eqx.tree_at(_get, self, type(_get(self))(value))  # pyright: ignore[reportCallIssue]
+        return eqx.tree_at(_get, self, None)
 
 
 class AbstractWithPandasEquivalent(AbstractHDFSerializable):
@@ -271,15 +273,15 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
     def empty_pandas_meta(df: pd.DataFrame | pd.Series) -> pd.DataFrame:
         meta = {"index_dtype": str(df.index.dtype), "index_name": str(df.index.name)}
         if isinstance(df, pd.Series):
-            meta.update({"dtype": str(df.dtype), "name": df.name})
+            meta = meta | {"dtype": str(df.dtype), "name": df.name}
         else:
-            meta.update({f"column_{i}": col for i, col in enumerate(df.columns)})
-            meta.update({f"column_dtype_{df.columns[i]}": str(dtype) for i, dtype in enumerate(df.dtypes)})
-        return pd.DataFrame(meta, index=[0])
+            meta = meta | {f"column_{i}": col for i, col in enumerate(df.columns)}
+            meta = meta | {f"column_dtype_{df.columns[i]}": str(dtype) for i, dtype in enumerate(df.dtypes)}
+        return pd.DataFrame(meta, index=pd.Index([0]))
 
     @staticmethod
-    def empty_pandas_from_metadata(meta: pd.DataFrame) -> pd.DataFrame | pd.Series:
-        meta = meta.iloc[0].to_dict()
+    def empty_pandas_from_metadata(meta_table: pd.DataFrame) -> pd.DataFrame | pd.Series:
+        meta = meta_table.iloc[0].to_dict()
         index_name = meta.pop("index_name")
         index = pd.Index([], dtype=meta.pop("index_dtype"), name=None if index_name == "None" else index_name)
         if "dtype" in meta:
@@ -297,7 +299,7 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
             elif k.startswith("column_"):
                 order = int(k.split("column_")[1])
                 cols.append((order, v))
-        cols = [col for _, col in sorted(cols, key=lambda x: x[0])]
+        cols = pd.Series([col for _, col in sorted(cols, key=lambda x: x[0])])
         return pd.DataFrame(columns=cols, index=index).astype(column_types)
 
     @classmethod
@@ -317,9 +319,13 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
     def deserialize_pandas(cls, store: tb.Group) -> pd.DataFrame | pd.Series:
         hdf = store._v_file
         if "empty_metadata" in store:
-            return cls.empty_pandas_from_metadata(pd.read_hdf(hdf.filename, key=store.empty_metadata._v_pathname))
+            meta_table = pd.read_hdf(hdf.filename, key=store.empty_metadata._v_pathname)
+            assert isinstance(meta_table, pd.DataFrame)
+            return cls.empty_pandas_from_metadata(meta_table)
         else:
-            return pd.read_hdf(hdf.filename, key=store._v_pathname)
+            table_or_series = pd.read_hdf(hdf.filename, key=store._v_pathname)
+            assert isinstance(table_or_series, (pd.DataFrame, pd.Series))
+            return table_or_series
 
     @abstractmethod
     def to_pandas(self) -> pd.DataFrame | pd.Series:
@@ -344,7 +350,7 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
         hdf_file = group._v_file
         return cls.__get_factory__(classname).from_pandas(cls.deserialize_pandas(hdf_file.get_node(group, "data")))
 
-    def equals(self, other: Self) -> bool:
+    def equals(self, other: AbstractHDFSerializable) -> bool:
         return type(self) == type(other) and self.to_pandas().equals(other.to_pandas())
 
 
@@ -362,7 +368,8 @@ class AbstractWithDataframeEquivalent(AbstractWithPandasEquivalent):
         return self.to_dataframe()
 
     @classmethod
-    def from_pandas(cls, pandas: pd.DataFrame) -> Self:
+    def from_pandas(cls, pandas: pd.DataFrame | pd.Series) -> Self:
+        assert isinstance(pandas, pd.DataFrame), "Expected a pandas DataFrame."
         return cls.from_dataframe(pandas)
 
 
@@ -380,7 +387,8 @@ class AbstractWithSeriesEquivalent(AbstractWithPandasEquivalent):
         return self.to_series()
 
     @classmethod
-    def from_pandas(cls, pandas: pd.Series) -> Self:
+    def from_pandas(cls, pandas: pd.DataFrame | pd.Series) -> Self:
+        assert isinstance(pandas, pd.Series), "Expected a pandas Series."
         return cls.from_series(pandas)
 
 
@@ -476,7 +484,7 @@ SERIALIZABLE_ELEMENT = (
 )
 SERIALIZABLE_ELEMENT_TYPES = sum((e.value for e in SERIALIZABLE_ELEMENT), ())
 
-# These element types contained within a homogeneous container, can be converted to a pandas Series first.
+# These element types contained within a homogeneous container, can be converted to a pd.Series first.
 SERIES_GROUPED_ELEMENT = (
     SERIALIZABLE_FIELD.float,
     SERIALIZABLE_FIELD.integer,
@@ -488,7 +496,7 @@ SERIES_GROUPED_ELEMENT_TYPES = sum((e.value for e in SERIES_GROUPED_ELEMENT), ()
 
 
 class _MyCustomList_set(list):
-    # a custom list used to deal with replacing sets with list, since sets are not considered a pytree
+    # a custom list used to deal with replacing sets with a list, since sets are not considered a pytree
     # like lists/dicts/tuples, so we replace all sets with this type of list, so we can reverse the operation
     # (i.e. map back to a set) by identifying this type in the pytree. See `fetch_all` for more details.
     pass
@@ -554,13 +562,13 @@ class AbstractVxData(AbstractHDFSerializable):
         else:
             raise ValueError(f"Unsupported type {type(obj)}.")
 
-    def equals(self, other: Self) -> bool:
+    def equals(self, other: AbstractHDFSerializable) -> bool:
         # Need stricter than equinox's `equal_trees(... ,typematch=True)`; For example, ensures pandas.DataFrame
         # objects are compared with `equals` instead of `__eq__`.
         return type(self) == type(other) and self.fields == other.fields and self.equal_attributes(self, other)
 
-    @classmethod
-    def equal_attributes(cls, self_obj: Self, other_obj: Self) -> bool:
+    @staticmethod
+    def equal_attributes(self_obj: AbstractHDFSerializable, other_obj: AbstractHDFSerializable) -> bool:
         def _equal_attributes(a: Any, b: Any):
             if type(a) != type(b):
                 return False
@@ -713,10 +721,14 @@ class AbstractVxData(AbstractHDFSerializable):
                 | SERIALIZABLE_FIELD.frozenset
             ):
                 (sequence_type,) = SERIALIZABLE_FIELD[attr_type_enum_name].value
-                return sequence_type(cls.deserialize_sequence(node(), defer_next, next_level))
+                assert sequence_type in (list, tuple, set, frozenset)
+                seq = cls.deserialize_sequence(node(), defer_next, next_level)
+                return sequence_type(seq)
             case SERIALIZABLE_FIELD.dict | SERIALIZABLE_FIELD.mapping_proxy:
                 (collection_type,) = SERIALIZABLE_FIELD[attr_type_enum_name].value
-                return collection_type(cls.deserialize_dict(node(), defer_next, next_level))
+                c = cls.deserialize_dict(node(), defer_next, next_level)
+                assert collection_type in (dict, MappingProxyType)
+                return collection_type(c)
             case _:
                 raise ValueError(f"Unhandled type {attr_type_enum_name} for attribute {hdf_key}.")
 
@@ -736,7 +748,7 @@ class AbstractVxData(AbstractHDFSerializable):
         assert len(entries) != 0 and len(entries) == len(objects)
         hdf_keys = list(map(cls.make_hdf_key, entries))
         types = list(map(cls.object_type_enum_name, objects))
-        metadata = pd.DataFrame({"hdf_key": hdf_keys, "type": types}, index=entries)
+        metadata = pd.DataFrame({"hdf_key": hdf_keys, "type": types}, index=pd.Index(entries))
         metadata["segment"] = [cls.make_hdf_segment_key(i // MAX_SEGMENT_SIZE) for i in range(len(entries))]
         if metadata["segment"].nunique() > 1:
             h5file = parent_group._v_file
@@ -783,7 +795,9 @@ class AbstractVxData(AbstractHDFSerializable):
         if group._v_nchildren == 0:
             return []
         if "data" in group:
-            return pd.read_hdf(group._v_file.filename, key=group.data._v_pathname).values.tolist()
+            series = pd.read_hdf(group._v_file.filename, key=group.data._v_pathname)
+            assert isinstance(series, pd.Series)
+            return series.values.tolist()
         return list(cls.deserialize_heterogeneous_collection(group, defer, levels).values())
 
     @classmethod
@@ -793,7 +807,10 @@ class AbstractVxData(AbstractHDFSerializable):
         if group._v_nchildren == 0:
             return {}
         elif "data" in group:
-            return pd.read_hdf(group._v_file.filename, key=group.data._v_pathname).to_dict()
+            series = pd.read_hdf(group._v_file.filename, key=group.data._v_pathname)
+            assert isinstance(series, pd.Series)
+            return series.to_dict()
+
         return cls.deserialize_heterogeneous_collection(group, defer, levels)
 
     @classmethod
@@ -801,9 +818,10 @@ class AbstractVxData(AbstractHDFSerializable):
         cls, group: tb.Group, defer: tuple[tuple[str, ...], ...], levels: int | None
     ) -> dict[str | int, Any]:
         meta = pd.read_hdf(group._v_file.filename, key=group.metadata._v_pathname)
-        group = cls.get_bookkeeping_segments(group, meta)
+        assert isinstance(meta, pd.DataFrame)
+        segment_group = cls.get_bookkeeping_segments(group, meta)
         return {
-            k: cls.deserialize_object(group[s], hdf_k, t, defer, levels)
+            k: cls.deserialize_object(segment_group[s], hdf_k, t, defer, levels)
             for k, hdf_k, s, t in zip(meta.index, meta["hdf_key"], meta["segment"], meta["type"])
         }
 
@@ -909,19 +927,21 @@ def _match_child_parent_paths(ch: list[str], pt: list[str]):
 
 
 T = TypeVar("T", bound=AbstractVxData)
-HDFVirtualNodeGet = Callable[[T], HDFVirtualNode]
+type HDFVirtualNodeGet[T] = Callable[[T], HDFVirtualNode]
 
 
 def fetch_at[T](
     where: HDFVirtualNodeGet[T] | tuple[HDFVirtualNodeGet[T], ...],
     tree: T,
-    levels: int | None | tuple[int, ...] = None,
+    levels: int | None | tuple[int | None, ...] = None,
 ) -> T:
     # deal with a sequence to avoid opening a file for each v_node fetch.
     if callable(where):
         where = (where,)
-    if not isinstance(levels, (tuple, list)):
-        levels = (levels,) * len(where)
+    if isinstance(levels, Sized):
+        levels = tuple(levels)
+    else:
+        return fetch_at(where, tree, (levels,) * len(where))
 
     if len(where) == 0:
         return tree
@@ -942,7 +962,7 @@ def fetch_at[T](
     )
     assert all(v_node.filename == v_nodes[0].filename for v_node in v_nodes), "Unexpected Filename mismatch!"
     with tb.open_file(v_nodes[0].filename, "r") as hf5_file:
-        for w, v_node, hdf_key, levels_i in zip(where, v_nodes, map(lambda p: p[-1], v_nodes_paths), levels):
+        for w, v_node, hdf_key, levels_i in zip(where, v_nodes, [p[-1] for p in v_nodes_paths], levels):
             parent_group = hf5_file.get_node(v_node.parent_path)
             assert isinstance(parent_group, tb.Group)
             fetched = AbstractVxData.deserialize_object(
@@ -950,7 +970,7 @@ def fetch_at[T](
             )
             tree = eqx.tree_at(w, tree, fetched)
         return tree
-    assert 0, "Unreachable."
+    raise RuntimeError(f"Failed to open the HDFFile: {v_nodes[0].filename}.")
 
 
 def fetch_one_level_at[T](where: HDFVirtualNodeGet[T] | tuple[HDFVirtualNodeGet[T], ...], tree: T) -> T:
@@ -1019,4 +1039,4 @@ def fetch_all[T](tree: T) -> T:
         )
         return jtu.tree_map(apply, tree, is_leaf=lambda a: isinstance(a, (_MyCustomList_set, _MyCustomList_frozenset)))
 
-    assert 0, "Unreachable."
+    raise RuntimeError(f"Failed to open the HDFFile: {filename}.")
