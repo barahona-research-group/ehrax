@@ -326,7 +326,8 @@ class TestVxDataWithNesting(TestVxData):
                     {pd.Timestamp(0), pd.Timestamp(100)},
                 ),
                 (
-                    {"a": 1, "b": 2},  # ---------------------------------------------------------(!)--- <- changed to 4
+                    {"a": 1, "b": 2},
+                    # ---------------------------------------------------------(!)--- <- changed to 4
                     {
                         "c": VxData(2.0, VxData(np.arange(100), pd.Timestamp(4), [pd.Series(np.arange(4))]), {34: "x"}),
                         "d": VxData(None, pd.Timestamp(10), [Config(Config(6, None), False)]),
@@ -346,7 +347,7 @@ class TestVxDataWithNesting(TestVxData):
                     pd.DataFrame(columns=["x", "y"]),
                     pd.DataFrame([5, 1]),
                     MappingProxyType(
-                        # -----------------------------------------------------------------------------------------------(!)
+                        # -------------------------------------------------------------------------------(!)
                         {
                             1: pd.Series(
                                 [], pd.Index([], dtype="bool", name="indexooo"), dtype="bool", name="veryboolseries"
@@ -358,7 +359,7 @@ class TestVxDataWithNesting(TestVxData):
                     pd.DataFrame(columns=["x", "y"]),
                     pd.DataFrame([5, 1]),
                     MappingProxyType(
-                        # ------------------------------------------------------------------------------------------------(!)
+                        # --------------------------------------------------------------------------------(!)
                         {
                             1: pd.Series(
                                 [], pd.Index([], dtype="bool", name="indexooo"), dtype="bool", name="--------------"

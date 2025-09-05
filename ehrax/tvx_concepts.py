@@ -28,10 +28,12 @@ class InpatientObservables(AbstractVxData):
     Methods:
         empty(size: int): creates an empty instance of InpatientObservables.
         __len__(): returns the length of the time array.
-        as_dataframe(scheme: AbstractScheme, filter_missing_columns=False): converts the observables to a pandas DataFrame.
+        as_dataframe(scheme: AbstractScheme, filter_missing_columns=False): converts the observables
+            to a pandas DataFrame.
         groupby_code(index2code: dict[int, str]): groups the observables by code.
         segment(t_sep: Array): splits the observables into segments based on time values.
-        concat(observables: Union[InpatientObservables, list[InpatientObservables]]): concatenates multiple instances of InpatientObservables.
+        concat(observables: Union[InpatientObservables, list[InpatientObservables]]): concatenates multiple
+            instances of InpatientObservables.
         time_binning(hours: float): bins the time-series into time-windows and averages the values in each window.
     """
 
@@ -103,7 +105,8 @@ class InpatientObservables(AbstractVxData):
         Concatenates a list of InpatientObservables into a single InpatientObservables object.
 
         Args:
-            observables (Union[InpatientObservables, list[InpatientObservables]]): the list of InpatientObservables to concatenate.
+            observables (Union[InpatientObservables, list[InpatientObservables]]): the list
+                of InpatientObservables to concatenate.
 
         Returns:
             InpatientObservables: the concatenated InpatientObservables object.

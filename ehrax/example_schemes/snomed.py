@@ -99,24 +99,41 @@ class SNOMEDCTGBMonolith:
         |Field              |Data type  |Purpose    |Mutable|Part of Primary Key|
         |-------------------|-----------|-----------|-------|-------------------|
         |id                 |SCTID      |Uniquely Idenfies the concept|NO|YES (Full/Snapshot)|
-        |effectiveTime      |Time       |Specifies the inclusive date at which the component version's state became the then current valid state of the component.|YES|YES (Full)<br>Optional (Snapshot)|
-        |active             |Boolean    |Specifies whether the concept was active or inactive from the nominal release date specified by the effectiveTime.|YES|NO|
-        |moduleId           |SCTID      |Identifies the concept version's module. Set to a descendant of 900000000000443000(Module) within the metadata hierarchy.|YES|NO|
-        |definitionStatusId |SCTID      |Specifies if the concept version is primitive or defined. Set to a descendant of 900000000000444006(Definition status)in the metadata hierarchy.|YES|NO|
+        |effectiveTime      |Time       |Specifies the inclusive date at which the component version's state became the
+                then current valid state of the component.|YES|YES (Full)<br>Optional (Snapshot)|
+        |active             |Boolean    |Specifies whether the concept was active or inactive from the nominal release
+                date specified by the effectiveTime.|YES|NO|
+        |moduleId           |SCTID      |Identifies the concept version's module. Set to a descendant of
+                900000000000443000(Module) within the metadata hierarchy.|YES|NO|
+        |definitionStatusId |SCTID      |Specifies if the concept version is primitive or defined. Set to a descendant
+                of 900000000000444006(Definition status)in the metadata hierarchy.|YES|NO|
 
         desc is the table of descriptions linked to each concept. The table consists of the following columns:
 
         |Field              |Data type  |Purpose    |Mutable|Part of Primary Key|
         |-------------------|-----------|-----------|-------|-------------------|
         |id                 |SCTID      |Uniquely identifies the description.|NO|YES (Full/Snapshot)|
-        |effectiveTime      |Time       |Specifies the inclusive date at which the component version's state became the then current valid state of the component|YES|YES (Full)<br>Optional |Snapshot||
-        |active             |Boolean    |Specifies whether the state of the description was active or inactive from the nominal release date specified by the effectiveTime.|YES|NO|
-        |moduleId           |SCTID      |Identifies the description version's module. Set to a child of 900000000000443000|Module| within the metadata hierarchy.|YES|NO|
-        |conceptId          |SCTID      |Identifies the concept to which this description applies. Set to the identifier of a concept in the 138875005 |SNOMED CT Concept| hierarchy within the Concept. Note that a specific version of a description is not directly bound to a specific version of the concept to which it applies. Which version of a description applies to a concept depends on its effectiveTime and the point in time at which it is accessed.|NO|NO|
-        |languageCode       |String     |Specifies the language of the description text using the two character ISO-639-1 code. Note that this specifies a language level only, not a dialect or country code.|NO|NO|
-        |typeId             |SCTID      |Identifies whether the description is fully specified name a synonym or other description type. This field is set to a child of 900000000000446008|Description type| in the Metadata hierarchy.|NO|NO|
+        |effectiveTime      |Time       |Specifies the inclusive date at which the component version's state became the
+                then current valid state of the component|YES|YES (Full)<br>Optional |Snapshot||
+        |active             |Boolean    |Specifies whether the state of the description was active or inactive from the
+                nominal release date specified by the effectiveTime.|YES|NO|
+        |moduleId           |SCTID      |Identifies the description version's module. Set to a child of
+                900000000000443000|Module| within the metadata hierarchy.|YES|NO|
+        |conceptId          |SCTID      |Identifies the concept to which this description applies. Set to the identifier
+                of a concept in the 138875005 |SNOMED CT Concept| hierarchy within the Concept. Note that a specific
+                version of a description is not directly bound to a specific version of the concept to which it applies.
+                Which version of a description applies to a concept depends on its effectiveTime and the point in time
+                at which it is accessed.|NO|NO|
+        |languageCode       |String     |Specifies the language of the description text using the two character
+                ISO-639-1 code. Note that this specifies a language level only, not a dialect or country code.|NO|NO|
+        |typeId             |SCTID      |Identifies whether the description is fully specified name a synonym or other
+                description type. This field is set to a child of 900000000000446008|Description type| in the
+                Metadata hierarchy.|NO|NO|
         |term               |String     |The description version's text value, represented in UTF-8 encoding.|YES|NO|
-        |caseSignificanceId |SCTID      |Identifies the concept enumeration value that represents the case significance of this description version. For example, the term may be completely case sensitive, case insensitive or initial letter case insensitive. This field will be set to a child of 900000000000447004|Case significance| within the metadata hierarchy.|YES|NO|
+        |caseSignificanceId |SCTID      |Identifies the concept enumeration value that represents the case
+                significance of this description version. For example, the term may be completely case sensitive, case
+                insensitive or initial letter case insensitive. This field will be set to a child of
+                900000000000447004|Case significance| within the metadata hierarchy.|YES|NO|
 
 
         Taken from: https://confluence.ihtsdotools.org/display/DOCRELFMT
@@ -168,7 +185,8 @@ class SNOMEDCTGBMonolith:
         ## SNOMED CT Design
 
             ### SNOMED CT Components
-            SNOMED CT is a clinical terminology containing concepts with unique meanings and formal logic based definitions organised into hierarchies.
+            SNOMED CT is a clinical terminology containing concepts with unique meanings and formal logic based
+                definitions organised into hierarchies.
             For further information please see: https://confluence.ihtsdotools.org/display/DOCSTART/4.+SNOMED+CT+Basics
 
             SNOMED CT content is represented into 3 main types of components:
@@ -204,15 +222,36 @@ class SNOMEDCTGBMonolith:
         # |Field                |Data type  |Purpose|Mutable|Part of Primary Key|
         # |---------------------|-----------|-------|-------|-----|
         # |id                   |SCTID      |Uniquely identifies the relationship.|NO|YES(Full/Snapshot)|
-        # |effectiveTime        |Time       |Specifies the inclusive date at which the component version's state became the then current valid state of the component.|YES|YES(Full) Optional(Snapshot)|
-        # |active               |Boolean    |Specifies whether the state of the relationship was active or inactive from the nominal release date specified by the effectiveTime field.|YES|NO|
-        # |moduleId             |SCTID      |Identifies the relationship version's module. Set to a child of 900000000000443000|Module| within the metadata hierarchy.|YES|NO|
-        # |sourceId             |SCTID      |Identifies the source concept of the relationship version. That is the concept defined by this relationship. Set to the identifier of a concept.|NO|NO|
-        # |destinationId        |SCTID      |Identifies the concept that is the destination of the relationship version.<br>That is the concept representing the value of the attribute represented by the typeId column.<br>Set to the identifier of a concept.<br>Note that the values that can be applied to particular attributes are formally defined by the SNOMED CT Machine Readable Concept Model.|NO|NO|
-        # |relationshipGroup    |Integer    |Groups together relationship versions that are part of a logically associated relationshipGroup. All active Relationship records with the same relationshipGroup number and sourceId are grouped in this way.|YES|NO|
-        # |typeId               |SCTID      |Identifies the concept that represent the defining attribute (or relationship type) represented by this relationship version.<br><br>That is the concept representing the value of the attribute represented by the typeId column. <br><br>Set to the identifier of a concept. The concept identified must be either 116680003|Is a| or a subtype of 410662002|Concept model attribute|. The concepts that can be used as in the typeId column are formally defined as follows:<br>116680003|is a| OR < 410662002|concept model attribute|<br><br>__Note__ that the attributes that can be applied to particular concepts are formally defined by the SNOMED CT Machine Readable Concept Model.|NO|NO|
-        # |characteristicTypeId |SCTID      |A concept enumeration value that identifies the characteristic type of the relationship version (i.e. whether the relationship version is defining, qualifying, etc.) This field is set to a descendant of 900000000000449001|Characteristic type|in the metadata hierarchy.|YES|NO|
-        # |modifierId           |SCTID      |A concept enumeration value that identifies the type of Description Logic(DL) restriction (some, all, etc.). Set to a child of 900000000000450001|Modifier| in the metadata hierarchy.<br> __Note__ Currently the only value used in this column is 900000000000451002|Some| and thus in practical terms this column can be ignored.|YES|NO|
+        # |effectiveTime        |Time       |Specifies the inclusive date at which the component version's state
+        #           became the then current valid state of the component.|YES|YES(Full) Optional(Snapshot)|
+        # |active               |Boolean    |Specifies whether the state of the relationship was active or inactive
+        #       from the nominal release date specified by the effectiveTime field.|YES|NO|
+        # |moduleId             |SCTID      |Identifies the relationship version's module. Set to a child of
+        #       900000000000443000|Module| within the metadata hierarchy.|YES|NO|
+        # |sourceId             |SCTID      |Identifies the source concept of the relationship version. That is the
+        #       concept defined by this relationship. Set to the identifier of a concept.|NO|NO|
+        # |destinationId |SCTID      |Identifies the concept that is the destination of the relationship version.
+        #       <br>That is the concept representing the value of the attribute represented by the typeId column.
+        #       <br>Set to the identifier of a concept.<br>Note that the values that can be applied to particular
+        #       attributes are formally defined by the SNOMED CT Machine Readable Concept Model.|NO|NO|
+        # |relationshipGroup    |Integer    |Groups together relationship versions that are part of a
+        #       logically associated relationshipGroup. All active Relationship records with the same relationship Group
+        #       number and sourceId are grouped in this way.|YES|NO|
+        # |typeId               |SCTID      |Identifies the concept that represent the defining attribute (or
+        #       relationship type) represented by this relationship version.<br><br>That is the concept representing
+        #       the value of the attribute represented by the typeId column. <br><br>Set to the identifier of a concept.
+        #       The concept identified must be either 116680003|Is a| or a subtype of
+        #       410662002|Concept model attribute|. The concepts that can be used as in the typeId column are formally
+        #       defined as follows:<br>116680003|is a| OR < 410662002|concept model attribute|<br><br>__Note__ that the
+        #       attributes that can be applied to particular concepts are formally defined by the SNOMED CT Machine
+        #       Readable Concept Model.|NO|NO|
+        # |characteristicTypeId |SCTID      |A concept enumeration value that identifies the characteristic type of the
+        #       relationship version (i.e. whether the relationship version is defining, qualifying, etc.) This field is
+        #       set to a descendant of 900000000000449001|Characteristic type|in the metadata hierarchy.|YES|NO|
+        # |modifierId           |SCTID      |A concept enumeration value that identifies the type of Description
+        #       Logic(DL) restriction (some, all, etc.). Set to a child of 900000000000450001|Modifier| in the metadata
+        #       hierarchy.<br> __Note__ Currently the only value used in this column is 900000000000451002|Some| and
+        #       thus in practical terms this column can be ignored.|YES|NO|
         relations_file = os.path.join(term_dir, filename(term_dir_files, "sct2_relationship_"))
         rel = cls.parse_file(relations_file)
         is_a = rel.loc[(rel.active == "1") & (rel.typeId == IS_A_RELATION), ["sourceId", "destinationId"]].astype(str)

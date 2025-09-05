@@ -3,10 +3,10 @@
 import json
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, MutableMapping
 from pathlib import Path
 from types import ModuleType
-from typing import Any, MutableMapping
+from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
@@ -16,6 +16,7 @@ from jax._src.tree_util import DictKey, FlattenedIndexKey, GetAttrKey, KeyEntry,
 from jaxlib._jax import ArrayImpl
 from tqdm import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
+
 
 ArrayTypes = (np.ndarray, jnp.ndarray, jax.Array, ArrayImpl)
 Array = np.ndarray | jnp.ndarray | jax.Array | ArrayImpl
@@ -39,12 +40,12 @@ tqdm_constructor = _tqdm_backend()
 def translate_path(path: str, relative_to: str | None = None):
     """Translate a filesystem path by replacing environment
     variables with their values. If relative_to is specified,
-    and path is a relative path to nonexistent file, then the
+    and a path is a relative path to a nonexistent file, then the
     path is interpreted as relative to this path.
 
     Parameters:
         path: Filesystem path to translate.
-        relative_to: if specified, and path is a relative path to nonexistent file, then the path is
+        relative_to: if specified, and a path is a relative path to a nonexistent file, then the path is
             interpreted as relative to this path.
     Returns:
         Absolute, expanded, translated path.
@@ -70,7 +71,7 @@ def load_config(config_file: str, relative_to: str | None = None):
 
     Parameters:
         config_file: Path to the JSON configuration file to load.
-        relative_to: if specified, and config_file is a relative path to nonexistent file, then the path is
+        relative_to: if specified, and config_file is a relative path to a nonexistent file, then the path is
             interpreted as relative to this path.
 
     Returns:
@@ -93,9 +94,9 @@ def write_config(data, config_file):
 
 
 def path_from_getter(
-        getter: Callable[[Any], Any],
-        getattr_transform: Callable[[str], str] = lambda x: x,
-        getitem_transform: Callable[[Any], str] = lambda x: x,
+    getter: Callable[[Any], Any],
+    getattr_transform: Callable[[str], str] = lambda x: x,
+    getitem_transform: Callable[[Any], str] = lambda x: x,
 ) -> list[str]:
     """
     Generate a sequence of attribute names or indices (converted to strings) recording the sequence of access steps
@@ -130,9 +131,9 @@ def path_from_getter(
 
 
 def path_from_jax_keypath(
-        path: tuple[KeyEntry, ...],
-        getattr_transform: Callable[[str], str] = lambda x: x,
-        getitem_transform: Callable[[Any], str] = lambda x: x,
+    path: tuple[KeyEntry, ...],
+    getattr_transform: Callable[[str], str] = lambda x: x,
+    getitem_transform: Callable[[Any], str] = lambda x: x,
 ) -> list[str]:
     def _extract(entry: KeyEntry):
         match entry:
@@ -155,19 +156,19 @@ class NumpyEncoder(json.JSONEncoder):
 
     def default(self, obj: object) -> object:  # type: ignore
         if np.issubdtype(type(obj), np.integer):
-            return int(obj)
-        elif np.isreal(obj):
-            return float(obj)
-        elif np.iscomplex(obj):
-            return {"real": obj.real, "imag": obj.imag}
+            return int(obj)  # type: ignore
+        elif np.isreal(obj):  # type: ignore
+            return float(obj)  # type: ignore
+        elif np.iscomplex(obj):  # type: ignore
+            return {"real": obj.real, "imag": obj.imag}  # type: ignore
 
         elif isinstance(obj, (np.ndarray,)):
             return obj.tolist()
 
-        elif isinstance(obj, (np.bool_)):
+        elif isinstance(obj, np.bool_):
             return bool(obj)
 
-        elif isinstance(obj, (np.void)):
+        elif isinstance(obj, np.void):
             return None
 
         return json.JSONEncoder.default(self, obj)
@@ -205,7 +206,7 @@ class DataFrameLogger(logging.LoggerAdapter):
                 return file_parent, file_title, file_suffix
         return None
 
-    def process(self, msg: str, kwargs: MutableMapping[str, Any]) -> tuple[str, dict[str, Any]]:
+    def process(self, msg: str, kwargs: MutableMapping[str, Any]) -> tuple[str, MutableMapping[str, Any]]:
         df, tag = kwargs.pop("dataframe"), kwargs.pop("tag", "")
         assert tuple(map(type, (msg, df, tag))) == (str, pd.DataFrame, str)
         if len(df) == 0:
@@ -215,7 +216,7 @@ class DataFrameLogger(logging.LoggerAdapter):
         timestamp = pd.Timestamp.now().strftime("%Y_%m_%dT_%H_%M_%S")
         if self.extra is None:
             self.extra = {}
-        incremental_id = int(self.extra.get("incremental_id", 0)) + 1
+        incremental_id = cast(int, self.extra.get("incremental_id", 0)) + 1
         self.extra = dict(self.extra) | {"incremental_id": incremental_id}
         filehandler_names = self.extract_file_handler_names
         if filehandler_names is None:

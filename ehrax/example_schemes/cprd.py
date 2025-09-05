@@ -159,7 +159,8 @@
 #
 # def register_cprd_ethnicity_scheme_loaders():
 #     Ethnicity.register_scheme_loader('eth_cprd_16',
-#                                      lambda: register_cprd_ethnicity('eth_cprd_16', ETH16_CODE_CNAME, ETH16_DESC_CNAME))
+#                                      lambda: register_cprd_ethnicity('eth_cprd_16', ETH16_CODE_CNAME,
+#                                      ETH16_DESC_CNAME))
 #     Ethnicity.register_scheme_loader('eth_cprd_5',
 #                                      lambda: register_cprd_ethnicity('eth_cprd_5', ETH5_CODE_CNAME, ETH5_DESC_CNAME))
 #

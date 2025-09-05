@@ -184,7 +184,8 @@ class MultivariateTimeSeriesTableMeta(AbstractConfig):
 
     def __check_init__(self):
         assert len(self.attributes) == len(self.type_hint), (
-            f"Length of attributes and type_hint must be the same. Got {len(self.attributes)} and {len(self.type_hint)}."
+            f"Length of attributes and type_hint must be the same. Got {len(self.attributes)} and "
+            f"{len(self.type_hint)}."
         )
         assert all(t in ("N", "C", "B", "O") for t in self.type_hint), (
             f"type hint must be one of 'N', 'C', 'B', 'O'. Got {self.type_hint}."
@@ -380,11 +381,15 @@ class DatasetSchemeProxy:
     Methods:
         __init__(self, config: DatasetSchemeConfig, **kwargs): initializes a new instance of the DatasetScheme class.
         scheme_dict(self): returns a dictionary of the coding schemes in the dataset scheme.
-        make_target_scheme_config(self, **kwargs): creates a new target scheme configuration based on the current scheme.
+        make_target_scheme_config(self, **kwargs): creates a new target scheme configuration based on the
+            current scheme.
         make_target_scheme(self, config=None, **kwargs): creates a new target scheme based on the current scheme.
-        demographic_vector_size(self, demographic_vector_config: DemographicVectorConfig): calculates the size of the demographic vector.
-        dx_mapper(self, target_scheme: DatasetScheme): returns the mapper for the diagnosis coding scheme to the corresponding target scheme.
-        ethnicity_mapper(self, target_scheme: DatasetScheme): returns the mapper for the ethnicity coding scheme to the corresponding target scheme.
+        demographic_vector_size(self, demographic_vector_config: DemographicVectorConfig): calculates the size of
+            the demographic vector.
+        dx_mapper(self, target_scheme: DatasetScheme): returns the mapper for the diagnosis coding scheme to the
+            corresponding target scheme.
+        ethnicity_mapper(self, target_scheme: DatasetScheme): returns the mapper for the ethnicity coding scheme to
+            the corresponding target scheme.
         supported_target_scheme_options(self): returns the supported target scheme options for each coding scheme.
     """
 
