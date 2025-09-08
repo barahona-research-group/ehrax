@@ -396,6 +396,10 @@ class TVxEHRConfig(AbstractConfig):
 class TVxReportAttributes(ReportAttributes):
     tvx_concept: str = None
 
+    def __init__(self, tvx_concept: str | None = None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tvx_concept = tvx_concept
+
     @staticmethod
     def _t(object_or_type: type | AbstractVxData) -> str:
         return object_or_type.__name__ if isinstance(object_or_type, type) else object_or_type.__class__.__name__

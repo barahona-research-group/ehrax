@@ -19,9 +19,8 @@ import pandas as pd
 from ._literals import NumericalTypeHint, SplitLiteral
 from ._stats.dataset import DatasetStatsInterface, MultiDatasetsStatsInterface, TwoDatasetsStatsInterface
 from .base import AbstractConfig, AbstractVxData, HDFVirtualNode
-from .coding_scheme import CodingScheme, CodingSchemesManager, CodingSchemeWithUOM, NumericScheme
+from .coding_scheme import CodingScheme, CodingSchemeWithUOM, CodingSchemesManager, NumericScheme
 from .utils import tqdm_constructor
-
 
 SECONDS_TO_HOURS_SCALER: Final[float] = 1 / 3600.0  # convert seconds to hours
 SECONDS_TO_DAYS_SCALER: Final[float] = SECONDS_TO_HOURS_SCALER * 1 / 24.0  # convert seconds to days
@@ -358,7 +357,7 @@ class DatasetSchemeConfig(AbstractConfig):
         self.hosp_procedures = hosp_procedures
         self.icu_inputs = icu_inputs
 
-    def scheme_fields(self) -> dict[str, str]:
+    def scheme_fields(self) -> dict[str, str | None]:
         return {
             "gender": self.gender,
             "ethnicity": self.ethnicity,
@@ -400,27 +399,31 @@ class DatasetSchemeProxy:
         self.config = config
         self.schemes_context = schemes_context
 
-    def _scheme(self, name: str) -> CodingScheme | None:
+    def _scheme(self, name: str | None) -> CodingScheme | None:
+        if name is None:
+            return None
         try:
             return self.schemes_context.scheme[name]
         except KeyError:
             return None
 
     @property
-    def ethnicity(self) -> CodingScheme:
+    def ethnicity(self) -> CodingScheme | None:
         return self._scheme(self.config.ethnicity)
 
     @property
-    def gender(self) -> CodingScheme:
+    def gender(self) -> CodingScheme | None:
         return self._scheme(self.config.gender)
 
     @property
-    def dx_discharge(self) -> CodingScheme:
+    def dx_discharge(self) -> CodingScheme | None:
         return self._scheme(self.config.dx_discharge)
 
     @property
     def obs(self) -> NumericScheme | None:
-        return self._scheme(self.config.obs)
+        s = self._scheme(self.config.obs)
+        assert s is None or isinstance(s, NumericScheme), f"Observation scheme must be numeric. Got {type(s)}."
+        return s
 
     @property
     def icu_procedures(self) -> CodingScheme | None:
@@ -432,7 +435,9 @@ class DatasetSchemeProxy:
 
     @property
     def icu_inputs(self) -> CodingSchemeWithUOM | None:
-        return self._scheme(self.config.icu_inputs)
+        s = self._scheme(self.config.icu_inputs)
+        assert s is None or isinstance(s, CodingSchemeWithUOM), f"ICU inputs scheme must be with UOM. Got {type(s)}."
+        return s
 
     @property
     def scheme_dict(self):
@@ -440,29 +445,53 @@ class DatasetSchemeProxy:
 
 
 class ReportAttributes(AbstractConfig):
-    transformation: str = None
-    operation: str = None
-    table: str = None
-    column: str = None
-    value_type: str = None
+    transformation: str | None = None
+    operation: str | None = None
+    table: str | None = None
+    column: str | None = None
+    value_type: str | None = None
     before: str | int | float | bool | None = None
     after: str | int | float | bool | None = None
-    timestamp: str = field(
-        default_factory=lambda: datetime.now().isoformat(), init=True, compare=False, repr=False, hash=False
-    )
+    timestamp: str | None = None
 
-    def __post_init__(self):
-        for k, v in self.__dict__.items():
-            if not k.startswith("_") and v is not None:
-                if isinstance(v, type):
-                    setattr(self, k, v.__name__)
-                elif isinstance(v, np.dtype):
-                    setattr(self, k, v.name)
+    def __init__(
+        self,
+        transformation: str | type | None = None,
+        operation: str | None = None,
+        table: str | None = None,
+        column: str | None = None,
+        value_type: str | type | None = None,
+        before: str | int | float | bool | type | None = None,
+        after: str | int | float | bool | type | None = None,
+        timestamp: str | None = None,
+    ):
+        def strtype(x):
+            if x is None:
+                return x
+            elif isinstance(x, type):
+                return x.__name__
+            elif isinstance(x, np.dtype):
+                return x.name
+            else:
+                return x
+
+        self.transformation = strtype(transformation)
+        self.operation = operation
+        self.table = table
+        self.column = column
+        self.value_type = strtype(value_type)
+        self.before = strtype(before)
+        self.after = strtype(after)
+        if timestamp is not None:
+            self.timestamp = timestamp
+        else:
+            self.timestamp = datetime.now().isoformat()
 
 
 class PipelineReportTable(pd.DataFrame):
     # We need to exclude the timestamps of the steps from the equality tests.
-    def equals(self, other: Self) -> bool:
+    def equals(self, other: object) -> bool:  # type: ignore[override]
+        assert isinstance(other, pd.DataFrame), f"Can only compare with pd.DataFrame. Got {type(other)}."
         # Exclude timestamps from comparison.
         report = self
         if all("timestamp" in r for r in (self.columns, other.columns)):
@@ -648,7 +677,7 @@ class Dataset(AbstractProcessedDataset):
         return TwoDatasetsStatsInterface(dataset1, dataset2, schemes_manager=coding_schemes_manager)
 
     @cached_property
-    def subject_ids(self):
+    def subject_ids(self) -> pd.Index:
         assert self.tables.static.index.name == self.config.columns.static.subject_id, (
             f"Index name of static table must be {self.config.columns.static.subject_id}."
         )
@@ -663,12 +692,10 @@ class Dataset(AbstractProcessedDataset):
         interval = (admissions[c_dischtime] - admissions[c_admittime]).dt.total_seconds()
         admissions = admissions.assign(interval=interval)
         missed_subjects = set(self.subject_ids).difference(set(admissions[c_subject_id]))
-        return pd.concat(
-            [
-                admissions.groupby(c_subject_id)["interval"].sum(),
-                pd.Series([0] * len(missed_subjects), index=list(missed_subjects)),
-            ]
-        )
+        intervals_sum = admissions.groupby(c_subject_id)["interval"].sum()
+        assert isinstance(intervals_sum, pd.Series)
+        missing_subjects = pd.Series([0] * len(missed_subjects), index=pd.Series(list(missed_subjects)))
+        return pd.concat([intervals_sum, missing_subjects])
 
     @cached_property
     def subjects_n_admissions(self) -> pd.Series:
@@ -677,8 +704,10 @@ class Dataset(AbstractProcessedDataset):
         missed_subjects = set(self.subject_ids).difference(set(admissions[c_subject_id]))
         n_admissions = [admissions.groupby(c_subject_id).size()]
         if len(missed_subjects) > 0:
-            n_admissions.append(pd.Series([0] * len(missed_subjects), index=list(missed_subjects)))
-        return pd.concat(n_admissions)
+            n_admissions.append(pd.Series([0] * len(missed_subjects), index=pd.Series(list(missed_subjects))))
+        n_admissions_s = pd.concat(n_admissions)
+        assert isinstance(n_admissions_s, pd.Series)
+        return n_admissions_s
 
     def random_splits(
         self,
@@ -694,24 +723,24 @@ class Dataset(AbstractProcessedDataset):
             "Balanced must be'subjects', 'admissions', or 'admissions_intervals'."
         )
         if subject_ids is None:
-            subject_ids = self.subject_ids
+            subject_ids = list(self.subject_ids)
         assert len(subject_ids) > 0, "No subjects in the dataset."
 
         subject_ids = sorted(subject_ids)
 
         random.Random(random_seed).shuffle(subject_ids)
-        subject_ids = np.array(subject_ids)
+        subject_ids_arr = np.array(subject_ids)
 
         c_subject_id = self.config.columns.static.subject_id
 
-        admissions = self.tables.admissions[self.tables.admissions[c_subject_id].isin(subject_ids)]
+        admissions = self.tables.admissions.loc[self.tables.admissions.loc[:, c_subject_id].isin(subject_ids_arr), :]
 
         if balance == "subjects":
-            probs = (np.ones(len(subject_ids)) / len(subject_ids)).cumsum()
+            probs = (np.ones(len(subject_ids_arr)) / len(subject_ids_arr)).cumsum()
 
         elif balance == "admissions":
             assert len(admissions) > 0, "No admissions in the dataset."
-            n_admissions = self.subjects_n_admissions.loc[subject_ids]
+            n_admissions = self.subjects_n_admissions.loc[subject_ids_arr]
             if discount_first_admission:
                 n_admissions = n_admissions - 1
             p_admissions = n_admissions / n_admissions.sum()
@@ -719,7 +748,7 @@ class Dataset(AbstractProcessedDataset):
 
         elif balance == "admissions_intervals":
             assert len(admissions) > 0, "No admissions in the dataset."
-            subjects_intervals_sum = self.subjects_intervals_sum.loc[subject_ids]
+            subjects_intervals_sum = self.subjects_intervals_sum.loc[subject_ids_arr]
             p_subject_intervals = subjects_intervals_sum / subjects_intervals_sum.sum()
             probs = p_subject_intervals.values.cumsum()
         else:
@@ -731,4 +760,4 @@ class Dataset(AbstractProcessedDataset):
                 splits[i] = splits[i] + 1e-6
 
         splits_array = np.searchsorted(probs, splits)
-        return tuple(a.tolist() for a in np.split(subject_ids, splits_array))
+        return tuple(a.tolist() for a in np.split(subject_ids_arr, splits_array))
