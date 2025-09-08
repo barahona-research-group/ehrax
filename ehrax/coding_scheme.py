@@ -84,7 +84,9 @@ class LegacyUpdater(metaclass=ABCMeta):
         self.legacy_map = legacy_map
 
     def update(self, code: str) -> str:
-        return self.legacy_map.get(code, code)
+        if code not in self.legacy_map:
+            return code
+        return self.legacy_map[code]
 
 
 class CodingScheme(AbstractVxData):
@@ -203,7 +205,7 @@ class CodingScheme(AbstractVxData):
         """
         if codes is None:
             codes = self.codes
-        index = list(map(self.index.get, codes))
+        index = pd.Series(list(map(self.index.get, codes)))
         return pd.DataFrame(
             {
                 "code": self.index2code,
@@ -294,8 +296,10 @@ class NumericScheme(CodingScheme):
     def index2group(self) -> dict[int, str]:
         return {i: self.group[code] for i, code in enumerate(self.codes)}
 
-    def as_dataframe(self) -> pd.DataFrame:
-        index = list(range(len(self)))
+    def as_dataframe(self, codes: Collection[str] | None = None) -> pd.DataFrame:
+        if codes is None:
+            codes = self.codes
+        index = pd.Series(list(map(self.index.get, codes)))
         return pd.DataFrame(
             {"code": self.index2code, "desc": self.index2desc, "type": self.types, "group": self.index2group},
             index=index,
@@ -341,11 +345,11 @@ class CodingSchemeWithUOM(CodingScheme):
         df = df[df.index.isin(codes)]
         assert all(c in df.columns for c in (c_unit, c_normalization_factor)), "Some columns are missing."
         if c_universal_unit is not None and c_universal_unit in df.columns:
-            uom_universal = df[c_universal_unit].to_dict()
+            uom_universal = df.loc[:, c_universal_unit].to_dict()
         else:
-            _u = df[c_unit].to_dict()
+            _u = df.loc[:, c_unit].to_dict()
             # 1. Choose one of the units with 1.0 as a normalization factor.
-            uom_universal_a = df[df[c_normalization_factor] == 1.0][c_unit].to_dict()
+            uom_universal_a = df.loc[df[c_normalization_factor] == 1.0, c_unit].to_dict()
             # 2. Or if there is only one unit per code.
             uom_universal_b = {c: _u[c] for c, count in df.index.value_counts().to_dict().items() if count == 1}
             # 3. If any item remains, choose a universal unit without any specific rule, e.g. what remains in _u.
@@ -357,9 +361,10 @@ class CodingSchemeWithUOM(CodingScheme):
 
         # Narrow down the codes to those who have at least one universal unit (the target unit to which all
         # units are converted).
-        df = df[df.index.isin(uom_universal.keys())]
+        df = df.loc[df.index.isin(uom_universal.keys()), :]
         uom_data = {
-            code: code_df.set_index(c_unit)[c_normalization_factor].to_dict() for code, code_df in df.groupby(df.index)
+            str(code): code_df.set_index(c_unit)[c_normalization_factor].to_dict()
+            for code, code_df in df.groupby(df.index)
         }
         return cls(
             name=name,
@@ -893,7 +898,7 @@ class CodeMap(AbstractVxData):
     def map_dataframe(self, df: pd.DataFrame, code_column: str) -> pd.DataFrame:
         df = df.iloc[:, :]
         code2list = {k: list(v) if len(v) > 1 else next(iter(v)) for k, v in self.data.items()}
-        df[code_column] = df[code_column].map(code2list)
+        df[code_column] = df.loc[:, code_column].map(code2list)
         invalid_rows = df[code_column].isna()
         if invalid_rows.sum() > 0:
             unique_codes = df.loc[invalid_rows, code_column].unique()
@@ -904,11 +909,11 @@ class CodeMap(AbstractVxData):
                     f"Total rows removed {invalid_rows.sum()} / {len(invalid_rows)} = {invalid_rows.mean(): .3f}. "
                     f"Unique codes dropped: {len(unique_codes)} / {len(total_unique_codes)} = "
                     f"{len(unique_codes) / len(total_unique_codes): .3f}.",
-                    pd.DataFrame(unique_codes, columns=[code_column]),
+                    pd.DataFrame(unique_codes, columns=pd.Series([code_column])),
                     "unique_columns_missed",
                 )
             )
-            df = df[~df[code_column].isna()]
+            df = df.loc[~df[code_column].isna(), :]
         return df.explode(code_column)
 
     def target_code_ancestors(self, target_scheme: HierarchicalScheme, t_code: str, include_itself=True) -> list[str]:
@@ -931,9 +936,9 @@ class CodeMap(AbstractVxData):
         """
         # TODO: test me.
         """
-        map_table = map_table[[c_source_code, c_target_code]].astype(str)
-        map_table = map_table[
-            map_table[c_source_code].isin(source_scheme.codes) & map_table[c_target_code].isin(target_scheme.codes)
+        map_table = map_table.loc[:, [c_source_code, c_target_code]].astype(str)
+        map_table = map_table.loc[
+            map_table[c_source_code].isin(source_scheme.codes) & map_table[c_target_code].isin(target_scheme.codes), :
         ]
         mapping = map_table.groupby(c_source_code)[c_target_code].apply(set).to_dict()
         return source_scheme.name, target_scheme.name, FrozenDict1N(mapping)
@@ -1304,7 +1309,7 @@ class CodingSchemesManager(AbstractVxData):
         assert all(len(m.domain.intersection(si.codes)) > 0 for m, si in zip(maps, scheme[:-1]))
 
         def bridge(c: str) -> frozenset[str]:
-            codeset = (c,)
+            codeset = frozenset((c,))
             for m in maps:
                 codeset = m.map_codeset(codeset)
                 if len(codeset) == 0:
@@ -1332,20 +1337,20 @@ class CodingSchemesManager(AbstractVxData):
         return tuple(t for s, t in self.map.keys() if s == scheme.name)
 
     def add_match_map(self, scheme_a: str, scheme_b: str) -> Self:
-        scheme_a = self.scheme[scheme_a]
-        scheme_b = self.scheme[scheme_b]
+        scheme_a_ = self.scheme[scheme_a]
+        scheme_b_ = self.scheme[scheme_b]
         normalize = lambda c: c.strip().lower()
-        normalized_a = tuple(sorted(map(normalize, scheme_a.codes)))
-        normalized_b = tuple(sorted(map(normalize, scheme_b.codes)))
+        normalized_a = tuple(sorted(map(normalize, scheme_a_.codes)))
+        normalized_b = tuple(sorted(map(normalize, scheme_b_.codes)))
         assert normalized_a == normalized_b, (
-            f"The codes of {scheme_a.name} and {scheme_b.name} mismatch. "
-            f"(Normalized) codes of {scheme_a.name}: {normalized_a}. "
-            f"(Normalized) codes of {scheme_b.name}: {normalized_b}."
+            f"The codes of {scheme_a_.name} and {scheme_b_.name} mismatch. "
+            f"(Normalized) codes of {scheme_a_.name}: {normalized_a}. "
+            f"(Normalized) codes of {scheme_b_.name}: {normalized_b}."
             f"Difference a - b: {set(normalized_a) - set(normalized_b)}. "
             f"Difference b - a: {set(normalized_b) - set(normalized_a)}."
         )
-        codes_a = tuple(sorted(scheme_a.codes, key=normalize))
-        codes_b = tuple(sorted(scheme_b.codes, key=normalize))
-        m_ab = CodeMap(scheme_a.name, scheme_b.name, data=FrozenDict1N({a: {b} for a, b in zip(codes_a, codes_b)}))
-        m_ba = CodeMap(scheme_b.name, scheme_a.name, data=FrozenDict1N({b: {a} for a, b in zip(codes_a, codes_b)}))
+        codes_a = tuple(sorted(scheme_a_.codes, key=normalize))
+        codes_b = tuple(sorted(scheme_b_.codes, key=normalize))
+        m_ab = CodeMap(scheme_a_.name, scheme_b_.name, data=FrozenDict1N({a: {b} for a, b in zip(codes_a, codes_b)}))
+        m_ba = CodeMap(scheme_b_.name, scheme_a_.name, data=FrozenDict1N({b: {a} for a, b in zip(codes_a, codes_b)}))
         return self.add_map(m_ab).add_map(m_ba)
