@@ -1,14 +1,14 @@
 import random
-from abc import ABCMeta
-from collections.abc import Callable, Hashable, Iterable
-from typing import Any
+from abc import ABCMeta, abstractmethod
+from collections.abc import Callable, Hashable, Generator
+from typing import Any, cast
 
 import equinox as eqx
 import numpy as np
 import pandas as pd
 
 from ._literals import SplitLiteral
-from .coding_scheme import CodeMap, CodingSchemesManager
+from .coding_scheme import CodeMap, CodingSchemesManager, NumericScheme
 from .dataset import (
     AbstractTransformation,
     AdmissionIntervalEventsTableColumns,
@@ -53,11 +53,20 @@ class TrainableTransformation(AbstractTransformation, metaclass=ABCMeta):
         c_admission_id = tvx_ehr.dataset.config.columns.admissions.admission_id
         admissions = tvx_ehr.dataset.tables.admissions[[c_subject_id]]
         assert c_admission_id in admissions.index.names, f"Column {c_admission_id} not found in admissions table index."
+        assert tvx_ehr.splits is not None, "TVxEHR.splits is None"
         training_subject_ids = tvx_ehr.splits[0]
-        return admissions[admissions[c_subject_id].isin(training_subject_ids)].index.unique().tolist()
+        return admissions.loc[admissions.loc[:, c_subject_id].isin(training_subject_ids)].index.unique().tolist()
 
 
-class SampleSubjects(AbstractTransformation):
+class TVxTransformation(AbstractTransformation[TVxEHR, TVxReport]):
+    @classmethod
+    @abstractmethod
+    def apply(
+        cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport
+    ) -> tuple[TVxEHR, TVxReport]: ...
+
+
+class SampleSubjects(TVxTransformation):
     @classmethod
     def apply(
         cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport
@@ -87,12 +96,13 @@ class SampleSubjects(AbstractTransformation):
             operation="sample",
         )
         dataset = eqx.tree_at(lambda x: x.tables.static, tvx_ehr.dataset, static)
-        dataset, report = DatasetTransformation.synchronize_subjects(dataset, report)
+        r = cast(Report, report)
+        dataset, r = DatasetTransformation.synchronize_subjects(dataset, r)
         tvx_ehr = eqx.tree_at(lambda x: x.dataset, tvx_ehr, dataset)
-        return tvx_ehr, report
+        return tvx_ehr, cast(TVxReport, r)
 
 
-class RandomSplits(AbstractTransformation):
+class RandomSplits(TVxTransformation):
     @classmethod
     def apply(
         cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport
@@ -122,7 +132,7 @@ class RandomSplits(AbstractTransformation):
         return tvx_ehr, report
 
 
-class TrainingSplitGroups(AbstractTransformation):
+class TrainingSplitGroups(TVxTransformation):
     @classmethod
     def sync_dataset(cls, dataset: Dataset, subject_ids: tuple[str, ...]) -> Dataset:
         static = dataset.tables.static
@@ -141,6 +151,7 @@ class TrainingSplitGroups(AbstractTransformation):
     @classmethod
     def subset(cls, tvx_ehr: TVxEHR, group: tuple[str, ...]) -> TVxEHR:
         dataset = cls.sync_dataset(tvx_ehr.dataset, group)
+        assert tvx_ehr.subjects is not None, "tvx_ehr.subjects is None"
         subjects = {subject_id: subject for subject_id, subject in tvx_ehr.subjects.items() if subject_id in group}
         tvx_ehr = eqx.tree_at(lambda x: x.dataset, tvx_ehr, dataset)
         tvx_ehr = eqx.tree_at(lambda x: x.subjects, tvx_ehr, subjects)
@@ -183,14 +194,14 @@ class ZScoreScaler(CodedValueScaler):
 
     @property
     def original_dtype(self) -> np.dtype:
-        return self.mean.dtype
+        return self.mean.dtype  # type: ignore
 
     def __call__(self, dataset: Dataset) -> Dataset:
         table = self.table_getter(dataset)
 
-        mean = table[self.code_column].map(self.mean)
-        std = table[self.code_column].map(self.std)
-        table.loc[:, self.value_column] = (table[self.value_column] - mean) / std
+        mean = table.loc[:, self.code_column].map(self.mean)
+        std = table.loc[:, self.code_column].map(self.std)
+        table.loc[:, self.value_column] = (table.loc[:, self.value_column] - mean) / std
         if self.config.use_float16:
             table = table.astype({self.value_column: np.float16})
 
@@ -201,7 +212,7 @@ class ZScoreScaler(CodedValueScaler):
         index = np.arange(array.shape[-1])
         return array * self.std.loc[index].values + self.mean.loc[index].values
 
-    def unscale_code(self, array: np.ndarray, code_index: int) -> np.ndarray:
+    def unscale_code(self, array: np.ndarray, code_index: Hashable) -> np.ndarray:
         array = array.astype(self.original_dtype)
         return array * self.std.loc[code_index] + self.mean.loc[code_index]
 
@@ -209,7 +220,7 @@ class ZScoreScaler(CodedValueScaler):
         stat = df.groupby(c_code)[[c_value]].apply(
             lambda x: pd.Series({"mu": x[c_value].mean(), "sigma": x[c_value].std()})
         )
-        return dict(mean=stat["mu"], std=stat["sigma"])
+        return dict(mean=stat.loc[:, "mu"], std=stat.loc[:, "sigma"])
 
 
 class MaxScaler(CodedValueScaler):
@@ -228,13 +239,13 @@ class MaxScaler(CodedValueScaler):
 
     @property
     def original_dtype(self) -> np.dtype:
-        return self.max_val.dtype
+        return self.max_val.dtype  # type: ignore
 
     def __call__(self, dataset: Dataset) -> Dataset:
         df = self.table_getter(dataset).copy()
 
-        max_val = df[self.code_column].map(self.max_val)
-        df.loc[:, self.value_column] = df[self.value_column] / max_val
+        max_val = df.loc[:, self.code_column].map(self.max_val)
+        df.loc[:, self.value_column] = df.loc[:, self.value_column] / max_val
         if self.config.use_float16:
             df = df.astype({self.value_column: np.float16})
         return eqx.tree_at(self.table_getter, dataset, df)
@@ -244,7 +255,7 @@ class MaxScaler(CodedValueScaler):
         if array.shape[-1] == len(self.max_val):
             index = np.arange(array.shape[-1])
             return array * self.max_val.loc[index].values
-        index = self.max_val.index.values
+        index = np.array(self.max_val.index.values)
         array = array.copy()
         if array.ndim == 1:
             array[index] *= self.max_val.values
@@ -252,13 +263,13 @@ class MaxScaler(CodedValueScaler):
             array[:, index] *= self.max_val.values
         return array
 
-    def unscale_code(self, array: np.ndarray, code_index: int) -> np.ndarray:
+    def unscale_code(self, array: np.ndarray, code_index: Hashable) -> np.ndarray:
         array = array.astype(self.original_dtype)
         return array * self.max_val.loc[code_index]
 
     def _extract_stats(self, df: pd.DataFrame, c_code: str, c_value: str) -> dict[str, pd.Series]:
         stat = df.groupby(c_code)[[c_value]].apply(lambda x: pd.Series({"max": x[c_value].max()}))
-        return dict(max_val=stat["max"])
+        return dict(max_val=stat.loc[:, "max"])
 
 
 class AdaptiveScaler(CodedValueScaler):
@@ -286,18 +297,18 @@ class AdaptiveScaler(CodedValueScaler):
 
     @property
     def original_dtype(self) -> np.dtype:
-        return self.max_val.dtype
+        return self.max_val.dtype  # type: ignore
 
     def __call__(self, dataset: Dataset) -> Dataset:
         df = self.table_getter(dataset).copy()
 
-        min_val = df[self.code_column].map(self.min_val)
-        max_val = df[self.code_column].map(self.max_val)
-        mean = df[self.code_column].map(self.mean)
-        std = df[self.code_column].map(self.std)
+        min_val = df.loc[:, self.code_column].map(self.min_val)
+        max_val = df.loc[:, self.code_column].map(self.max_val)
+        mean = df.loc[:, self.code_column].map(self.mean)
+        std = df.loc[:, self.code_column].map(self.std)
 
-        minmax_scaled = (df[self.value_column] - min_val) / max_val
-        z_scaled = (df[self.value_column] - mean) / std
+        minmax_scaled = (df.loc[:, self.value_column] - min_val) / max_val
+        z_scaled = (df.loc[:, self.value_column] - mean) / std
 
         df.loc[:, self.value_column] = np.where(min_val >= 0.0, minmax_scaled, z_scaled)
         if self.config.use_float16:
@@ -315,12 +326,12 @@ class AdaptiveScaler(CodedValueScaler):
         minmax_unscaled = array * max_val + min_val
         return np.where(min_val >= 0.0, minmax_unscaled, z_unscaled)
 
-    def unscale_code(self, array: np.ndarray, code_index: str) -> np.ndarray:
+    def unscale_code(self, array: np.ndarray, code_index: Hashable) -> np.ndarray:
         array = array.astype(self.original_dtype)
-        mu = self.mean.loc[code_index]
-        sigma = self.std.loc[code_index]
-        min_val = self.min_val.loc[code_index]
-        max_val = self.max_val.loc[code_index]
+        mu = self.mean.loc[code_index]  # type: ignore
+        sigma = self.std.loc[code_index]  # type: ignore
+        min_val = self.min_val.loc[code_index]  # type: ignore
+        max_val = self.max_val.loc[code_index]  # type: ignore
         z_unscaled = array * sigma + mu
         minmax_unscaled = array * max_val + min_val
         return np.where(min_val >= 0.0, minmax_unscaled, z_unscaled)
@@ -331,7 +342,9 @@ class AdaptiveScaler(CodedValueScaler):
                 {"mu": x[c_value].mean(), "sigma": x[c_value].std(), "min": x[c_value].min(), "max": x[c_value].max()}
             )
         )
-        return dict(mean=stat["mu"], std=stat["sigma"], min_val=stat["min"], max_val=stat["max"])
+        return dict(
+            mean=stat.loc[:, "mu"], std=stat.loc[:, "sigma"], min_val=stat.loc[:, "min"], max_val=stat.loc[:, "max"]
+        )
 
 
 class IQROutlierRemover(CodedValueProcessor):
@@ -355,9 +368,9 @@ class IQROutlierRemover(CodedValueProcessor):
     def __call__(self, dataset: Dataset) -> Dataset:
         table = self.table_getter(dataset)
 
-        min_val = table[self.code_column].map(self.min_val)
-        max_val = table[self.code_column].map(self.max_val)
-        table = table[table[self.value_column].between(min_val, max_val)]
+        min_val = table.loc[:, self.code_column].map(self.min_val)
+        max_val = table.loc[:, self.code_column].map(self.max_val)
+        table = table.loc[table.loc[:, self.value_column].between(min_val, max_val)]
 
         return eqx.tree_at(self.table_getter, dataset, table)
 
@@ -376,7 +389,7 @@ class IQROutlierRemover(CodedValueProcessor):
 
         stat["out_z1"] = stat["mu"] - self.config.outlier_z1 * stat["sigma"]
         stat["out_z2"] = stat["mu"] + self.config.outlier_z2 * stat["sigma"]
-        return dict(min_val=np.minimum(q["out_q1"], stat["out_z1"]), max_val=np.maximum(q["out_q2"], stat["out_z2"]))
+        return dict(min_val=np.minimum(q["out_q1"], stat["out_z1"]), max_val=np.maximum(q["out_q2"], stat["out_z2"]))  # type: ignore
 
 
 class ObsIQROutlierRemover(TrainableTransformation):
@@ -384,6 +397,9 @@ class ObsIQROutlierRemover(TrainableTransformation):
     def apply(
         cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport
     ) -> tuple[TVxEHR, TVxReport]:
+        assert tvx_ehr.config.numerical_processors.outlier_removers is not None, (
+            "tvx_ehr.config.numerical_processors.outlier_removers is None"
+        )
         config = tvx_ehr.config.numerical_processors.outlier_removers.obs
         if config is None:
             return cls.skip(tvx_ehr, report, "config.numerical_processors.outlier_removers.obs is None")
@@ -405,10 +421,11 @@ class ObsIQROutlierRemover(TrainableTransformation):
             operation="TVxEHR.numerical_processors.outlier_removers.obs <- IQROutlierRemover",
             after=type(remover),
         )
-
+        assert tvx_ehr.dataset.tables.obs is not None, "tvx_ehr.dataset.tables.obs is None"
         n1 = len(tvx_ehr.dataset.tables.obs)
         # TODO: report specific removals stats for each code.
         tvx_ehr = eqx.tree_at(lambda x: x.dataset, tvx_ehr, remover(tvx_ehr.dataset))
+        assert tvx_ehr.dataset.tables.obs is not None, "tvx_ehr.dataset.tables.obs is None"
         n2 = len(tvx_ehr.dataset.tables.obs)
         report = report.add(
             table="obs", column=None, value_type="count", transformation=cls, operation="filter", before=n1, after=n2
@@ -421,6 +438,9 @@ class ObsAdaptiveScaler(TrainableTransformation):
     def apply(
         cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport
     ) -> tuple[TVxEHR, TVxReport]:
+        assert tvx_ehr.config.numerical_processors.scalers is not None, (
+            "tvx_ehr.config.numerical_processors.scalers is None"
+        )
         config = tvx_ehr.config.numerical_processors.scalers.obs
 
         if config is None:
@@ -445,9 +465,10 @@ class ObsAdaptiveScaler(TrainableTransformation):
             operation="TVxEHR.numerical_processors.scalers.obs <- AdaptiveScaler",
             after=type(scaler),
         )
-
+        assert tvx_ehr.dataset.tables.obs is not None, "tvx_ehr.dataset.tables.obs is None"
         dtype1 = tvx_ehr.dataset.tables.obs[value_column].dtype
         tvx_ehr = eqx.tree_at(lambda x: x.dataset, tvx_ehr, scaler(tvx_ehr.dataset))
+        assert tvx_ehr.dataset.tables.obs is not None, "tvx_ehr.dataset.tables.obs is None"
         dtype2 = tvx_ehr.dataset.tables.obs[value_column].dtype
         report = report.add(
             table="obs",
@@ -468,6 +489,9 @@ class InputScaler(TrainableTransformation):
     ) -> tuple[TVxEHR, TVxReport]:
         code_column = tvx_ehr.dataset.config.columns.icu_inputs.code
         value_column = tvx_ehr.dataset.config.columns.icu_inputs.derived_normalized_amount_per_hour
+        assert tvx_ehr.config.numerical_processors.scalers is not None, (
+            "tvx_ehr.config.numerical_processors.scalers is None"
+        )
         config = tvx_ehr.config.numerical_processors.scalers.icu_inputs
 
         if config is None:
@@ -491,9 +515,10 @@ class InputScaler(TrainableTransformation):
             operation="TVxEHR.numerical_processors.scalers.icu_inputs <- MaxScaler",
             after=type(scaler),
         )
-
+        assert tvx_ehr.dataset.tables.icu_inputs is not None, "tvx_ehr.dataset.tables.icu_inputs is None"
         dtype1 = tvx_ehr.dataset.tables.icu_inputs[value_column].dtype
         tvx_ehr = eqx.tree_at(lambda x: x.dataset, tvx_ehr, scaler(tvx_ehr.dataset))
+        assert tvx_ehr.dataset.tables.icu_inputs is not None, "tvx_ehr.dataset.tables.icu_inputs is None"
         dtype2 = tvx_ehr.dataset.tables.icu_inputs[value_column].dtype
         report = report.add(
             table="icu_inputs",
@@ -507,7 +532,7 @@ class InputScaler(TrainableTransformation):
         return tvx_ehr, report
 
 
-class InterventionSegmentation(AbstractTransformation):
+class InterventionSegmentation(TVxTransformation):
     @classmethod
     def apply(
         cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport
@@ -536,7 +561,7 @@ class InterventionSegmentation(AbstractTransformation):
         return segmented_tvx_ehr, report
 
 
-class ObsTimeBinning(AbstractTransformation):
+class ObsTimeBinning(TVxTransformation):
     @classmethod
     def apply(
         cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport
@@ -546,6 +571,9 @@ class ObsTimeBinning(AbstractTransformation):
 
         interval = tvx_ehr.config.time_binning
         obs_scheme = tvx_ehr.scheme_proxy(schemes_context).obs
+        assert isinstance(obs_scheme, NumericScheme), "obs_scheme is not NumericScheme"
+        assert tvx_ehr.subjects is not None, "tvx_ehr.subjects is None"
+
         tvx_concept_path = TVxReportAttributes.admission_attribute_prefix("observables", InpatientObservables)
         tvx_binned_ehr = eqx.tree_at(
             lambda x: x.subjects,
@@ -583,17 +611,17 @@ class ObsTimeBinning(AbstractTransformation):
         return tvx_binned_ehr, report
 
 
-class LeadingObservableExtraction(AbstractTransformation):
+class LeadingObservableExtraction(TVxTransformation):
     @classmethod
     def apply(
         cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport
     ) -> tuple[TVxEHR, TVxReport]:
         if tvx_ehr.config.leading_observable is None:
             return cls.skip(tvx_ehr, report, reason="config.leading_observable is None")
-
-        extractor = LeadingObservableExtractor(
-            tvx_ehr.config.leading_observable, observable_scheme=tvx_ehr.dataset.scheme_proxy(schemes_context).obs
-        )
+        obs_scheme = tvx_ehr.dataset.scheme_proxy(schemes_context).obs
+        assert isinstance(obs_scheme, NumericScheme), "obs_scheme is not NumericScheme"
+        assert tvx_ehr.subjects is not None, "tvx_ehr.subjects is None"
+        extractor = LeadingObservableExtractor(tvx_ehr.config.leading_observable, observable_scheme=obs_scheme)
         tvx_concept_path = TVxReportAttributes.admission_attribute_prefix("leading_observables", InpatientObservables)
         tvx_ehr = eqx.tree_at(
             lambda x: x.subjects,
@@ -635,7 +663,7 @@ class LeadingObservableExtraction(AbstractTransformation):
         return tvx_ehr, report
 
 
-class TVxConcepts(AbstractTransformation):
+class TVxConcepts(TVxTransformation):
     @classmethod
     def _static_info(
         cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, report: TVxReport
@@ -662,6 +690,7 @@ class TVxConcepts(AbstractTransformation):
             dob = static[c_date_of_birth].to_dict()
         if tvx_scheme_proxy.gender is not None and config.gender:
             gender_m = tvx_scheme_proxy.gender_mapper(tvx_ehr.dataset.config.scheme)
+            assert gender_m is not None, "gender_m is None"
             target_scheme = tvx_scheme_proxy.gender
             gender_dict = {
                 subject_id: gender_m.map_codeset({c}) for subject_id, c in static[c_gender].to_dict().items()
@@ -671,6 +700,7 @@ class TVxConcepts(AbstractTransformation):
         if tvx_scheme_proxy.ethnicity is not None and config.ethnicity:
             ethnicity_m = tvx_scheme_proxy.ethnicity_mapper(tvx_ehr.dataset.config.scheme)
             target_scheme = tvx_scheme_proxy.ethnicity
+            assert ethnicity_m is not None, "ethnicity_m is None"
             ethnicity_dict = {
                 subject_id: ethnicity_m.map_codeset({c}) for subject_id, c in static[c_ethnicity].to_dict().items()
             }
@@ -695,13 +725,16 @@ class TVxConcepts(AbstractTransformation):
     @staticmethod
     def _dx_discharge(
         tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager
-    ) -> tuple[dict[str, CodesVector], dict[str, set[str]]]:
+    ) -> tuple[dict[str, CodesVector], dict[str, frozenset[str]]]:
         tvx_scheme_proxy = tvx_ehr.scheme_proxy(schemes_context)
         c_adm_id = tvx_ehr.dataset.config.columns.dx_discharge.admission_id
         c_code = tvx_ehr.dataset.config.columns.dx_discharge.code
         df = tvx_ehr.dataset.tables.dx_discharge
+        assert isinstance(df, pd.DataFrame), "tvx_ehr.dataset.tables.dx_discharge is not a DataFrame"
         dx_mapper = tvx_scheme_proxy.dx_mapper(tvx_ehr.dataset.config.scheme)
+        assert dx_mapper is not None, "dx_mapper is None"
         target_scheme = tvx_scheme_proxy.dx_discharge
+        assert target_scheme is not None, "target_scheme is None"
         n1 = len(df)
         dx_discharge = df[df[c_code].isin(dx_mapper.data)]
         n2 = len(dx_discharge)
@@ -712,6 +745,7 @@ class TVxConcepts(AbstractTransformation):
             n_uniq_a = len(unique_codes_a)
             n_uniq_rem = len(unique_removed)
             source_scheme = tvx_ehr.dataset.scheme_proxy(schemes_context).dx_discharge
+            assert source_scheme is not None, "source_scheme is None"
             dataframe_log.info(
                 f"In mapping ({dx_mapper.source_name}->{dx_mapper.target_name}), "
                 f"some codes are not mapped to the target scheme.\n"
@@ -719,19 +753,17 @@ class TVxConcepts(AbstractTransformation):
                 f"{n_uniq_rem} / {n_uniq_a} = {n_uniq_rem / n_uniq_a: .2f} "
                 f"unique codes were removed (see report).",
                 dataframe=pd.DataFrame(
-                    [(code, source_scheme.desc[code]) for code in unique_removed], columns=["code", "description"]
+                    [(code, source_scheme.desc[code]) for code in unique_removed],
+                    columns=pd.Series(["code", "description"]),
                 ),
                 tag="lost_dx_discharge_codes_unique",
             )
 
         dx_codes_set = dx_discharge.groupby(c_adm_id)[c_code].apply(set).to_dict()
         dx_codes_set = {k: dx_mapper.map_codeset(v) for k, v in dx_codes_set.items()}
-        dx_codes_set = {adm_id: dx_codes_set.get(adm_id, set()) for adm_id in tvx_ehr.admission_ids}
+        dx_codes_set = {adm_id: dx_codes_set.get(adm_id, frozenset()) for adm_id in tvx_ehr.admission_ids}
 
-        return {
-            adm_id: target_scheme.codeset2vec(dx_codes_set.get(adm_id, set()))
-            for adm_id, codeset in dx_codes_set.items()
-        }, dx_codes_set
+        return {adm_id: target_scheme.codeset2vec(codeset) for adm_id, codeset in dx_codes_set.items()}, dx_codes_set
 
     @staticmethod
     def _dx_discharge_history(
@@ -739,6 +771,7 @@ class TVxConcepts(AbstractTransformation):
     ) -> dict[str, CodesVector]:
         # TODO: test anti causality.
         dx_scheme = tvx_ehr.scheme_proxy(schemes_context).dx_discharge
+        assert dx_scheme is not None, "tvx_ehr.scheme_proxy(...).dx_discharge is None"
         # For each subject accumulate previous dx_discharge codes.
         dx_discharge_history = dict()
         initial_history = dx_scheme.codeset2vec(set())
@@ -752,10 +785,12 @@ class TVxConcepts(AbstractTransformation):
 
     @staticmethod
     def _outcome(
-        tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, dx_discharge: dict[str, set[str]]
+        tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, dx_discharge: dict[str, frozenset[str]]
     ) -> dict[str, CodesVector]:
         tvx_scheme_proxy = tvx_ehr.scheme_proxy(schemes_context)
-        return {adm_id: tvx_scheme_proxy.outcome(codeset) for adm_id, codeset in dx_discharge.items()}
+        f_outcome = tvx_scheme_proxy.outcome
+        assert f_outcome is not None, "tvx_scheme_proxy.outcome is None"
+        return {str(adm_id): f_outcome(codeset) for adm_id, codeset in dx_discharge.items()}
 
     @staticmethod
     def _icu_inputs(tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager) -> dict[str, InpatientInput]:
@@ -768,11 +803,14 @@ class TVxConcepts(AbstractTransformation):
 
         # Here we avoid deep copy, and we can still replace
         # a new column without affecting the original table.
+        assert tvx_ehr.dataset.tables.icu_inputs is not None, "tvx_ehr.dataset.tables.icu_inputs is None"
         table = tvx_ehr.dataset.tables.icu_inputs.iloc[:, :]
-        table[c_code] = table[c_code].map(tvx_ehr.dataset.scheme_proxy(schemes_context).icu_inputs.index)
+        icu_scheme = tvx_ehr.dataset.scheme_proxy(schemes_context).icu_inputs
+        assert icu_scheme is not None, "tvx_ehr.scheme_proxy(...).icu_inputs is None"
+        table[c_code] = table[c_code].map(icu_scheme.index)
         assert not table[c_code].isnull().any(), "Some codes are not in the target scheme."
         return {
-            adm_id: InpatientInput(
+            str(adm_id): InpatientInput(
                 code_index=np.array(x[c_code].to_numpy(), dtype=np.int64),
                 rate=x[c_rate].to_numpy(),
                 starttime=x[c_start].to_numpy(),
@@ -787,7 +825,7 @@ class TVxConcepts(AbstractTransformation):
         table: pd.DataFrame,
         config: AdmissionIntervalEventsTableColumns | AdmissionIntervalRatesTableColumns,
         code_map: CodeMap,
-    ) -> dict[str | Hashable, InpatientInput]:
+    ) -> dict[str, InpatientInput]:
         c_admission_id = config.admission_id
         c_code = config.code
         c_start_time = config.start_time
@@ -795,11 +833,11 @@ class TVxConcepts(AbstractTransformation):
 
         table = code_map.map_dataframe(table, c_code)
         target_index = code_map.target_index(schemes_context.scheme[code_map.target_name])
-        table[c_code] = table[c_code].map(target_index)
-        assert not table[c_code].isnull().any(), "Some codes are not in the target scheme."
+        table.loc[:, c_code] = table.loc[:, c_code].map(target_index)
+        assert not table.loc[:, c_code].isnull().any(), "Some codes are not in the target scheme."
 
         return {
-            adm_id: InpatientInput(
+            str(adm_id): InpatientInput(
                 code_index=np.array(x[c_code].to_numpy(), dtype=np.int64),
                 rate=np.ones_like(x[c_code].to_numpy(), dtype=bool),
                 starttime=x[c_start_time].to_numpy(),
@@ -810,20 +848,26 @@ class TVxConcepts(AbstractTransformation):
 
     @staticmethod
     def _hosp_procedures(tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager) -> dict[str, InpatientInput]:
+        assert tvx_ehr.dataset.tables.hosp_procedures is not None, "tvx_ehr.dataset.tables.hosp_procedures is None"
+        m = tvx_ehr.hosp_procedures_mapper(tvx_ehr.scheme_proxy(schemes_context))
+        assert m is not None, "tvx_ehr.hosp_procedures_mapper(...) is None"
         return TVxConcepts._procedures(
             schemes_context,
             tvx_ehr.dataset.tables.hosp_procedures,
             tvx_ehr.dataset.config.columns.hosp_procedures,
-            tvx_ehr.hosp_procedures_mapper(tvx_ehr.scheme_proxy(schemes_context)),
+            m,
         )
 
     @staticmethod
     def _icu_procedures(tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager) -> dict[str, InpatientInput]:
+        assert tvx_ehr.dataset.tables.icu_procedures is not None, "tvx_ehr.dataset.tables.icu_procedures is None"
+        m = tvx_ehr.icu_procedures_mapper(tvx_ehr.scheme_proxy(schemes_context))
+        assert m is not None, "tvx_ehr.icu_procedures_mapper(...) is None"
         return TVxConcepts._procedures(
             schemes_context,
             tvx_ehr.dataset.tables.icu_procedures,
             tvx_ehr.dataset.config.columns.icu_procedures,
-            tvx_ehr.icu_procedures_mapper(tvx_ehr.scheme_proxy(schemes_context)),
+            m,
         )
 
     @classmethod
@@ -884,8 +928,10 @@ class TVxConcepts(AbstractTransformation):
 
         obs_scheme = tvx_ehr.scheme_proxy(schemes_context).obs
         table = tvx_ehr.dataset.tables.obs
-        table = table.assign(**{c_code: table[c_code].map(obs_scheme.index)})
-        assert not table[c_code].isnull().any(), "Some codes are not in the target scheme."
+        assert isinstance(obs_scheme, NumericScheme), "obs_scheme is not NumericScheme"
+        assert table is not None, "tvx_ehr.dataset.tables.obs is None"
+        table = table.assign(**{c_code: table.loc[:, c_code].map(obs_scheme.index)})
+        assert not table.loc[:, c_code].isnull().any(), "Some codes are not in the target scheme."
         obs_dim = len(obs_scheme)
         tvx_concept_path = TVxReportAttributes.admission_attribute_prefix("observables", InpatientObservables)
 
@@ -899,11 +945,11 @@ class TVxConcepts(AbstractTransformation):
             mask[index] = True
             return mask
 
-        def inpatient_obs_data(admission_df: pd.DataFrame) -> Iterable[tuple[float, np.ndarray, np.ndarray]]:
+        def inpatient_obs_data(admission_df: pd.DataFrame) -> Generator[tuple[Hashable, np.ndarray, np.ndarray]]:
             admission_df = admission_df.sort_values(c_timestamp)
             for timestamp, time_df in admission_df.groupby(c_timestamp):
-                index = time_df[c_code].values
-                yield timestamp, time_values(index, time_df[c_value].values), time_mask(index)
+                index = time_df.loc[:, c_code].values
+                yield timestamp, time_values(index, time_df[c_value].values), time_mask(index)  # type: ignore
 
         def make_inpatient_obs(admission_df: pd.DataFrame) -> InpatientObservables:
             time, value, mask = zip(*inpatient_obs_data(admission_df))
@@ -913,7 +959,7 @@ class TVxConcepts(AbstractTransformation):
                 mask=np.stack(mask, dtype=bool, axis=0),
             )
 
-        inpatient_observables = table.groupby(c_admission_id)[[c_timestamp, c_code, c_value]].apply(make_inpatient_obs)
+        inpatient_observables = table.groupby(c_admission_id)[[c_timestamp, c_code, c_value]].apply(make_inpatient_obs)  # type: ignore
         assert len(inpatient_observables.index.tolist()) == len(set(inpatient_observables.index.tolist())), (
             "Duplicate admission ids in obs"
         )
@@ -926,9 +972,7 @@ class TVxConcepts(AbstractTransformation):
         )
         empty_obs_dict = {adm_id: empty_obs for adm_id in tvx_ehr.admission_ids if adm_id not in inpatient_observables}
 
-        report = report.add(
-            table="obs", value_type="table_size", operation="extract_observables", after=len(tvx_ehr.dataset.tables.obs)
-        )
+        report = report.add(table="obs", value_type="table_size", operation="extract_observables", after=len(table))
         report = report.add(
             tvx_concept=tvx_concept_path,
             table="obs",

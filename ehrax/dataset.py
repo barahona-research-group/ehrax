@@ -19,7 +19,7 @@ import pandas as pd
 from ._literals import NumericalTypeHint, SplitLiteral
 from ._stats.dataset import DatasetStatsInterface, MultiDatasetsStatsInterface, TwoDatasetsStatsInterface
 from .base import AbstractConfig, AbstractVxData, HDFVirtualNode
-from .coding_scheme import CodingScheme, CodingSchemeWithUOM, CodingSchemesManager, NumericScheme
+from .coding_scheme import CodingScheme, CodingSchemesManager, NumericScheme
 from .utils import tqdm_constructor
 
 SECONDS_TO_HOURS_SCALER: Final[float] = 1 / 3600.0  # convert seconds to hours
@@ -434,9 +434,8 @@ class DatasetSchemeProxy:
         return self._scheme(self.config.hosp_procedures)
 
     @property
-    def icu_inputs(self) -> CodingSchemeWithUOM | None:
+    def icu_inputs(self) -> CodingScheme | None:
         s = self._scheme(self.config.icu_inputs)
-        assert s is None or isinstance(s, CodingSchemeWithUOM), f"ICU inputs scheme must be with UOM. Got {type(s)}."
         return s
 
     @property
@@ -551,7 +550,7 @@ class AbstractDataset(AbstractVxData, ABC):
 class AbstractTransformation[DType: AbstractDataset, RType: Report](eqx.Module):
     @classmethod
     @abstractmethod
-    def apply(cls, dataset: DType, schemes_context: CodingSchemesManager, report: RType) -> tuple[DType, RType]:
+    def apply(cls, dataset: DType, schemes_context: CodingSchemesManager, report: RType, /) -> tuple[DType, RType]:
         raise NotImplementedError
 
     @classmethod
@@ -656,8 +655,8 @@ class Dataset(AbstractProcessedDataset):
         self.tables = tables
         self.pipeline_report = PipelineReportTable(pipeline_report)
 
-    def scheme_proxy(self, coding_schemes_manger: CodingSchemesManager) -> DatasetSchemeProxy:  # type: ignore[override]
-        return DatasetSchemeProxy(self.config.scheme, coding_schemes_manger)
+    def scheme_proxy(self, schemes_context: CodingSchemesManager) -> DatasetSchemeProxy:
+        return DatasetSchemeProxy(self.config.scheme, schemes_context)
 
     def stats(self, coding_schemes_manager: CodingSchemesManager) -> DatasetStatsInterface:
         return DatasetStatsInterface(self, coding_schemes_manager)

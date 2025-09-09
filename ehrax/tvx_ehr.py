@@ -2,7 +2,7 @@ from abc import ABC, ABCMeta, abstractmethod
 from collections.abc import Iterable, Generator
 from functools import cached_property
 from types import MappingProxyType
-from typing import ClassVar, Self, Mapping
+from typing import ClassVar, Self, Hashable
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -199,11 +199,11 @@ class CodedValueScaler(CodedValueProcessor, ABC):
         pass
 
     @abstractmethod
-    def unscale(self, array: Array) -> np.ndarray:
+    def unscale(self, array: np.ndarray) -> np.ndarray:
         pass
 
     @abstractmethod
-    def unscale_code(self, array: Array, code_index: int) -> np.ndarray:
+    def unscale_code(self, array: np.ndarray, code_index: Hashable) -> np.ndarray:
         pass
 
 
@@ -491,7 +491,7 @@ class TVxEHR(AbstractProcessedDataset):
         self.dataset = dataset
         self.numerical_processors = numerical_processors
         self.splits = splits
-        self.subjects = subjects # type: ignore
+        self.subjects = subjects  # type: ignore
         self.pipeline_report = PipelineReportTable(pipeline_report)
 
     @property
@@ -766,7 +766,7 @@ class TVxEHR(AbstractProcessedDataset):
         """
         obs_scaler = self.numerical_processors.scalers.obs
         assert obs_scaler is not None, "No observation scaler configured."
-        value = obs_scaler.unscale(obs.value)
+        value = obs_scaler.unscale(np.array(obs.value))
         return InpatientObservables(time=obs.time, value=value, mask=obs.mask)
 
     def _unscaled_leading_observable(self, lead: InpatientObservables, code_index: int) -> InpatientObservables:
@@ -780,7 +780,7 @@ class TVxEHR(AbstractProcessedDataset):
         """
         lead_scaler = self.numerical_processors.scalers.obs
         assert lead_scaler is not None, "No observation scaler configured."
-        value = lead_scaler.unscale_code(lead.value, code_index)
+        value = lead_scaler.unscale_code(np.array(lead.value), code_index)
         return InpatientObservables(time=lead.time, value=value, mask=lead.mask)
 
     def subject_size_in_bytes(self, subject_id: str) -> int:
