@@ -1,5 +1,5 @@
 from abc import ABC, ABCMeta, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Iterable, Generator
 from functools import cached_property
 from types import MappingProxyType
 from typing import ClassVar, Self
@@ -151,6 +151,7 @@ class CodedValueProcessor(AbstractVxData, ABC):
         self.value_column = value_column
 
     def table_getter(self, dataset: Dataset) -> pd.DataFrame:
+        assert self.table_name is not None, "Processor not fitted."
         return getattr(dataset.tables, self.table_name)
 
     def fit(
@@ -183,6 +184,9 @@ class CodedValueProcessor(AbstractVxData, ABC):
 
     @property
     def processing_target(self) -> dict[str, str]:
+        assert self.table_name is not None, "Processor not fitted."
+        assert self.code_column is not None, "Processor not fitted."
+        assert self.value_column is not None, "Processor not fitted."
         return {"table_name": self.table_name, "code_column": self.code_column, "value_column": self.value_column}
 
 
@@ -195,15 +199,15 @@ class CodedValueScaler(CodedValueProcessor, ABC):
         pass
 
     @abstractmethod
-    def unscale(self, array: np.ndarray) -> np.ndarray:
+    def unscale(self, array: Array) -> np.ndarray:
         pass
 
     @abstractmethod
-    def unscale_code(self, array: np.ndarray, code_index: int) -> np.ndarray:
+    def unscale_code(self, array: Array, code_index: int) -> np.ndarray:
         pass
 
 
-def outcome_first_occurrence(sorted_admissions: list[Admission]) -> str:
+def outcome_first_occurrence(sorted_admissions: list[Admission]) -> np.ndarray:
     """
     Find the first occurrence admission index of each outcome in a list of sorted admissions.
 
@@ -225,7 +229,7 @@ def outcome_first_occurrence(sorted_admissions: list[Admission]) -> str:
 class OutlierRemovers(AbstractVxData):
     obs: CodedValueProcessor | None
 
-    def __init__(self, obs: CodedValueProcessor = None):
+    def __init__(self, obs: CodedValueProcessor | None = None):
         self.obs = obs
 
 
@@ -233,7 +237,7 @@ class Scalers(AbstractVxData):
     obs: CodedValueScaler | None
     icu_inputs: CodedValueScaler | None
 
-    def __init__(self, obs: CodedValueScaler = None, icu_inputs: CodedValueScaler = None):
+    def __init__(self, obs: CodedValueScaler | None = None, icu_inputs: CodedValueScaler | None = None):
         self.obs = obs
         self.icu_inputs = icu_inputs
 
@@ -281,17 +285,17 @@ class TVxEHRSchemeProxy(DatasetSchemeProxy):
 
     @cached_property
     def outcome(self) -> FilterOutcomeMap | None:
-        return (
-            self.schemes_context.outcome[self.config.dx_discharge, self.config.outcome] if self.config.outcome else None
-        )
+        if self.config.outcome is None or self.config.dx_discharge is None:
+            return None
+        return self.schemes_context.outcome[self.config.dx_discharge, self.config.outcome]
 
     @cached_property
     def outcome_size(self) -> int | None:
         return len(self.outcome) if self.outcome else None
 
     @cached_property
-    def outcome_base_mapper(self) -> CodeMap:
-        return self.outcome.codemap
+    def outcome_base_mapper(self) -> CodeMap | None:
+        return self.outcome.codemap if self.outcome else None
 
     @staticmethod
     def validate_mapping(
@@ -300,11 +304,14 @@ class TVxEHRSchemeProxy(DatasetSchemeProxy):
         target_schemes = target.scheme_fields()
         for key, source_scheme in source.scheme_fields().items():
             target_scheme = target_schemes[key]
-            assert target_scheme is None or coding_scheme_manager.map[(source_scheme, target_scheme)] is not None, (
+            if target_scheme is None or source_scheme is None:
+                continue
+            assert coding_scheme_manager.map[(source_scheme, target_scheme)] is not None, (
                 f"Cannot map {key} from {source_scheme} to {target_scheme}"
             )
 
         if target.outcome is not None:
+            assert target.dx_discharge is not None, "Outcome specified but dx_discharge is None."
             assert coding_scheme_manager.supported_outcome(target.outcome, target.dx_discharge), (
                 f"Outcome {target.outcome} not supported for {target.dx_discharge}"
             )
@@ -312,10 +319,12 @@ class TVxEHRSchemeProxy(DatasetSchemeProxy):
     def demographic_vector_size(self, demographic_vector_config: DemographicVectorConfig):
         size = 0
         if demographic_vector_config.gender:
+            assert self.gender is not None, "Gender vector not initialized."
             size += len(self.gender)
         if demographic_vector_config.age:
             size += 1
         if demographic_vector_config.ethnicity:
+            assert self.ethnicity is not None, "Ethnicity vector not initialized."
             size += len(self.ethnicity)
         return size
 
@@ -339,10 +348,15 @@ class TVxEHRSchemeProxy(DatasetSchemeProxy):
         return self.mapper(source_scheme_config, "hosp_procedures")
 
     def icu_inputs_mapper(self, source_scheme_config: DatasetSchemeConfig) -> ReducedCodeMapN1 | None:
-        return self.mapper(source_scheme_config, "icu_inputs")
+        m = self.mapper(source_scheme_config, "icu_inputs")
+        assert isinstance(m, ReducedCodeMapN1) or m is None, "ICU inputs mapper must be a ReducedCodeMapN1 or None."
+        return m
 
     def icu_inputs_grouping(self, source_scheme_config: DatasetSchemeConfig) -> GroupingData | None:
         mapper = self.icu_inputs_mapper(source_scheme_config)
+        if mapper is None:
+            return None
+        assert source_scheme_config.icu_inputs is not None, "ICU inputs scheme not configured."
         return mapper.grouping_data(self.schemes_context.scheme[source_scheme_config.icu_inputs].index)
 
     @staticmethod
@@ -350,8 +364,11 @@ class TVxEHRSchemeProxy(DatasetSchemeProxy):
         scheme_manager: CodingSchemesManager, dataset_scheme: DatasetSchemeProxy
     ) -> dict[str, tuple[str, ...]]:
         supported_attr_targets = {
-            k: scheme_manager.scheme_supported_targets(v) for k, v in dataset_scheme.scheme_dict.items()
+            k: scheme_manager.scheme_supported_targets(v)
+            for k, v in dataset_scheme.scheme_dict.items()
+            if v is not None
         }
+        assert dataset_scheme.dx_discharge is not None, "dx_discharge scheme not configured."
         supported_outcomes = scheme_manager.supported_outcomes(dataset_scheme.dx_discharge.name)
         return supported_attr_targets | {"outcome": supported_outcomes}
 
@@ -394,7 +411,7 @@ class TVxEHRConfig(AbstractConfig):
 
 
 class TVxReportAttributes(ReportAttributes):
-    tvx_concept: str = None
+    tvx_concept: str | None = None
 
     def __init__(self, tvx_concept: str | None = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -466,15 +483,18 @@ class TVxEHR(AbstractProcessedDataset):
         config: TVxEHRConfig,
         dataset: Dataset,
         numerical_processors: DatasetNumericalProcessors = DatasetNumericalProcessors(),
-        splits: _SplitsType = None,
-        subjects: dict[str, Patient] = None,
+        splits: _SplitsType | None = None,
+        subjects: dict[str, Patient] | None = None,
         pipeline_report: PipelineReportTable = PipelineReportTable(),
     ):
         self.config = config
         self.dataset = dataset
         self.numerical_processors = numerical_processors
         self.splits = splits
-        self.subjects = subjects
+        if subjects is not None:
+            self.subjects = MappingProxyType(subjects)
+        else:
+            self.subjects = None
         self.pipeline_report = PipelineReportTable(pipeline_report)
 
     @property
@@ -495,6 +515,7 @@ class TVxEHR(AbstractProcessedDataset):
             subject_ids = self.subject_ids
 
         # only fetch those not loaded already.
+        assert self.subjects is not None, "Subjects not initialized."
         subject_ids = tuple(i for i in subject_ids if isinstance(self.subjects[i], HDFVirtualNode))
         return self.fetch_subjects(subject_ids)
 
@@ -541,11 +562,13 @@ class TVxEHR(AbstractProcessedDataset):
 
         return admission_ids
 
-    def subject_admission_demographics(self, subject_id: str) -> dict[str, jnp.ndarray]:
+    def subject_admission_demographics(self, subject_id: str) -> dict[str, Array]:
+        assert self.subjects is not None, "Subjects not initialized."
         return self.subjects[subject_id].admission_demographics(self.config.demographic)
 
     @cached_property
-    def admission_demographics(self) -> dict[str, jnp.ndarray]:
+    def admission_demographics(self) -> dict[str, Array]:
+        assert self.subjects is not None, "Subjects not initialized."
         return {
             admission_id: admission_demo
             for subject_id in self.subjects
@@ -557,7 +580,7 @@ class TVxEHR(AbstractProcessedDataset):
         admissions = self.dataset.tables.admissions
         c_admittime = self.dataset.config.columns.admissions.start_time
         c_dischtime = self.dataset.config.columns.admissions.end_time
-        return admissions.apply(lambda x: AdmissionDates(x[c_admittime], x[c_dischtime]), axis=1).to_dict()
+        return admissions.apply(lambda x: AdmissionDates(x[c_admittime], x[c_dischtime]), axis=1).to_dict()  # type: ignore
 
     def fetch_device_batch(self, subject_ids: tuple[str, ...] | None = None) -> tuple[Self, Self]:
         # 1. Fetch from disk if the subjects are lazy-loaded in a new tree `ehr`.
@@ -566,6 +589,8 @@ class TVxEHR(AbstractProcessedDataset):
         if subject_ids is None:
             subject_ids = self.subject_ids
         ehr = self.try_fetch_subjects(subject_ids)
+
+        assert ehr.subjects is not None, "Subjects not initialized."
         device_subjects = {
             i: ehr.subjects[i].to_jax_arrays()
             for i in subject_ids
@@ -594,20 +619,23 @@ class TVxEHR(AbstractProcessedDataset):
         n_adms = self.dataset.subjects_n_admissions
         if discount_first_admission:
             n_adms = n_adms - 1
-        subject_ids = n_adms.index if subject_ids is None else n_adms.loc[subject_ids].index
+        if subject_ids is None:
+            subject_ids_arr = n_adms.index
+        else:
+            subject_ids_arr = n_adms.loc[list(subject_ids)].index
 
-        n_splits = n_adms.loc[subject_ids].sum() // batch_n_admissions
+        n_splits = n_adms.loc[subject_ids_arr].sum() // batch_n_admissions
         if n_splits == 0:
             n_splits = 1
         p_splits = np.linspace(0, 1, n_splits + 1)[1:-1]
 
-        w_adms = n_adms.loc[subject_ids] / n_adms.loc[subject_ids].sum()
+        w_adms = n_adms.loc[subject_ids_arr] / n_adms.loc[subject_ids_arr].sum()
         weights = w_adms.values.cumsum()
         splits = np.searchsorted(weights, p_splits)
-        splits = (a.tolist() for a in np.split(subject_ids, splits))
+        splits = (a.tolist() for a in np.split(subject_ids_arr, splits))
         return tuple(tuple(s) for s in splits if len(s) > 0)
 
-    def iter_obs(self, subject_ids: Iterable[str] | None = None) -> Iterable[InpatientObservables]:
+    def iter_obs(self, subject_ids: Iterable[str] | None = None) -> Generator[InpatientObservables]:
         """Iterate over the observables for the given subject IDs.
 
         Args:
@@ -616,13 +644,15 @@ class TVxEHR(AbstractProcessedDataset):
         Yields:
             InpatientObservables: InpatientObservables object.
         """
+        assert self.subjects is not None, "Subjects not initialized."
         if subject_ids is None:
             subject_ids = self.subjects.keys()
         for s in subject_ids:
             for adm in self.subjects[s].admissions:
+                assert adm.observables is not None, "Observables not initialized."
                 yield adm.observables
 
-    def iter_lead_obs(self, subject_ids: Iterable[str] | None = None) -> Iterable[InpatientObservables]:
+    def iter_lead_obs(self, subject_ids: Iterable[str] | None = None) -> Generator[InpatientObservables]:
         """Iterate over the leading observables for the given subject IDs.
 
         Args:
@@ -631,10 +661,12 @@ class TVxEHR(AbstractProcessedDataset):
         Yields:
             InpatientObservables: InpatientObservables object.
         """
+        assert self.subjects is not None, "Subjects not initialized."
         if subject_ids is None:
             subject_ids = self.subjects.keys()
         for s in subject_ids:
             for adm in self.subjects[s].admissions:
+                assert adm.leading_observable is not None, "Leading observable not initialized."
                 yield adm.leading_observable
 
     def n_obs_times(self, subject_ids: Iterable[str] | None = None) -> int:
@@ -657,6 +689,7 @@ class TVxEHR(AbstractProcessedDataset):
         Returns:
             int: total number of days between first discharge and last discharge.
         """
+        assert self.subjects is not None, "Subjects not initialized."
         if subject_ids is None:
             subject_ids = self.subjects.keys()
 
@@ -671,6 +704,7 @@ class TVxEHR(AbstractProcessedDataset):
         Returns:
             int: total number of days in-hospital.
         """
+        assert self.subjects is not None, "Subjects not initialized."
         if subject_ids is None:
             subject_ids = self.subjects.keys()
 
@@ -685,6 +719,7 @@ class TVxEHR(AbstractProcessedDataset):
         Returns:
             int: Total number of hours in-hospital.
         """
+        assert self.subjects is not None, "Subjects not initialized."
         if subject_ids is None:
             subject_ids = self.subjects.keys()
 
@@ -700,7 +735,8 @@ class TVxEHR(AbstractProcessedDataset):
         Returns:
             float: proportion of observables presence per unique timestamp.
         """
-        return sum(obs.mask.sum() for obs in self.iter_obs(subject_ids)) / self.n_obs_times()
+
+        return float(sum(obs.mask.sum() for obs in self.iter_obs(subject_ids)) / self.n_obs_times())
 
     def obs_coocurrence_matrix(self, subject_ids: Iterable[str] | None = None) -> jnp.ndarray:
         """Compute the co-occurrence (or co-presence) matrix of observables.
@@ -732,6 +768,7 @@ class TVxEHR(AbstractProcessedDataset):
             InpatientObservables: unscaled observation.
         """
         obs_scaler = self.numerical_processors.scalers.obs
+        assert obs_scaler is not None, "No observation scaler configured."
         value = obs_scaler.unscale(obs.value)
         return InpatientObservables(time=obs.time, value=value, mask=obs.mask)
 
@@ -745,6 +782,7 @@ class TVxEHR(AbstractProcessedDataset):
             InpatientObservables: unscaled leading observable.
         """
         lead_scaler = self.numerical_processors.scalers.obs
+        assert lead_scaler is not None, "No observation scaler configured."
         value = lead_scaler.unscale_code(lead.value, code_index)
         return InpatientObservables(time=lead.time, value=value, mask=lead.mask)
 
@@ -757,6 +795,7 @@ class TVxEHR(AbstractProcessedDataset):
         Returns:
             int: size of the subject object in bytes.
         """
+        assert self.subjects is not None, "Subjects not initialized."
         is_arr = eqx.filter(self.subjects[subject_id], eqx.is_array)
         arr_size = jtu.tree_map(
             lambda a, m: a.size * a.itemsize if m is not None else 0, self.subjects[subject_id], is_arr
@@ -772,6 +811,7 @@ class TVxEHR(AbstractProcessedDataset):
         Returns:
             jnp.ndarray: outcome frequency vector.
         """
+        assert self.subjects is not None, "Subjects not initialized."
         return sum(self.subjects[i].outcome_frequency_vec() for i in subjects)
 
     def outcome_frequency_partitions(self, n_partitions: int, subjects: Iterable[str]) -> tuple[tuple[int, ...], ...]:
@@ -796,7 +836,7 @@ class TVxEHR(AbstractProcessedDataset):
         splitters = np.searchsorted(cumsum, partitions)
         return tuple(tuple(p.astype(int)) for p in np.hsplit(sorted_codes, splitters))
 
-    def outcome_first_occurrence(self, subject_id: str) -> str:
+    def outcome_first_occurrence(self, subject_id: str) -> np.ndarray:
         """Get the first occurrence admission index of each outcome for a subject. If an outcome does not occur,
         the index is set to -1.
 
@@ -806,6 +846,7 @@ class TVxEHR(AbstractProcessedDataset):
         Returns:
             int: first occurrence admission index of each outcome for a subject.
         """
+        assert self.subjects is not None, "Subjects not initialized."
         return outcome_first_occurrence(self.subjects[subject_id].admissions)
 
     def outcome_first_occurrence_masks(self, subject_id: str) -> tuple[Array, ...]:
@@ -818,12 +859,14 @@ class TVxEHR(AbstractProcessedDataset):
             list[bool]: list of masks indicating whether an outcome occurs for a subject for the first time.
 
         """
+        assert self.subjects is not None, "Subjects not initialized."
         adms = self.subjects[subject_id].admissions
         first_occ_adm_id = outcome_first_occurrence(adms)
         return tuple(first_occ_adm_id == a.admission_id for a in adms)
 
     def outcome_all_masks(self, subject_id: str) -> tuple[Array, ...]:
         """Get a list of full-masks with the same shape as the outcome vector."""
+        assert self.subjects is not None, "Subjects not initialized."
         adms = self.subjects[subject_id].admissions
         if isinstance(adms[0].outcome.vec, jnp.ndarray):
             _np = jnp
@@ -836,32 +879,39 @@ class SegmentedTVxEHR(TVxEHR):
     subjects: dict[str, SegmentedPatient]
     patient_class: ClassVar[type[SegmentedPatient]] = SegmentedPatient
 
+    def __init__(
+        self,
+        config: TVxEHRConfig,
+        dataset: Dataset,
+        numerical_processors: DatasetNumericalProcessors = DatasetNumericalProcessors(),
+        splits: _SplitsType | None = None,
+        subjects: dict[str, SegmentedPatient] | None = None,
+        pipeline_report: PipelineReportTable = PipelineReportTable(),
+    ):
+        super().__init__(
+            config=config,
+            dataset=dataset,
+            numerical_processors=numerical_processors,
+            splits=splits,
+            subjects=subjects,  # type: ignore
+            pipeline_report=pipeline_report,
+        )
+
     def execute_pipeline(
         self, pipeline: AbstractDatasetPipeline, schemes_context: CodingSchemesManager
     ) -> AbstractProcessedDataset:
         raise NotImplementedError("SegmentedPatient is a final representation. It cannot have a pipeline.")
 
-    def iter_obs(self, subject_ids=None) -> Iterable[InpatientObservables]:
-        if subject_ids is None:
-            subject_ids = self.subjects.keys()
-        for s in subject_ids:
-            for adm in self.subjects[s].admissions:
-                yield from adm.observables
-
-    def iter_lead_obs(self, subject_ids=None) -> Iterable[InpatientObservables]:
-        if subject_ids is None:
-            subject_ids = self.subjects.keys()
-        for s in subject_ids:
-            for adm in self.subjects[s].admissions:
-                yield adm.leading_observable
-
     @classmethod
-    def from_tvx_ehr(cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, maximum_padding: int = 100) -> Self:
+    def from_tvx_ehr(
+        cls, tvx_ehr: TVxEHR, schemes_context: CodingSchemesManager, maximum_padding: int = 100
+    ) -> "SegmentedTVxEHR":
         dataset_scheme_proxy = tvx_ehr.dataset.scheme_proxy(schemes_context)
         tvx_scheme_proxy = tvx_ehr.scheme_proxy(schemes_context)
         hosp_procedures_size = len(tvx_scheme_proxy.hosp_procedures) if tvx_scheme_proxy.hosp_procedures else None
         icu_procedures_size = len(tvx_scheme_proxy.icu_procedures) if tvx_scheme_proxy.icu_procedures else None
         icu_inputs_size = len(dataset_scheme_proxy.icu_inputs) if dataset_scheme_proxy.icu_inputs else None
+        assert tvx_ehr.subjects is not None, "Subjects not initialized."
         subjects = {
             k: SegmentedPatient.from_patient(
                 v,

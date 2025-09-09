@@ -545,7 +545,7 @@ class AbstractDataset(AbstractVxData, ABC):
     report_class: ClassVar[type[Report]] = Report
 
     @abstractmethod
-    def scheme_proxy(self, schemes_context: CodingSchemesManager): ...
+    def scheme_proxy(self, schemes_context: CodingSchemesManager) -> DatasetSchemeProxy: ...
 
 
 class AbstractTransformation[DType: AbstractDataset, RType: Report](eqx.Module):
