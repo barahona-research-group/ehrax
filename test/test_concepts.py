@@ -7,7 +7,7 @@ import equinox as eqx
 import numpy as np
 import pytest
 import tables as tb
-from common_setup import ADMISSION_CONCEPT_MAX_STAY_HOURS
+from .common_setup import ADMISSION_CONCEPT_MAX_STAY_HOURS
 from ehrax.testing.common_setup import (
     BINARY_OBSERVATION_CODE_INDEX,
     CATEGORICAL_OBSERVATION_CODE_INDEX,
