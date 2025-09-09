@@ -491,10 +491,7 @@ class TVxEHR(AbstractProcessedDataset):
         self.dataset = dataset
         self.numerical_processors = numerical_processors
         self.splits = splits
-        if isinstance(subjects, Mapping):
-            self.subjects = MappingProxyType(subjects)
-        else:
-            self.subjects = subjects
+        self.subjects = subjects # type: ignore
         self.pipeline_report = PipelineReportTable(pipeline_report)
 
     @property
