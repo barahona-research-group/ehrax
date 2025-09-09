@@ -2,7 +2,7 @@ from abc import ABC, ABCMeta, abstractmethod
 from collections.abc import Iterable, Generator
 from functools import cached_property
 from types import MappingProxyType
-from typing import ClassVar, Self
+from typing import ClassVar, Self, Mapping
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -491,10 +491,10 @@ class TVxEHR(AbstractProcessedDataset):
         self.dataset = dataset
         self.numerical_processors = numerical_processors
         self.splits = splits
-        if subjects is not None:
+        if isinstance(subjects, Mapping):
             self.subjects = MappingProxyType(subjects)
         else:
-            self.subjects = None
+            self.subjects = subjects
         self.pipeline_report = PipelineReportTable(pipeline_report)
 
     @property
