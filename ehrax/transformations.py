@@ -269,6 +269,7 @@ class FilterAdmissionsWithNoDiagnoses(DatasetTransformation):
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         dx_discharge = dataset.tables.dx_discharge
+        assert isinstance(dx_discharge, pd.DataFrame)
         admissions = dataset.tables.admissions
         c_admission_id = dataset.config.columns.dx_discharge.admission_id
         selected_admission_id = set(dx_discharge[c_admission_id].tolist())
@@ -291,6 +292,7 @@ class FilterAdmissionsWithNoObservables(DatasetTransformation):
     @classmethod
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         obs = dataset.tables.obs
+        assert isinstance(obs, pd.DataFrame)
         admissions = dataset.tables.admissions
         c_admission_id = dataset.config.columns.obs.admission_id
         selected_admission_id = set(obs[c_admission_id].tolist())
@@ -588,6 +590,7 @@ class SelectSubjectsWithObservation(DatasetTransformation):
         c_admission_id = dataset.config.columns.obs.admission_id
         c_subject = dataset.config.columns.static.subject_id
         obs = dataset.tables.obs
+        assert isinstance(obs, pd.DataFrame)
 
         code = dataset.config.select_subjects_with_observation
         assert isinstance(code, str), "No code provided for filtering subjects"
@@ -620,6 +623,7 @@ class FilterInvalidInputRatesSubjects(DatasetTransformation):
         c_subject_id = dataset.config.columns.admissions.subject_id
 
         icu_inputs = dataset.tables.icu_inputs
+        assert isinstance(icu_inputs, pd.DataFrame)
         static = dataset.tables.static
         admissions = dataset.tables.admissions
 
@@ -664,6 +668,7 @@ class FilterSubjectsWithInvalidInputInterval(DatasetTransformation):
         c_end = dataset.config.columns.icu_inputs.end_time
 
         icu_inputs = dataset.tables.icu_inputs
+        assert isinstance(icu_inputs, pd.DataFrame)
         static = dataset.tables.static
         admissions = dataset.tables.admissions
 
@@ -715,6 +720,7 @@ class ICUInputRateUnitConversion(DatasetTransformation):
         c_universal_unit = table_config.derived_universal_unit
         c_normalization_factor = table_config.derived_unit_normalization_factor
         icu_inputs = dataset.tables.icu_inputs
+        assert isinstance(icu_inputs, pd.DataFrame)
 
         scheme = dataset.scheme_proxy(schemes_context).icu_inputs
         assert isinstance(scheme, CodingSchemeWithUOM), f"Expected CodingSchemeWithUOM but got {type(scheme)}"
