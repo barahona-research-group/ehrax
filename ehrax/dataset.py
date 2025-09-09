@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from dataclasses import field
 from datetime import datetime
 from functools import cached_property
-from typing import ClassVar, Final, Self, TypeVar
+from typing import ClassVar, Final, Self
 
 import equinox as eqx
 import numpy as np
@@ -545,14 +545,10 @@ class AbstractDataset(AbstractVxData, ABC):
     report_class: ClassVar[type[Report]] = Report
 
     @abstractmethod
-    def scheme_proxy(self, schemes_context: CodingSchemesManager): ...
+    def scheme_proxy(self, schemes_context: CodingSchemesManager) -> DatasetSchemeProxy: ...
 
 
-DType = TypeVar("DType", bound=AbstractDataset)
-RType = TypeVar("RType", bound=Report)
-
-
-class AbstractTransformation(eqx.Module):
+class AbstractTransformation[DType: AbstractDataset, RType: Report](eqx.Module):
     @classmethod
     @abstractmethod
     def apply(cls, dataset: DType, schemes_context: CodingSchemesManager, report: RType) -> tuple[DType, RType]:

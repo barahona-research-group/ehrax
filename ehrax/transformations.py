@@ -1,7 +1,6 @@
 import logging
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
-from typing import Final
 
 import equinox as eqx
 import numpy as np
@@ -12,9 +11,7 @@ from .dataset import (
     AbstractTransformation,
     COLUMN,
     Dataset,
-    DType,
     Report,
-    RType,
     SECONDS_TO_DAYS_SCALER,
     SECONDS_TO_HOURS_SCALER,
 )
@@ -23,8 +20,8 @@ from .dataset import (
 class DatasetTransformation(AbstractTransformation, metaclass=ABCMeta):
     @staticmethod
     def synchronize_index(
-            dataset: DType, indexed_table_name: str, index_name: str, report: RType
-    ) -> tuple[DType, RType]:
+        dataset: Dataset, indexed_table_name: str, index_name: str, report: Report
+    ) -> tuple[Dataset, Report]:
         tables_dict = dataset.tables.tables_dict
 
         target_tables = {  # columns that have admission_id as column
@@ -35,7 +32,7 @@ class DatasetTransformation(AbstractTransformation, metaclass=ABCMeta):
         tables = dataset.tables
         for table_name, table in target_tables.items():
             n1 = len(table)
-            table = table[table[index_name].isin(index)]
+            table = table[table[index_name].isin(pd.Series(index))]
             n2 = len(table)
             report = report.add(
                 table=table_name, column=index_name, before=n1, after=n2, value_type="count", operation="sync_index"
@@ -46,13 +43,13 @@ class DatasetTransformation(AbstractTransformation, metaclass=ABCMeta):
 
     @staticmethod
     def filter_subjects_with_less_than_n_admissions(
-            static: pd.DataFrame, admissions: pd.DataFrame, n: int
+        static: pd.DataFrame, admissions: pd.DataFrame, n: int
     ) -> pd.DataFrame:
         n_admissions = static.index.map(admissions.groupby(COLUMN.subject_id).size()).fillna(0)
-        return static[(n_admissions >= n)]
+        return static.loc[n_admissions >= n]
 
     @staticmethod
-    def filter_no_admission_subjects(dataset: DType, report: RType) -> tuple[DType, RType]:
+    def filter_no_admission_subjects(dataset: Dataset, report: Report) -> tuple[Dataset, Report]:
         static = dataset.tables.static
         admissions = dataset.tables.admissions
         n1 = len(static)
@@ -69,21 +66,23 @@ class DatasetTransformation(AbstractTransformation, metaclass=ABCMeta):
         return eqx.tree_at(lambda x: x.tables.static, dataset, static), report
 
     @classmethod
-    def synchronize_admissions(cls, dataset: Dataset, report: RType) -> tuple[Dataset, RType]:
+    def synchronize_admissions(cls, dataset: Dataset, report: Report) -> tuple[Dataset, Report]:
         dataset, report = cls.synchronize_index(
             dataset, "admissions", dataset.config.columns.admissions.admission_id, report
         )
         return cls.filter_no_admission_subjects(dataset, report)
 
     @classmethod
-    def synchronize_subjects(cls, dataset: Dataset, report: RType) -> tuple[Dataset, RType]:
+    def synchronize_subjects(cls, dataset: Dataset, report: Report) -> tuple[Dataset, Report]:
         # Synchronizing subjects might entail synchronizing admissions, so we need to call it first
         dataset, report = cls.synchronize_index(dataset, "static", dataset.config.columns.static.subject_id, report)
         return cls.synchronize_admissions(dataset, report)
 
     @classmethod
     @abstractmethod
-    def apply(cls, dataset: DType, schemes_context: CodingSchemesManager, report: RType) -> tuple[DType, RType]: ...
+    def apply(
+        cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report
+    ) -> tuple[Dataset, Report]: ...
 
 
 class SynchronizeAdmissions(DatasetTransformation):
@@ -103,9 +102,9 @@ class SetIndex(DatasetTransformation):
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         tables_dict = dataset.tables.tables_dict
         for indexed_table_name, index_name, table in (
-                (table_name, index_name, tables_dict[table_name])
-                for table_name, index_name in dataset.config.columns.indices.items()
-                if table_name in tables_dict
+            (table_name, index_name, tables_dict[table_name])
+            for table_name, index_name in dataset.config.columns.indices.items()
+            if table_name in tables_dict
         ):
             (index_name,) = index_name
             index1 = table.index.name
@@ -129,9 +128,9 @@ class CastTimestamps(DatasetTransformation):
         tables = dataset.tables
         tables_dict = tables.tables_dict
         for table_name, time_cols, table in (
-                (name, cols, tables_dict[name])
-                for name, cols in dataset.config.columns.time_cols.items()
-                if name in tables_dict
+            (name, cols, tables_dict[name])
+            for name, cols in dataset.config.columns.time_cols.items()
+            if name in tables_dict
         ):
             table = table.iloc[:, :]
             for time_col in time_cols:
@@ -157,9 +156,9 @@ class SqueezeToStandardColumns(DatasetTransformation):
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         tables_dict = dataset.tables.tables_dict
         for table_name, columns, table in (
-                (name, cols, tables_dict[name])
-                for name, cols in dataset.config.columns.columns_dict().items()
-                if name in tables_dict
+            (name, cols, tables_dict[name])
+            for name, cols in dataset.config.columns.columns_dict().items()
+            if name in tables_dict
         ):
             columns = tuple(c for c in columns if c in table.columns)
             if columns == tuple(table.columns):
@@ -195,7 +194,7 @@ class SetAdmissionRelativeTimes(DatasetTransformation):
         tables_dict = dataset.tables.tables_dict
 
         for table_name, table_time_cols, table in (
-                (name, cols, tables_dict[name]) for name, cols in time_cols.items() if name in tables_dict
+            (name, cols, tables_dict[name]) for name, cols in time_cols.items() if name in tables_dict
         ):
             df = pd.merge(
                 table, admissions, left_on=c_admission_id, right_index=True, suffixes=(None, "_y"), how="left"
@@ -226,17 +225,17 @@ class FilterSubjectsNegativeAdmissionLengths(DatasetTransformation):
         c_subject_id = table_config.subject_id
         c_dischtime = table_config.end_time
         c_admittime = table_config.start_time
-        admissions = dataset.tables.admissions
+        adms = dataset.tables.admissions
 
         # assert dtypes are datetime64[ns]
-        assert (
-                admissions[c_admittime].dtype == "datetime64[ns]" and admissions[c_dischtime].dtype == "datetime64[ns]"
-        ), f"{c_admittime} and {c_dischtime} must be datetime64[ns]"
+        assert adms[c_admittime].dtype == "datetime64[ns]" and adms[c_dischtime].dtype == "datetime64[ns]", (
+            f"{c_admittime} and {c_dischtime} must be datetime64[ns]"
+        )
 
         static = dataset.tables.static
-        neg_los_subjects = admissions[admissions[c_dischtime] < admissions[c_admittime]][c_subject_id].unique()
+        neg_los_sub = adms.loc[adms.loc[:, c_dischtime] < adms.loc[:, c_admittime], c_subject_id].unique()
         n_before = len(static)
-        static = static[~static.index.isin(neg_los_subjects)]
+        static = static[~static.index.isin(neg_los_sub)]
         n_after = len(static)
         report = report.add(
             table="static", column=c_subject_id, value_type="count", operation="filter", before=n_before, after=n_after
@@ -250,9 +249,9 @@ class FilterUnsupportedCodes(DatasetTransformation):
     def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         tables_dict = dataset.tables.tables_dict
         for table_name, code_column, table in (
-                (name, col, tables_dict[name])
-                for name, col in dataset.config.columns.code_column.items()
-                if name in tables_dict
+            (name, col, tables_dict[name])
+            for name, col in dataset.config.columns.code_column.items()
+            if name in tables_dict
         ):
             (code_column,) = code_column
             coding_scheme = getattr(dataset.scheme_proxy(schemes_context), table_name)
@@ -268,8 +267,9 @@ class FilterUnsupportedCodes(DatasetTransformation):
 
 class FilterAdmissionsWithNoDiagnoses(DatasetTransformation):
     @classmethod
-    def apply(cls, dataset: Dataset, scheme_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
+    def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         dx_discharge = dataset.tables.dx_discharge
+        assert isinstance(dx_discharge, pd.DataFrame)
         admissions = dataset.tables.admissions
         c_admission_id = dataset.config.columns.dx_discharge.admission_id
         selected_admission_id = set(dx_discharge[c_admission_id].tolist())
@@ -290,8 +290,9 @@ class FilterAdmissionsWithNoDiagnoses(DatasetTransformation):
 
 class FilterAdmissionsWithNoObservables(DatasetTransformation):
     @classmethod
-    def apply(cls, dataset: Dataset, scheme_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
+    def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         obs = dataset.tables.obs
+        assert isinstance(obs, pd.DataFrame)
         admissions = dataset.tables.admissions
         c_admission_id = dataset.config.columns.obs.admission_id
         selected_admission_id = set(obs[c_admission_id].tolist())
@@ -312,7 +313,7 @@ class FilterAdmissionsWithNoObservables(DatasetTransformation):
 
 class FilterSubjectsWithSingleOrNoAdmission(DatasetTransformation):
     @classmethod
-    def apply(cls, dataset: Dataset, scheme_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
+    def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         n1 = len(dataset.tables.static)
         static = cls.filter_subjects_with_less_than_n_admissions(dataset.tables.static, dataset.tables.admissions, 2)
         n2 = len(static)
@@ -325,7 +326,7 @@ class FilterSubjectsWithSingleOrNoAdmission(DatasetTransformation):
 
 class FilterSubjectsWithLongAdmission(DatasetTransformation):
     @classmethod
-    def apply(cls, dataset: Dataset, scheme_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
+    def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         max_days = dataset.config.select_subjects_with_short_admissions
         if max_days is None:
             return cls.skip(dataset, report, reason="select_subjects_with_short_admissions is not configured.")
@@ -346,7 +347,7 @@ class FilterSubjectsWithLongAdmission(DatasetTransformation):
 
 class FilterShortAdmissions(DatasetTransformation):  # without removing the corresponding subjects.
     @classmethod
-    def apply(cls, dataset: Dataset, scheme_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
+    def apply(cls, dataset: Dataset, schemes_context: CodingSchemesManager, report: Report) -> tuple[Dataset, Report]:
         min_days = dataset.config.admission_minimum_los
         if min_days is None:
             return cls.skip(dataset, report, reason="select_subjects_with_short_admissions is not configured.")
@@ -414,7 +415,7 @@ class MergeOverlappingAdmissions(ProcessOverlappingAdmissions):
 
     @staticmethod
     def _admissions_map_admission_ids(
-            dataset: Dataset, sub2sup: dict[str, str], report: Report
+        dataset: Dataset, sub2sup: dict[str, str], report: Report
     ) -> tuple[Dataset, Report]:
         admissions = dataset.tables.admissions
 
@@ -546,7 +547,7 @@ class FilterClampTimestampsToAdmissionInterval(DatasetTransformation):
             index = df[
                 df[c_start_time].between(df[admittime_col], df[dischtime_col])
                 | df[c_end_time].between(df[admittime_col], df[dischtime_col])
-                ].index
+            ].index
             n1 = len(df)
             df = df.loc[index]
             n2 = len(df)
@@ -589,11 +590,12 @@ class SelectSubjectsWithObservation(DatasetTransformation):
         c_admission_id = dataset.config.columns.obs.admission_id
         c_subject = dataset.config.columns.static.subject_id
         obs = dataset.tables.obs
+        assert isinstance(obs, pd.DataFrame)
 
-        code: Final[str] = dataset.config.select_subjects_with_observation
-        assert code is not None, "No code provided for filtering subjects"
+        code = dataset.config.select_subjects_with_observation
+        assert isinstance(code, str), "No code provided for filtering subjects"
 
-        admission_ids = obs[obs[c_code] == code][c_admission_id].unique()
+        admission_ids = obs.loc[obs[c_code] == code, c_admission_id].unique()
         assert len(admission_ids) > 0, f"No observations for code {code}"
 
         subjects = dataset.tables.admissions.loc[admission_ids, c_subject].unique()
@@ -621,15 +623,16 @@ class FilterInvalidInputRatesSubjects(DatasetTransformation):
         c_subject_id = dataset.config.columns.admissions.subject_id
 
         icu_inputs = dataset.tables.icu_inputs
+        assert isinstance(icu_inputs, pd.DataFrame)
         static = dataset.tables.static
         admissions = dataset.tables.admissions
 
         nan_input_rates = icu_inputs[icu_inputs[c_rate].isnull()]
         n_nan_inputs = len(nan_input_rates)
-        nan_adm_ids = nan_input_rates[c_admission_id].unique()
+        nan_adm_ids = nan_input_rates.loc[:, c_admission_id].unique()
         n_nan_adms = len(nan_adm_ids)
 
-        nan_subject_ids = admissions[admissions.index.isin(nan_adm_ids)][c_subject_id].unique()
+        nan_subject_ids = admissions.loc[admissions.index.isin(nan_adm_ids), c_subject_id].unique()
         n_nan_subjects = len(nan_subject_ids)
 
         report = report.add(
@@ -665,15 +668,16 @@ class FilterSubjectsWithInvalidInputInterval(DatasetTransformation):
         c_end = dataset.config.columns.icu_inputs.end_time
 
         icu_inputs = dataset.tables.icu_inputs
+        assert isinstance(icu_inputs, pd.DataFrame)
         static = dataset.tables.static
         admissions = dataset.tables.admissions
 
         invalid_input_interval = icu_inputs[icu_inputs[c_start] > icu_inputs[c_end]]
         n_invalid_inputs = len(invalid_input_interval)
-        invalidated_adm_ids = invalid_input_interval[c_admission_id].unique()
+        invalidated_adm_ids = invalid_input_interval.loc[:, c_admission_id].unique()
         n_invalidated_adms = len(invalidated_adm_ids)
 
-        invalidated_subject_ids = admissions[admissions.index.isin(invalidated_adm_ids)][c_subject_id].unique()
+        invalidated_subject_ids = admissions.loc[admissions.index.isin(invalidated_adm_ids), c_subject_id].unique()
         n_nan_subjects = len(invalidated_subject_ids)
 
         report = report.add(
@@ -716,6 +720,7 @@ class ICUInputRateUnitConversion(DatasetTransformation):
         c_universal_unit = table_config.derived_universal_unit
         c_normalization_factor = table_config.derived_unit_normalization_factor
         icu_inputs = dataset.tables.icu_inputs
+        assert isinstance(icu_inputs, pd.DataFrame)
 
         scheme = dataset.scheme_proxy(schemes_context).icu_inputs
         assert isinstance(scheme, CodingSchemeWithUOM), f"Expected CodingSchemeWithUOM but got {type(scheme)}"
@@ -748,26 +753,3 @@ class ICUInputRateUnitConversion(DatasetTransformation):
         )
 
         return dataset, report
-
-# DS_DEPENDS_RELATIONS: Final[dict[type[DatasetTransformation], set[type[DatasetTransformation]]]] = {
-#     SetAdmissionRelativeTimes: {CastTimestamps, SetIndex},
-#     FilterSubjectsNegativeAdmissionLengths: {CastTimestamps, SetIndex},
-#     ProcessOverlappingAdmissions: {SetIndex, CastTimestamps},
-#     FilterClampTimestampsToAdmissionInterval: {SetIndex, CastTimestamps},
-#     SelectSubjectsWithObservation: {SetIndex},
-#     FilterInvalidInputRatesSubjects: {SetIndex, ICUInputRateUnitConversion},
-# }
-#
-# DS_BLOCKED_BY_RELATIONS: Final[dict[type[DatasetTransformation], set[type[DatasetTransformation]]]] = {
-#     FilterClampTimestampsToAdmissionInterval: {SetAdmissionRelativeTimes},
-#     ICUInputRateUnitConversion: {SetAdmissionRelativeTimes}
-# }
-# DS_PIPELINE_VALIDATOR: Final[TransformationsDependency] = TransformationsDependency({}, {}
-#                                                                                     # depends=DS_DEPENDS_RELATIONS,
-#                                                                                     # blocked_by=DS_BLOCKED_BY_RELATIONS,
-#                                                                                     )
-#
-#
-# class ValidatedDatasetPipeline(AbstractDatasetPipeline):
-#     transformations: list[DatasetTransformation] = field(kw_only=True)
-#     validator: ClassVar[TransformationsDependency] = DS_PIPELINE_VALIDATOR

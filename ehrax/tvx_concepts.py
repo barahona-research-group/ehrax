@@ -129,7 +129,7 @@ class InpatientObservables(AbstractVxData):
         return np.any(x, axis=0, keepdims=True, where=m.reshape(-1, 1, 1)).astype(x.dtype)
 
     @staticmethod
-    def _ordinal_agg(x: jnp.ndarray, m: np.ndarray) -> np.ndarray:
+    def _ordinal_agg(x: np.ndarray, m: np.ndarray) -> np.ndarray:
         return np.max(x[m], axis=0, keepdims=True).astype(x.dtype)
 
     @staticmethod
@@ -156,7 +156,9 @@ class InpatientObservables(AbstractVxData):
                 raise ValueError(f"Unrecognized aggregation type: {t}.")
 
     @staticmethod
-    def _time_binning_aggregate(x: Array, mask: Array, types: tuple[NumericalTypeHint, ...]) -> Array:
+    def _time_binning_aggregate(
+        x: np.ndarray, mask: np.ndarray, types: tuple[NumericalTypeHint, ...]
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Aggregates the values in a given array based on the type hint.
 
@@ -214,7 +216,7 @@ class InpatientObservables(AbstractVxData):
         masks = []
         for ti, tf in zip(new_time[:-1], new_time[1:]):
             time_mask = (ti <= self.time) & (self.time < tf)
-            value, mask = self._time_binning_aggregate(self.value[time_mask], self.mask[time_mask], type_hint)
+            value, mask = self._time_binning_aggregate(self.value[time_mask], self.mask[time_mask], type_hint)  # type: ignore
             values.append(value)
             masks.append(mask)
 
@@ -880,8 +882,6 @@ class Admission(AbstractVxData):
     interventions: InpatientInterventions | None
     leading_observable: InpatientObservables | None
 
-    interventions_class: ClassVar[type[InpatientInterventions]] = InpatientInterventions
-
     def __init__(
         self,
         admission_id: str,
@@ -986,10 +986,31 @@ class Admission(AbstractVxData):
 
 
 class SegmentedAdmission(Admission):
-    observables: SegmentedInpatientObservables | None  # type: ignore
-    interventions: SegmentedInpatientInterventions | None  # type: ignore
-    leading_observable: SegmentedInpatientObservables | None  # type: ignore
-    interventions_class: ClassVar[type[InpatientInterventions]] = SegmentedInpatientInterventions  # type: ignore
+    observables: SegmentedInpatientObservables | None
+    interventions: SegmentedInpatientInterventions | None
+    leading_observable: SegmentedInpatientObservables | None
+
+    def __init__(
+        self,
+        admission_id: str,
+        admission_dates: AdmissionDates,
+        dx_codes: CodesVector,
+        dx_codes_history: CodesVector,
+        outcome: CodesVector,
+        observables: SegmentedInpatientObservables | None = None,
+        interventions: SegmentedInpatientInterventions | None = None,
+        leading_observable: SegmentedInpatientObservables | None = None,
+    ):
+        super().__init__(
+            admission_id=admission_id,
+            admission_dates=admission_dates,
+            dx_codes=dx_codes,
+            dx_codes_history=dx_codes_history,
+            outcome=outcome,
+            observables=observables,
+            interventions=interventions,  # type: ignore
+            leading_observable=leading_observable,
+        )
 
     @staticmethod
     def _segment_interventions(
@@ -1266,6 +1287,13 @@ class Patient(AbstractVxData):
 class SegmentedPatient(Patient):
     admissions: list[SegmentedAdmission]
     admission_cls: ClassVar[type[SegmentedAdmission]] = SegmentedAdmission
+
+    def __init__(self, subject_id: str, static_info: StaticInfo, admissions: list[SegmentedAdmission]):
+        super().__init__(
+            subject_id=subject_id,
+            static_info=static_info,
+            admissions=admissions,  # type: ignore
+        )
 
     def extract_leading_observables(self, leading_observable_extractor: LeadingObservableExtractor) -> Patient:
         raise NotImplementedError("SegmentedPatient does not support leading observable extraction")
