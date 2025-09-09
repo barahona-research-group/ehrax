@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import pytest
 import tables as tb
-from common_setup import INTERVENTIONS_MAX_N_ITEMS, OBS_MAX_N_TIMESTAMPS
 from ehrax.testing.common_setup import (
     _admission,
     _admissions,
@@ -32,6 +31,8 @@ from ehrax.testing.common_setup import (
 )
 
 from .common_setup import (
+    INTERVENTIONS_MAX_N_ITEMS,
+    OBS_MAX_N_TIMESTAMPS,
     ADMISSION_CONCEPT_MAX_STAY_DAYS,
     ADMISSION_CONCEPT_MAX_STAY_HOURS,
     ADMISSION_TABLES_MAX_STAY_DAYS,
