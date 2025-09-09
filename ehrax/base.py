@@ -351,7 +351,7 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
         return cls.__get_factory__(classname).from_pandas(cls.deserialize_pandas(hdf_file.get_node(group, "data")))
 
     def equals(self, other: AbstractHDFSerializable) -> bool:
-        return type(self) == type(other) and self.to_pandas().equals(other.to_pandas())
+        return type(self) is type(other) and self.to_pandas().equals(other.to_pandas())
 
 
 class AbstractWithDataframeEquivalent(AbstractWithPandasEquivalent):
@@ -565,12 +565,12 @@ class AbstractVxData(AbstractHDFSerializable):
     def equals(self, other: AbstractHDFSerializable) -> bool:
         # Need stricter than equinox's `equal_trees(... ,typematch=True)`; For example, ensures pandas.DataFrame
         # objects are compared with `equals` instead of `__eq__`.
-        return type(self) == type(other) and self.fields == other.fields and self.equal_attributes(self, other)
+        return type(self) is type(other) and self.fields == other.fields and self.equal_attributes(self, other)
 
     @staticmethod
     def equal_attributes(self_obj: AbstractHDFSerializable, other_obj: AbstractHDFSerializable) -> bool:
         def _equal_attributes(a: Any, b: Any):
-            if type(a) != type(b):
+            if type(a) is not type(b):
                 return False
             type_enum_name = self_obj.object_type_enum_name(a)
             match SERIALIZABLE_FIELD[type_enum_name]:
