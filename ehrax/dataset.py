@@ -523,7 +523,7 @@ DType = TypeVar("DType", bound=AbstractDataset)
 RType = TypeVar("RType", bound=Report)
 
 
-class AbstractTransformation(eqx.Module):
+class AbstractTransformation[DType, RType](eqx.Module):
     @classmethod
     @abstractmethod
     def apply(cls, dataset: DType, schemes_context: CodingSchemesManager, report: RType) -> tuple[DType, RType]:
