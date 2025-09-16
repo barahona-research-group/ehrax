@@ -30,43 +30,45 @@ theme:
   icon:
     repo: fontawesome/brands/github
 
+# strict: true  # Don't allow warnings during the build process
+
 markdown_extensions:
-  - admonition
-  - footnotes
-  - attr_list
-  - def_list
-  - toc:
-      permalink: true
-  - pymdownx.arithmatex:
+  - pymdownx.arithmatex:  # Render LaTeX via MathJax
       generic: true
-  - pymdownx.details
-  - pymdownx.inlinehilite
-  - pymdownx.magiclink
-  - pymdownx.snippets
-  - pymdownx.superfences
-  - pymdownx.critic
-  - pymdownx.tabbed:
-      alternate_style: true
+  - pymdownx.superfences  # Seems to enable syntax highlighting when used with the Material theme.
+  - pymdownx.details  # Allowing hidden expandable regions denoted by ???
+  - pymdownx.snippets:  # Include one Markdown file into another
+      base_path: docs
+  - admonition
+  - toc:
+      permalink: "¤"  # Adds a clickable permalink to each section heading
+      toc_depth: 4
+
 
 plugins:
-  - search
+  - search:
+        # See https://github.com/squidfunk/mkdocs-material/discussions/8116#discussioncomment-12632752
+        # and https://github.com/patrick-kidger/equinox/issues/984
+        # In particular this allows for searching e.g. 'filter_grad' and to match 'equinox.filter_grad'.
+        separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
   - mkdocstrings:
-      default_handler: python
       handlers:
         python:
           options:
-            docstring_style: google
-            show_source: true
-            show_if_no_docstring: true
-            members_order: source
+            force_inspection: true
+            heading_level: 4
             inherited_members: true
-            filters:
-              - '!^_'
+            members_order: source
+            show_bases: false
+            show_if_no_docstring: true
+            show_overloads: false
+            show_root_heading: true
+            show_signature_annotations: true
+            show_source: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
   - git-revision-date-localized:
       fallback_to_build_date: true
-  - mkdocs-jupyter:
-      execute: false
-      include_source: true
 
 nav:
   - Home: index.md
@@ -76,6 +78,9 @@ nav:
   #      - Quality of ICD10→CCS Map: notebooks/quality_of_icd10_to_ccs_map.ipynb
   - API Reference:
       - Package overview: api.md
+      - Modules:
+          - Base: api/base.md
+          - Utils: api/utils.md
 
 extra:
   social:
