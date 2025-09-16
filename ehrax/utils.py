@@ -166,6 +166,7 @@ def path_from_jax_keypath(
     Returns:
         List of strings representing successive attribute names or indices/keys.
     """
+
     def _extract(entry: KeyEntry):
         match entry:
             case GetAttrKey(name):
@@ -267,6 +268,7 @@ class DataFrameLogger(logging.LoggerAdapter):
     ``logging.FileHandler`` configured; otherwise, the adapter leaves the
     message unchanged and appends a hint.
     """
+
     @property
     def extract_file_handler_names(self) -> tuple[str, str, str] | None:
         """Return tuple of (parent_dir, file_stem, suffix) for the FileHandler.
@@ -344,4 +346,3 @@ def attached_dataframe_logger(logger: logging.Logger, extra: dict[str, Any] | No
 # Ensure a FileHandler is configured on the base logger so CSVs are written
 # alongside the main log file.
 dataframe_log: DataFrameLogger = attached_dataframe_logger(logging.getLogger())
-

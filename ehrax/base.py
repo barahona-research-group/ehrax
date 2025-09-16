@@ -20,7 +20,7 @@ import json
 import logging
 import re
 from abc import abstractmethod
-from collections.abc import Callable, Mapping, Sized, Iterable
+from collections.abc import Callable, Mapping, Sized
 from pathlib import Path
 from types import MappingProxyType, NoneType
 from typing import Any, cast, Self, TYPE_CHECKING, TypeVar
@@ -53,6 +53,7 @@ class _ModuleMeta(type(eqx.Module)):
     Each subclass gains ``__class_key__`` and ``__get_factory__`` for
     round-trippable, type-aware deserialization.
     """
+
     # This method is called whenever you definite a module: `class Foo(eqx.Module): ...`
     def __new__(
         mcs,
@@ -112,6 +113,7 @@ else:
 
 class AbstractHDFSerializable(AbstractModule):
     """Interface for objects that can be serialized into an HDF5 group."""
+
     @abstractmethod
     def to_hdf_group(self, group: tb.Group) -> None:
         """Write this object into the given HDF5 group."""
@@ -203,6 +205,7 @@ class HDFVirtualNode(AbstractHDFSerializable):
 
 class AbstractConfig(AbstractHDFSerializable):
     """Config objects with JSON-friendly dict views and HDF5 support."""
+
     @classmethod
     def _map_hierarchical_config(
         cls, unit_config_map: Callable[[Self], dict[str, Any]], x: Any, levels: int | None = None
@@ -282,7 +285,7 @@ class AbstractConfig(AbstractHDFSerializable):
 
         !!! Example
         TODO: add example.
-        
+
         """
         if isinstance(other, AbstractConfig):
             other = other.to_dict()
@@ -292,6 +295,7 @@ class AbstractConfig(AbstractHDFSerializable):
     @classmethod
     def from_dict(cls, config: dict[str, Any]) -> Self:
         """Construct a config from a nested dict containing ``_type`` markers."""
+
         def _map_dict_to_config(x):
             if cls._is_typed_dict(x):
                 config_class = cls.__get_factory__(x.pop("_type"))
@@ -330,6 +334,7 @@ class AbstractConfig(AbstractHDFSerializable):
 
 class AbstractWithPandasEquivalent(AbstractHDFSerializable):
     """Mixin for objects that can be converted to/from pandas structures."""
+
     @staticmethod
     def empty_pandas_meta(df: pd.DataFrame | pd.Series) -> pd.DataFrame:
         """Return a one-row metadata table describing an empty DataFrame/Series."""
@@ -424,6 +429,7 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
 
 class AbstractWithDataframeEquivalent(AbstractWithPandasEquivalent):
     """Mixin specializing the pandas equivalent to a DataFrame."""
+
     @abstractmethod
     def to_dataframe(self) -> pd.DataFrame:
         raise NotImplementedError
@@ -444,6 +450,7 @@ class AbstractWithDataframeEquivalent(AbstractWithPandasEquivalent):
 
 class AbstractWithSeriesEquivalent(AbstractWithPandasEquivalent):
     """Mixin specializing the pandas equivalent to a Series."""
+
     @abstractmethod
     def to_series(self) -> pd.Series:
         raise NotImplementedError
@@ -464,6 +471,7 @@ class AbstractWithSeriesEquivalent(AbstractWithPandasEquivalent):
 
 class SERIALIZABLE_FIELD(enum.Enum):
     """Enumeration of supported field categories for HDF5 serialization."""
+
     none = (type(None),)
     numpy_array = tuple(ArrayTypes)
     pandas_dataframe = (pd.DataFrame,)
@@ -1137,7 +1145,7 @@ def fetch_at[T](
 
 def fetch_one_level_at[T](where: HDFVirtualNodeGet[T] | tuple[HDFVirtualNodeGet[T], ...], tree: T) -> T:
     """Convenience wrapper to fetch exactly one level at selected locations.
-    
+
     Parameters:
         where: Getter or tuple of getters selecting the virtual node(s).
         tree: Root object containing the virtual node(s).
@@ -1161,7 +1169,7 @@ def fetch_one_level_at[T](where: HDFVirtualNodeGet[T] | tuple[HDFVirtualNodeGet[
 
 def fetch_all[T](tree: T) -> T:
     """Fetch all virtual nodes anywhere in the tree, preserving sets/frozensets.
-    
+
     Parameters:
         tree: Root object containing the virtual node(s).
 
