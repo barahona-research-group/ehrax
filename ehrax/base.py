@@ -1,10 +1,26 @@
+"""Framework base types and HDF5 serialization utilities.
+
+This module defines the core abstract classes and helpers used for:
+
+- Declarative, type-driven HDF5 serialization/deserialization using PyTables
+- Lazy-loading via lightweight virtual nodes that can be fetched on demand
+- Config objects that serialize to/from JSON and HDF5
+- Interop with pandas and array types (NumPy/JAX)
+
+Key concepts:
+- ``AbstractHDFSerializable``: protocol for saving/loading objects to HDF5 groups.
+- ``AbstractVxData``: rich base with automatic field-wise serialization and
+  strict equality semantics across heterogeneous content.
+- Virtual nodes (``HDFVirtualNode``): placeholders for deferred reads.
+"""
+
 import dataclasses
 import enum
 import json
 import logging
 import re
 from abc import abstractmethod
-from collections.abc import Callable, Mapping, Sized
+from collections.abc import Callable, Mapping, Sized, Iterable
 from pathlib import Path
 from types import MappingProxyType, NoneType
 from typing import Any, cast, Self, TYPE_CHECKING, TypeVar
@@ -32,6 +48,11 @@ _factory_registry: dict[str, type[eqx.Module]] = {}
 
 
 class _ModuleMeta(type(eqx.Module)):
+    """Meta-class that auto-registers subclasses for factory-based loading.
+
+    Each subclass gains ``__class_key__`` and ``__get_factory__`` for
+    round-trippable, type-aware deserialization.
+    """
     # This method is called whenever you definite a module: `class Foo(eqx.Module): ...`
     def __new__(
         mcs,
@@ -82,29 +103,43 @@ if TYPE_CHECKING:
 else:
 
     class AbstractModule(eqx.Module, metaclass=_ModuleMeta):
-        pass
+        """Base class for all registered modules.
+
+        Subclasses are automatically discoverable during deserialization
+        through the registry maintained by ``_ModuleMeta``.
+        """
 
 
 class AbstractHDFSerializable(AbstractModule):
+    """Interface for objects that can be serialized into an HDF5 group."""
     @abstractmethod
     def to_hdf_group(self, group: tb.Group) -> None:
+        """Write this object into the given HDF5 group."""
         raise NotImplementedError
 
     @classmethod
     @abstractmethod
     def from_hdf_group(cls, group: tb.Group, defer: tuple[tuple[str, ...], ...], levels: int | None) -> Self:
+        """Create an instance from an HDF5 group.
+
+        The ``defer`` argument specifies relative paths (as tuples of lambda getter functions) that should
+        not be materialized immediately and may be represented by virtual nodes.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def equals(self, other: Self) -> bool:
+        """Return True if both objects are equal under the class-specific rules."""
         raise NotImplementedError
 
 
 class HDFVirtualNode(AbstractHDFSerializable):
-    """
-    This class represents an unfetched node in a PyTree/AbstractHDFSerializable.
-    This is similar to the notion of lazy-loading, but the library explicitly requires calling `fetch_at(.,.)`
-    or `fetch_all()` on any of the node ancestors, a
+    """Placeholder for a value that has not yet been read from HDF5.
+
+    Instances point to the on-disk location and type of a child attribute but
+    do not hold the actual data until fetched using ``fetch_at`` or
+    ``fetch_all``. Any attempt to access undefined attributes raises with a
+    guidance message to fetch first.
     """
 
     filename: str
@@ -119,12 +154,14 @@ class HDFVirtualNode(AbstractHDFSerializable):
         self.key = key
 
     def __check_init__(self):
+        """Validate types of dataclass fields based on annotations."""
         for field in dataclasses.fields(self):
             value = getattr(self, field.name)
             assert isinstance(value, cast(type, field.type))
 
     @property
     def _v_parent_path_seq(self) -> list[str]:  # to a series of directories with the root directory represented by ''
+        """Return the split HDF5 path of the parent group as a list of node names."""
         if len(self.parent_path) == 0:
             return []
         if len(self.parent_path) == 1:
@@ -132,6 +169,7 @@ class HDFVirtualNode(AbstractHDFSerializable):
         return self.parent_path.split("/")
 
     def __getattribute__(self, attr: str) -> NoneType:
+        """Disallow attribute access on virtual nodes until fetched."""
         try:
             return object.__getattribute__(self, attr)
         except AttributeError:
@@ -141,6 +179,7 @@ class HDFVirtualNode(AbstractHDFSerializable):
             )
 
     def to_hdf_group(self, group: tb.Group) -> None:
+        """Virtual nodes cannot be serialized; instruct user to fetch first."""
         raise ValueError(
             "You are trying to serialize an unfetched node in a PyTree/AbstractHDFSerializable. "
             "Please call `fetch_at(..,..)` or "
@@ -151,9 +190,11 @@ class HDFVirtualNode(AbstractHDFSerializable):
     def from_hdf_group(
         cls, group: tb.Group, defer: tuple[tuple[str, ...], ...] = (), levels: int | None = None
     ) -> Self:
+        """Virtual nodes cannot be directly deserialized."""
         raise ValueError("You are trying to deserialize a VirtualNode.")
 
     def equals(self, other: AbstractHDFSerializable) -> bool:
+        """Virtual nodes cannot participate in equality until fetched."""
         raise ValueError(
             "You are trying to test equality with a virtual unfetched node. Please call `fetch_at(..,..)` or "
             "`fetch_all()` on any of the node ancestors first."
@@ -161,6 +202,7 @@ class HDFVirtualNode(AbstractHDFSerializable):
 
 
 class AbstractConfig(AbstractHDFSerializable):
+    """Config objects with JSON-friendly dict views and HDF5 support."""
     @classmethod
     def _map_hierarchical_config(
         cls, unit_config_map: Callable[[Self], dict[str, Any]], x: Any, levels: int | None = None
@@ -199,13 +241,15 @@ class AbstractConfig(AbstractHDFSerializable):
         return dictionary
 
     def as_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable dict of fields without type information."""
         return AbstractConfig._map_config_to_dict(AbstractConfig._as_normal_dict, self)
 
     def as_one_level_dict(self) -> dict[str, Any]:
+        """Return a shallow one-level dict view of this config."""
         return AbstractConfig._map_config_to_dict(AbstractConfig._as_normal_dict, self, levels=1)
 
     def to_dict(self) -> dict[str, Any]:
-        # Fully deserializable to a Config object.
+        """Return a dict that includes ``_type`` for round-trip deserialization."""
         return AbstractConfig._map_config_to_dict(AbstractConfig._as_typed_dict, self)
 
     def equals(self, other: AbstractHDFSerializable) -> bool:
@@ -213,6 +257,7 @@ class AbstractConfig(AbstractHDFSerializable):
         return self.to_dict() == other.to_dict()
 
     def to_hdf_group(self, group: tb.Group) -> None:
+        """Store the typed JSON representation as a raw byte array in HDF5."""
         data = json.dumps(self.to_dict(), cls=NumpyEncoder).encode("utf-8")
         group._v_file.create_array(group, "data", obj=data)
 
@@ -224,6 +269,7 @@ class AbstractConfig(AbstractHDFSerializable):
         return cls.from_dict(json.loads(group["data"].read().decode("utf-8")))  # pyright: ignore[reportAttributeAccessIssue] #
 
     def log_json(self, path: str | Path, key: str):
+        """Append this config under ``key`` to a JSON file next to the HDF5 file."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         json_path = path.with_suffix(".json")  # config goes here.
@@ -232,6 +278,12 @@ class AbstractConfig(AbstractHDFSerializable):
         write_config(config, str(json_path))
 
     def update(self, other: Self | dict[str, Any]) -> Self:
+        """Return a new config by overlaying ``other`` on top of this one.
+
+        !!! Example
+        TODO: add example.
+        
+        """
         if isinstance(other, AbstractConfig):
             other = other.to_dict()
             other["_type"] = self.__class_key__()
@@ -239,6 +291,7 @@ class AbstractConfig(AbstractHDFSerializable):
 
     @classmethod
     def from_dict(cls, config: dict[str, Any]) -> Self:
+        """Construct a config from a nested dict containing ``_type`` markers."""
         def _map_dict_to_config(x):
             if cls._is_typed_dict(x):
                 config_class = cls.__get_factory__(x.pop("_type"))
@@ -255,7 +308,14 @@ class AbstractConfig(AbstractHDFSerializable):
 
         return _map_dict_to_config(config)  # pyright: ignore[reportReturnType]
 
-    def path_update(self, path, value) -> Self:
+    def path_update(self, path: str, value: Any) -> Self:
+        """Create a new config with the attribute at ``path`` replaced by ``value``.
+
+        ``path`` is a dot-separated attribute path; ``value=None`` clears the value.
+
+        !!! Example
+        TODO: add example.
+        """
         nesting = path.split(".")
 
         def _get(x):
@@ -269,8 +329,10 @@ class AbstractConfig(AbstractHDFSerializable):
 
 
 class AbstractWithPandasEquivalent(AbstractHDFSerializable):
+    """Mixin for objects that can be converted to/from pandas structures."""
     @staticmethod
     def empty_pandas_meta(df: pd.DataFrame | pd.Series) -> pd.DataFrame:
+        """Return a one-row metadata table describing an empty DataFrame/Series."""
         meta = {"index_dtype": str(df.index.dtype), "index_name": str(df.index.name)}
         if isinstance(df, pd.Series):
             meta = meta | {"dtype": str(df.dtype), "name": df.name}
@@ -281,6 +343,7 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
 
     @staticmethod
     def empty_pandas_from_metadata(meta_table: pd.DataFrame) -> pd.DataFrame | pd.Series:
+        """Reconstruct an empty DataFrame/Series, preserving all types, columns names, and index name from a metadata table."""
         meta = meta_table.iloc[0].to_dict()
         index_name = meta.pop("index_name")
         index = pd.Index([], dtype=meta.pop("index_dtype"), name=None if index_name == "None" else index_name)
@@ -304,6 +367,7 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
 
     @classmethod
     def serialize_pandas(cls, data: pd.DataFrame | pd.Series, group: tb.Group):
+        """Persist pandas data to HDF5, preserving empty-shape metadata when needed."""
         # Empty dataframes/series are not saved in hdf file, https://github.com/pandas-dev/pandas/issues/13016,
         # https://github.com/PyTables/PyTables/issues/592
         # We still need to preserve the column names, dtypes, index name, index dtype, in a metadata object, to
@@ -317,6 +381,7 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
 
     @classmethod
     def deserialize_pandas(cls, store: tb.Group) -> pd.DataFrame | pd.Series:
+        """Load pandas data from HDF5, handling the empty-data case via metadata."""
         hdf = store._v_file
         if "empty_metadata" in store:
             meta_table = pd.read_hdf(hdf.filename, key=store.empty_metadata._v_pathname)
@@ -337,6 +402,7 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
         raise NotImplementedError
 
     def to_hdf_group(self, group: tb.Group) -> None:
+        """Store the pandas-equivalent representation under a ``data`` subgroup."""
         group._v_attrs.classname = self.__class_key__()
         hdf_file = group._v_file
         self.serialize_pandas(self.to_pandas(), hdf_file.create_group(group, "data"))
@@ -351,10 +417,13 @@ class AbstractWithPandasEquivalent(AbstractHDFSerializable):
         return cls.__get_factory__(classname).from_pandas(cls.deserialize_pandas(hdf_file.get_node(group, "data")))
 
     def equals(self, other: AbstractHDFSerializable) -> bool:
+        """Equality based on pandas ``.equals`` for the underlying data."""
+        assert isinstance(other, AbstractWithPandasEquivalent), "Can only compare with a compatible pandas-equivalent."
         return type(self) is type(other) and self.to_pandas().equals(other.to_pandas())
 
 
 class AbstractWithDataframeEquivalent(AbstractWithPandasEquivalent):
+    """Mixin specializing the pandas equivalent to a DataFrame."""
     @abstractmethod
     def to_dataframe(self) -> pd.DataFrame:
         raise NotImplementedError
@@ -374,6 +443,7 @@ class AbstractWithDataframeEquivalent(AbstractWithPandasEquivalent):
 
 
 class AbstractWithSeriesEquivalent(AbstractWithPandasEquivalent):
+    """Mixin specializing the pandas equivalent to a Series."""
     @abstractmethod
     def to_series(self) -> pd.Series:
         raise NotImplementedError
@@ -393,6 +463,7 @@ class AbstractWithSeriesEquivalent(AbstractWithPandasEquivalent):
 
 
 class SERIALIZABLE_FIELD(enum.Enum):
+    """Enumeration of supported field categories for HDF5 serialization."""
     none = (type(None),)
     numpy_array = tuple(ArrayTypes)
     pandas_dataframe = (pd.DataFrame,)
@@ -514,7 +585,11 @@ MAX_SEGMENT_SIZE = 500
 
 
 class AbstractVxData(AbstractHDFSerializable):
-    # TODO: doc: all subclasses of AbstractVxData must be initable from its attributes.
+    """Base class providing field-wise HDF5 serialization and lazy-loading.
+
+    Subclasses must be constructible from their dataclass-like fields so that
+    deserialization can materialize instances via ``__init__(**fields)``.
+    """
 
     def __check_init__(self):
         for f in (k for k in self.fields):
@@ -532,16 +607,19 @@ class AbstractVxData(AbstractHDFSerializable):
 
     @property
     def fields(self) -> tuple[str, ...]:
+        """Return the names of the class fields."""
         return tuple(k.name for k in dataclasses.fields(self))
 
     @property
     def comparison_prioritized_fields(self) -> tuple[str, ...]:
+        """Return field names ordered by comparison priority for equality checks."""
         return tuple(
             sorted(self.fields, key=lambda f: COMPARISON_PRIORITY[self.object_type_enum_name(getattr(self, f))])
         )
 
     @classmethod
     def object_type_enum_name(cls, obj: Any) -> str:
+        """Map a value to its ``SERIALIZABLE_FIELD`` enum name."""
         if type(obj) in _TYPE_ENUM_DICT:
             return _TYPE_ENUM_DICT[type(obj)]
         if type(obj) in (_MyCustomList_set, _MyCustomList_frozenset):
@@ -565,6 +643,7 @@ class AbstractVxData(AbstractHDFSerializable):
     def equals(self, other: AbstractHDFSerializable) -> bool:
         # Need stricter than equinox's `equal_trees(... ,typematch=True)`; For example, ensures pandas.DataFrame
         # objects are compared with `equals` instead of `__eq__`.
+        assert isinstance(other, AbstractVxData), "Can only compare equality with another AbstractVxData."
         return type(self) is type(other) and self.fields == other.fields and self.equal_attributes(self, other)
 
     @staticmethod
@@ -639,6 +718,7 @@ class AbstractVxData(AbstractHDFSerializable):
 
     @classmethod
     def serialize_object(cls, parent_group: tb.Group, obj: Any, hdf_key: str):
+        """Serialize a single object under ``hdf_key`` attached to ``parent_group``."""
         # Don't create a group for native-type attributes (float, int, boolean, string).
         # Attach their values as attributes to the parent group.
         hdf = parent_group._v_file
@@ -681,6 +761,7 @@ class AbstractVxData(AbstractHDFSerializable):
         defer: tuple[tuple[str, ...], ...],
         levels: int | None,
     ):
+        """Inverse of ``serialize_object`` supporting deferral and virtual nodes."""
         hd_file = parent_group._v_file
         node = lambda: hd_file.get_node(parent_group, hdf_key)
         defer_current = any(len(d) == 1 and d[0] == hdf_key for d in defer)
@@ -734,16 +815,19 @@ class AbstractVxData(AbstractHDFSerializable):
 
     @classmethod
     def make_hdf_key(cls, item: str | int):
+        """Create a stable HDF5 key for a collection element index/key."""
         return f"key_{item}"
 
     @classmethod
     def make_hdf_segment_key(cls, item: str | int) -> str:
+        """Key used to group large collections into segments for performance."""
         return f"_x_segment_{item}"
 
     @classmethod
     def create_bookkeeping_segments(
         cls, parent_group: tb.Group, entries: list[str | int], objects: list[Any]
     ) -> tuple[dict[str, tb.Group], pd.DataFrame]:
+        """Create per-segment groups and a metadata table for heterogeneous collections."""
         # pytables raises a performance warning when the number of children exceeds 16
         assert len(entries) != 0 and len(entries) == len(objects)
         hdf_keys = list(map(cls.make_hdf_key, entries))
@@ -759,6 +843,7 @@ class AbstractVxData(AbstractHDFSerializable):
 
     @classmethod
     def get_bookkeeping_segments(cls, parent_group: tb.Group, metadata: pd.DataFrame) -> dict[str, tb.Group]:
+        """Resolve or create segment groups referenced by the metadata table."""
         if metadata["segment"].nunique() == 1:
             return {cls.make_hdf_segment_key(0): parent_group}
         else:
@@ -767,6 +852,7 @@ class AbstractVxData(AbstractHDFSerializable):
 
     @classmethod
     def serialize_sequence(cls, group: tb.Group, sequence: list[Any]):
+        """Serialize a list-like sequence, grouping scalar-like items as a Series when possible."""
         if len(sequence) == 0:
             return
         if set(map(type, sequence)).issubset(SERIES_GROUPED_ELEMENT_TYPES):
@@ -776,6 +862,7 @@ class AbstractVxData(AbstractHDFSerializable):
 
     @classmethod
     def serialize_dict(cls, group: tb.Group, d: Mapping[str | int, Any]):
+        """Serialize a mapping, grouping scalar-like values as a Series when possible."""
         if len(d) == 0:
             return
         if set(map(type, d.values())).issubset(SERIES_GROUPED_ELEMENT_TYPES):
@@ -785,6 +872,7 @@ class AbstractVxData(AbstractHDFSerializable):
 
     @classmethod
     def serialize_heterogeneous_collection(cls, group: tb.Group, data: Mapping[str | int, Any]):
+        """Serialize a mapping of heterogeneously-typed items with segmentation metadata."""
         segment_group, metadata = cls.create_bookkeeping_segments(group, list(data.keys()), list(data.values()))
         cls.serialize_object(group, metadata, "metadata")
         for segment, hdf_key, key in zip(metadata["segment"], metadata["hdf_key"], metadata.index):
@@ -792,6 +880,7 @@ class AbstractVxData(AbstractHDFSerializable):
 
     @classmethod
     def deserialize_sequence(cls, group: tb.Group, defer: tuple[tuple[str, ...], ...], levels: int | None) -> list[Any]:
+        """Deserialize a sequence previously stored by ``serialize_sequence``."""
         if group._v_nchildren == 0:
             return []
         if "data" in group:
@@ -804,6 +893,7 @@ class AbstractVxData(AbstractHDFSerializable):
     def deserialize_dict(
         cls, group: tb.Group, defer: tuple[tuple[str, ...], ...], levels: int | None
     ) -> dict[str | int, Any]:
+        """Deserialize a mapping previously stored by ``serialize_dict``."""
         if group._v_nchildren == 0:
             return {}
         elif "data" in group:
@@ -817,6 +907,7 @@ class AbstractVxData(AbstractHDFSerializable):
     def deserialize_heterogeneous_collection(
         cls, group: tb.Group, defer: tuple[tuple[str, ...], ...], levels: int | None
     ) -> dict[str | int, Any]:
+        """Deserialize a heterogeneously-typed mapping using its segmentation metadata."""
         meta = pd.read_hdf(group._v_file.filename, key=group.metadata._v_pathname)
         assert isinstance(meta, pd.DataFrame)
         segment_group = cls.get_bookkeeping_segments(group, meta)
@@ -826,6 +917,7 @@ class AbstractVxData(AbstractHDFSerializable):
         }
 
     def to_hdf_group(self, group: tb.Group) -> None:
+        """Serialize all fields into the given group."""
         group._v_attrs.classname = self.__class_key__()
         # Store the types enum for each attribute as a pd.Series (directly equivalent to a dictionary).
         fields = self.fields
@@ -836,6 +928,7 @@ class AbstractVxData(AbstractHDFSerializable):
 
     @classmethod
     def _from_hdf_group(cls, group: tb.Group, defer: tuple[tuple[str, ...], ...], levels: int | None) -> Self:
+        """Instantiate this class by reading all fields serialized by ``to_hdf_group``."""
         type_enum = json.loads(group._v_attrs.type_enum)
         data = {
             attr: cls.deserialize_object(group, attr, attr_type_enum, defer, levels)
@@ -847,6 +940,7 @@ class AbstractVxData(AbstractHDFSerializable):
     def from_hdf_group(
         cls, group: tb.Group, defer: tuple[tuple[str, ...], ...] = (), levels: int | None = None
     ) -> Self:
+        """Factory-based loader that dispatches based on stored classname."""
         classname = group._v_attrs.classname.item()
         return cls.__get_factory__(classname)._from_hdf_group(group, defer, levels=levels)
 
@@ -857,6 +951,32 @@ class AbstractVxData(AbstractHDFSerializable):
         complevel: int = 9,
         log_config_json: bool = True,
     ):
+        """Persist the object to an HDF5 file or group.
+
+        If ``store`` is a path, the file ``<store>.h5`` is created. When
+        ``log_config_json`` is True, any ``AbstractConfig`` fields are also
+        written next to the HDF5 as a JSON file for convenience.
+
+        Parameters:
+            store: Path to the HDF5 file or a PyTables group. If a path, the file ``<store>.h5`` is created.
+            complib: Compression library to use. Default is ``blosc``.
+            complevel: Compression level to use. Default is ``9``.
+            log_config_json: Whether to log the config as a JSON file. Default is ``True``.
+
+        Returns:
+            None
+
+
+        !!! Example
+        TODO: add example.
+
+        !!! Example
+        TODO: add another example.
+
+        !!! Example
+        TODO: add another example.
+
+        """
         # complib: Literal['blosc', 'zlib', 'lzo', 'bzip2'] = 'blosc', complevel: int = 9
         # lzo lvl1 is a good compromise between speed and compression ratio.
         # https://www.pytables.org/usersguide/optimization.html (Figure 15).
@@ -885,6 +1005,25 @@ class AbstractVxData(AbstractHDFSerializable):
         defer: tuple[Callable[[Self], Any], ...] = (),
         levels: tuple[int, ...] | None = None,
     ) -> Self:
+        """Load an instance from HDF5 with optional deferral and subtree materialization limits.
+
+        Parameters:
+            hf5_filename_or_group: Path to the HDF5 file or a PyTables group.
+            defer: Tuple of getters selecting attributes to remain virtual.
+            levels: If given with ``defer``, fetch only this many levels deep.
+
+        Returns:
+            An instance of the class.
+
+        !!! Example
+        TODO: add example.
+
+        !!! Example
+        TODO: add another example.
+
+        !!! Example
+        TODO: add another example.
+        """
         if not isinstance(hf5_filename_or_group, tb.Group):
             with tb.open_file(str(Path(hf5_filename_or_group).with_suffix(".h5")), "r") as hf5_file:
                 return cls.load(hf5_file.root, defer, levels=levels)
@@ -896,17 +1035,20 @@ class AbstractVxData(AbstractHDFSerializable):
         return loaded
 
     def to_numpy_arrays(self):
+        """Convert all array leaves to NumPy arrays and return a new instance."""
         arrs, others = eqx.partition(self, eqx.is_array)
         arrs = jtu.tree_map(lambda a: np.array(a), arrs)
         return eqx.combine(arrs, others)
 
     def to_jax_arrays(self):
+        """Convert all array leaves to JAX arrays and return a new instance."""
         arrs, others = eqx.partition(self, eqx.is_array)
         arrs = jtu.tree_map(lambda a: jnp.array(a), arrs)
         return eqx.combine(arrs, others)
 
 
 def _match_child_parent_paths(ch: list[str], pt: list[str]):
+    """Return True if child and parent path segments are consistent for fetches."""
     # For example:
     # - if we hold a node representing the _patients_, and we want to fetch
     #   a v_node representing the observables of the third admission of the patient at index 6, and
@@ -935,6 +1077,26 @@ def fetch_at[T](
     tree: T,
     levels: int | None | tuple[int | None, ...] = None,
 ) -> T:
+    """Fetch one or more virtual nodes from disk into ``tree``.
+
+    Parameters:
+        where: Getter or tuple of getters selecting the virtual node(s).
+        tree: Root object containing the virtual node(s).
+        levels: If provided, controls depth of subtree materialization for each
+            getter (single int applies to all; tuple applies per getter).
+
+        Returns:
+            The root object with the virtual node(s) fetched.
+
+        !!! Example
+        TODO: add example.
+
+        !!! Example
+        TODO: add another example.
+
+        !!! Example
+        TODO: add another example.
+    """
     # deal with a sequence to avoid opening a file for each v_node fetch.
     if callable(where):
         where = (where,)
@@ -974,12 +1136,47 @@ def fetch_at[T](
 
 
 def fetch_one_level_at[T](where: HDFVirtualNodeGet[T] | tuple[HDFVirtualNodeGet[T], ...], tree: T) -> T:
+    """Convenience wrapper to fetch exactly one level at selected locations.
+    
+    Parameters:
+        where: Getter or tuple of getters selecting the virtual node(s).
+        tree: Root object containing the virtual node(s).
+
+    Returns:
+        The root object with the virtual node(s) fetched.
+
+    !!! Example
+    TODO: add example.
+
+    !!! Example
+    TODO: add another example.
+
+    !!! Example
+    TODO: add another example.
+    """
     # Useful to fetch dictionary keys with virtual nodes for values.
     # Or a sequence of vitruals, or object with virtual nodes for attributes.
     return fetch_at(where, tree=tree, levels=1)
 
 
 def fetch_all[T](tree: T) -> T:
+    """Fetch all virtual nodes anywhere in the tree, preserving sets/frozensets.
+    
+    Parameters:
+        tree: Root object containing the virtual node(s).
+
+    Returns:
+        The root object with the virtual node(s) fetched.
+
+    !!! Example
+    TODO: add example.
+
+    !!! Example
+    TODO: add another example.
+
+    !!! Example
+    TODO: add another example.
+    """
     # Note 1:
     # Preprocessing to catch any set in the pytree. JAX pytree does not
     # navigate into sets as it does with list/dicts/tuples.

@@ -1,4 +1,16 @@
-"""Miscalleneous utility functions."""
+"""Utility helpers used across the project.
+
+This module provides a small collection of utilities for:
+
+- Resolving and translating filesystem paths
+- Simple JSON configuration load/save with NumPy support
+- Introspecting attribute/key access paths from callables and JAX keypaths
+- Light array helpers that work with both NumPy and JAX arrays
+- A logging adapter that persists `pandas.DataFrame` payloads alongside logs
+
+The functions are intentionally lightweight and have no side-effects beyond
+those documented in their docstrings.
+"""
 
 import json
 import logging
@@ -63,6 +75,14 @@ def translate_path(path: str, relative_to: str | None = None):
 
 
 def resources_path(*subdir: str) -> str:
+    """Return absolute path inside the package `resources` directory.
+
+    Parameters:
+        subdir: Optional path segments to append within the `resources` folder.
+
+    Returns:
+        Absolute path pointing to `ehrax/resources/` joined with the given parts.
+    """
     return str(os.path.join(os.path.dirname(__file__), "resources", *subdir))
 
 
@@ -135,6 +155,17 @@ def path_from_jax_keypath(
     getattr_transform: Callable[[str], str] = lambda x: x,
     getitem_transform: Callable[[Any], str] = lambda x: x,
 ) -> list[str]:
+    """Convert a JAX keypath into a list of human-readable path elements.
+
+    Parameters:
+        path: Sequence of JAX `KeyEntry` elements that describe how to reach a
+            value within a pytree.
+        getattr_transform: Optional mapping applied to attribute names.
+        getitem_transform: Optional mapping applied to indices/keys.
+
+    Returns:
+        List of strings representing successive attribute names or indices/keys.
+    """
     def _extract(entry: KeyEntry):
         match entry:
             case GetAttrKey(name):
@@ -152,7 +183,13 @@ def path_from_jax_keypath(
 
 
 class NumpyEncoder(json.JSONEncoder):
-    """Custom encoder for numpy data types"""
+    """Custom JSON encoder for NumPy scalars and arrays.
+
+    Encodes NumPy integers/floats/bools to the corresponding Python scalars,
+    complex numbers to a mapping with ``{"real": ..., "imag": ...}``, arrays
+    to lists, and ``np.void`` to ``None``. Falls back to the default encoder
+    if the object is not recognized.
+    """
 
     def default(self, obj: object) -> object:  # type: ignore
         if np.issubdtype(type(obj), np.integer):
@@ -175,6 +212,17 @@ class NumpyEncoder(json.JSONEncoder):
 
 
 def np_module(a: Array) -> ModuleType:  # [np, jnp]:
+    """Return the numerical module (`numpy` or `jax.numpy`) for the array.
+
+    Parameters:
+        a: Array instance (NumPy ndarray or JAX array) whose module to return.
+
+    Returns:
+        The corresponding module object: either ``numpy`` or ``jax.numpy``.
+
+    Raises:
+        TypeError: If the array type is not supported.
+    """
     if isinstance(a, np.ndarray):
         return np
     elif isinstance(a, jnp.ndarray):  # type: ignore
@@ -184,6 +232,19 @@ def np_module(a: Array) -> ModuleType:  # [np, jnp]:
 
 
 def equal_arrays(a: Array, b: Array) -> bool:
+    """Compare two arrays for equality while treating NaNs as unequal values.
+
+    Arrays must have identical shapes and dtypes. NaN positions are ignored in
+    the comparison (i.e., elements where both are NaN are skipped), and all
+    remaining elements must be exactly equal.
+
+    Parameters:
+        a: First array (NumPy or JAX).
+        b: Second array (NumPy or JAX).
+
+    Returns:
+        True if arrays are equal under the above rules; False otherwise.
+    """
     if a.shape != b.shape or a.dtype != b.dtype:
         return False
     _np = np if isinstance(a, np.ndarray) else jnp
@@ -194,8 +255,24 @@ def equal_arrays(a: Array, b: Array) -> bool:
 
 
 class DataFrameLogger(logging.LoggerAdapter):
+    """Logger adapter that writes a DataFrame to disk as a CSV on log calls.
+
+    When used like a standard logger adapter and provided with a
+    ``dataframe=pd.DataFrame`` keyword argument (and optional ``tag=str``), the
+    DataFrame will be written next to the main log file using the same base
+    filename plus a timestamp and incremental id. The log message is augmented
+    with a short note pointing to the CSV file path.
+
+    Note: This requires that the underlying logger has a single
+    ``logging.FileHandler`` configured; otherwise, the adapter leaves the
+    message unchanged and appends a hint.
+    """
     @property
     def extract_file_handler_names(self) -> tuple[str, str, str] | None:
+        """Return tuple of (parent_dir, file_stem, suffix) for the FileHandler.
+
+        Returns None if the underlying logger has no single FileHandler.
+        """
         for handler in self.logger.handlers:
             if isinstance(handler, logging.FileHandler):
                 # baseFilename is actually the absolute path.
@@ -207,6 +284,14 @@ class DataFrameLogger(logging.LoggerAdapter):
         return None
 
     def process(self, msg: str, kwargs: MutableMapping[str, Any]) -> tuple[str, MutableMapping[str, Any]]:
+        """Process a log record; persist provided DataFrame and enrich message.
+
+        Expects the following keyword arguments in ``kwargs``:
+        - ``dataframe``: a non-empty ``pandas.DataFrame`` to persist
+        - ``tag`` (optional): short string to help identify the CSV file
+
+        Returns the possibly modified message and keyword-argument mapping.
+        """
         df, tag = kwargs.pop("dataframe"), kwargs.pop("tag", "")
         assert tuple(map(type, (msg, df, tag))) == (str, pd.DataFrame, str)
         if len(df) == 0:
@@ -239,9 +324,24 @@ class DataFrameLogger(logging.LoggerAdapter):
 
 
 def attached_dataframe_logger(logger: logging.Logger, extra: dict[str, Any] | None = None) -> DataFrameLogger:
+    """Create a ``DataFrameLogger`` adapter for the given logger.
+
+    Parameters:
+        logger: Base logger to adapt.
+        extra: Optional mapping of extra fields to include in every record.
+
+    Returns:
+        A ``DataFrameLogger`` that can be used like a regular logger adapter.
+    """
     if extra is None:
         extra = {}
     return DataFrameLogger(logger, extra)
 
 
-dataframe_log = attached_dataframe_logger(logging.getLogger())
+# Global logger adapter for persisting DataFrame payloads with log messages.
+# Usage:
+#     dataframe_log.info("Saved report", dataframe=df, tag="report")
+# Ensure a FileHandler is configured on the base logger so CSVs are written
+# alongside the main log file.
+dataframe_log: DataFrameLogger = attached_dataframe_logger(logging.getLogger())
+
