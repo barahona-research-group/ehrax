@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ehrax"
-version = "2025.0.0"
+version = "2025.09.22"
 authors = [
     { name = "Asem Alaa", email = "asem.a.abdelaziz@proton.me" }
 ]
