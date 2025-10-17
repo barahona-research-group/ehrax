@@ -52,9 +52,12 @@ def default_dataset_schemes_config(scoped_names: ScopedSchemeNames) -> DatasetSc
     )
 
 
-def default_dataset_config(scoped_names: ScopedSchemeNames) -> DatasetConfig:
+def default_dataset_config(scoped_names: ScopedSchemeNames, schemes_config: DatasetSchemeConfig) -> DatasetConfig:
+
+    if schemes_config is None:
+        schemes_config = default_dataset_schemes_config(scoped_names)
     return DatasetConfig(
-        scheme=default_dataset_schemes_config(scoped_names),
+        scheme=schemes_config,
         columns=DatasetColumns(),
         select_subjects_with_observation=None,
         select_subjects_with_short_admissions=14.0,
@@ -86,10 +89,8 @@ def _mimic_from_memory(
     schemes_config: DatasetSchemeConfig | None,
     in_memory_tables: InMemoryMIMICTableFiles,
 ) -> tuple[Dataset, CodingSchemesManager]:
-    if schemes_config is None:
-        schemes_config = default_dataset_schemes_config(aux.scoped_names)
     return load_mimic(
-        config=DatasetConfig(scheme=schemes_config),
+        config=default_dataset_config(aux.scoped_names, schemes_config),
         tables=dataset_tables_resources,
         aux=aux,
         data_connection=in_memory_tables,
