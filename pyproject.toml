@@ -18,9 +18,9 @@ keywords = ["electronic-health-records", "ehr", "coding-schemes", "ICD", "ICD9",
 requires-python = ">= 3.12"
 dependencies = [
     "equinox>=0.13.1",
-    "numpy>=2.3.2",
-    "jax>=0.7.2",
-    "pandas>=2.3.1",
+    "numpy>=2.3.3",
+    "jax==0.8.0",
+    "pandas>=2.3.3",
     "tables==3.10.2",
     "scipy==1.16.1",
     "tqdm==4.67.1",
